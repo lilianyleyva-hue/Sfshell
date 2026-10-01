@@ -113,6 +113,8 @@ final class Shell: @unchecked Sendable {
     var mode: Lang = .shell
     /// Python interactivo (40_Python.swift): conserva variables entre líneas.
     var py: PyInterprete?
+    /// Navegador de texto (42_Web.swift): cada shell, y cada IA, el suyo.
+    let navegador = Navegador()
     var buffer: [String] = []
 
     /// Bloque if/for/while/case a medio escribir (varias líneas)
@@ -146,7 +148,7 @@ final class Shell: @unchecked Sendable {
             Shell.esc(), Shell.objetos(), Shell.mixCommands(), Shell.git(),
             Shell.macos(), Shell.logicGame(), Shell.unixMas(), Shell.bash(),
             Shell.huella(), Shell.nyx(), Shell.ias(), Shell.comandosIA(),
-            Shell.apiLocal(), Shell.termux(), Shell.python(), Shell.ipa()
+            Shell.apiLocal(), Shell.termux(), Shell.python(), Shell.ipa(), Shell.web(), Shell.herramientas()
         ]
         for m in modulos { cmds.merge(m) { _, b in b } }
         commands = cmds
@@ -250,6 +252,13 @@ final class Shell: @unchecked Sendable {
 
         // --- editor de texto abierto ---
         if editor != nil { return await lineaEditor(line) }
+
+        // --- calcula: la expresión va tal cual (sin que '*' se vuelva una lista de archivos) ---
+        if trimmed.hasPrefix("calcula "), let spec = commands["calcula"] {
+            let expr = String(trimmed.dropFirst(8))
+            do { return try await spec.run(Ctx(name: "calcula", args: [expr], stdin: "", sh: self)) }
+            catch { env.vars["?"] = "1"; return Shell.errMark + errText(error) + "\n" }
+        }
 
         // --- 'ia <rol> …': la línea entera (con >, |, $VAR…) es para SU shell ---
         if rolIA == nil, trimmed.hasPrefix("ia "), let r = await SistemaIAs.uno.lineaCruda(trimmed, self) {

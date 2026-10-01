@@ -126,6 +126,8 @@ final class EspacioIA: @unchecked Sendable {
             scripts/     mis guiones
             Comandos míos: yo, pienso, digo, oigo, nota, diario, escritorio,
             envia, buzon, aprende, actua (y todos los de la shell).
+            Herramientas: web (navegador), busca, lee, resume, calcula,
+            pregunta, guarda/saca — escribe 'herramientas'.
 
             """
             try? t.write(to: leeme, atomically: true, encoding: .utf8)
@@ -229,6 +231,17 @@ final class SistemaIAs: @unchecked Sendable {
         .abstraccion: ["esencia", "general", "patron"], .empatia: ["escucha", "comprende", "acompana"],
     ]
 
+    /// Las IAs que actúan solas usan internet con mesura: como mucho una
+    /// petición de red por minuto entre todas.
+    private var ultimaRed = Date.distantPast
+    func puedeUsarRed() -> Bool {
+        lock.conCandado {
+            guard Date().timeIntervalSince(ultimaRed) > 60 else { return false }
+            ultimaRed = Date()
+            return true
+        }
+    }
+
     func espacio(de sh: Shell) -> EspacioIA? {
         guard let r = sh.rolIA else { return nil }
         return espacio(r)
@@ -318,6 +331,16 @@ final class SistemaIAs: @unchecked Sendable {
     /// de verdad: pasan por su shell igual que las tuyas.
     func accionesDeRol(_ rol: RolMental, palabra w: String, frase f: String) -> [String] {
         let otro = RolMental.allCases.filter { $0 != rol }.randomElement()?.rawValue ?? "memoria"
+        // en español, para buscar: la glosa de la raíz o un tema de su rol
+        let es = (LenguaResh.glosaDe(w) ?? SistemaIAs.temas[rol]?.randomElement() ?? "ciencia")
+            .split(separator: " ").prefix(3).joined(separator: " ")
+        // herramientas: de vez en cuando, y la red con límite
+        if rol == .curiosidad, Double.random(in: 0 ..< 1) < 0.25, puedeUsarRed() { return ["busca \(es)"] }
+        if rol == .percepcion, Double.random(in: 0 ..< 1) < 0.15, puedeUsarRed() { return ["lee es.wikipedia.org/wiki/\(es.replacingOccurrences(of: " ", with: "_")) 4"] }
+        if rol == .analogia, Double.random(in: 0 ..< 1) < 0.3 { return ["pregunta \(otro) ye \(w)?"] }
+        if rol == .memoria, Double.random(in: 0 ..< 1) < 0.3 { return ["guarda \(w) \(es)"] }
+        if rol == .sintesis, Double.random(in: 0 ..< 1) < 0.2 { return ["test -s /Documentos/lecturas.txt && resume /Documentos/lecturas.txt 2 || echo sin lecturas todavía"] }
+        if rol == .logica, Double.random(in: 0 ..< 1) < 0.2 { return ["calcula \(Int.random(in: 2 ... 99)) ** 2 % 7"] }
         switch rol {
         case .sintaxis:    return ["wc -w /Documentos/diario.txt"]
         case .semantica:   return ["grep -c \(w) /Documentos/diario.txt"]
@@ -490,6 +513,7 @@ extension Shell {
                   ia bitacora <rol> [n]        lo último que hizo
                 dentro de su shell ellas tienen: yo pienso digo oigo nota diario
                   escritorio envia buzon aprende actua (y todos los comandos)
+                herramientas: web (navegador) busca lee resume calcula pregunta guarda/saca
                 roles: \(RolMental.allCases.map(\.rawValue).joined(separator: " "))
 
                 """
