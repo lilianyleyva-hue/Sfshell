@@ -118,9 +118,12 @@ struct CuadroVisual {
 
     /// Energía de cambio entre dos cuadros (para fuentes reales).
     static func movimiento(desde a: CuadroVisual, hasta p: [Float]) -> Float {
+        // Tamaños distintos (cambio de fuente) no deben crashear.
+        let n = min(a.pixeles.count, p.count)
+        guard n > 0 else { return 0 }
         var acc: Float = 0
-        for i in 0 ..< a.pixeles.count { acc += abs(a.pixeles[i] - p[i]) }
-        return min(1, acc / Float(a.pixeles.count) * 3)
+        for i in 0 ..< n { acc += abs(a.pixeles[i] - p[i]) }
+        return min(1, acc / Float(n) * 3)
     }
 
     /// Demo en vivo: mancha brillante que deriva sobre ruido suave.
@@ -205,24 +208,137 @@ actor ResonantMind {
         return df
     }()
 
+    // ---------- Procesamiento de datos: índice y tokenización ----------
+    // Índice etiqueta → semión: buscar una palabra es O(1) en vez de
+    // recorrer los 1200 semiones. También evita duplicados: la misma
+    // palabra oída 50 veces es UN semión que se refuerza, no 50 copias
+    // que llenan la red y expulsan lo aprendido.
+    private var indiceEtiqueta: [String: UUID] = [:]
+    // Huella compartida en orden de llegada (FIFO real: un Set no tiene
+    // orden, así que podar con suffix() borraba palabras al azar).
+    private var ordenHuella: [String] = []
+    private static let maxHuella = 4000
+    // Cuántas palabras de un texto entran por ingesta (antes 24 fijas,
+    // y el resto se perdía). Si hay más, se eligen las más salientes.
+    private static let maxTokensIngesta = 48
+
+    /// Tokenizador: separa por cualquier espacio o salto de línea, pasa a
+    /// minúsculas y quita la puntuación pegada ("hola," = "hola",
+    /// "kash?" = "kash"). Los compuestos Resh ("luz-calor") y las
+    /// fusiones ("a⊕b") se conservan intactos.
+    static func tokenizar(_ texto: String) -> [String] {
+        texto.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).compactMap { w in
+            let t = String(w).lowercased()
+                .trimmingCharacters(in: CharacterSet.punctuationCharacters.subtracting(CharacterSet(charactersIn: "-")))
+                .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+            return t.isEmpty ? nil : t
+        }
+    }
+
+    /// Semión vivo con esa etiqueta (O(1)).
+    private func semionCon(etiqueta: String) -> Semion? {
+        guard let id = indiceEtiqueta[etiqueta] else { return nil }
+        return semions[id]
+    }
+
+    /// El más coherente de un conjunto, calculando cada coherencia UNA vez
+    /// (max(by:) con coherence() en el comparador la calculaba 2 veces
+    /// por comparación).
+    private func masCoherente<S: Sequence>(_ candidatos: S) -> Semion? where S.Element == Semion {
+        var mejor: Semion? = nil
+        var mejorC = -Double.infinity
+        for s in candidatos {
+            let c = coherence(of: s.id)
+            if c > mejorC { mejorC = c; mejor = s }
+        }
+        return mejor
+    }
+
+    /// Añade palabras a la huella compartida con poda FIFO real.
+    private func registrarCompartido<S: Sequence>(_ tokens: S) where S.Element == String {
+        for t in tokens where !t.isEmpty && !huellaCompartida.contains(t) {
+            huellaCompartida.insert(t)
+            ordenHuella.append(t)
+        }
+        if ordenHuella.count > Self.maxHuella {
+            let sobran = ordenHuella.count - Self.maxHuella
+            for t in ordenHuella.prefix(sobran) { huellaCompartida.remove(t) }
+            ordenHuella.removeFirst(sobran)
+        }
+    }
+
+    /// Acople hebbiano: si el par ya estaba acoplado, el uso lo refuerza
+    /// (y conserva su desfase aprendido) en vez de pisarlo. Antes una
+    /// frase cualquiera reescribía a 0.7 un acople enseñado a 1.0 o una
+    /// oposición (θ=π) aprendida del mundo o del crítico.
+    private func reforzarAcople(_ a: UUID, _ b: UUID, peso: Double, theta: Double) {
+        guard a != b else { return }
+        if var c = couplings[a]?[b] {
+            c.weight = min(1.0, max(c.weight, peso) + 0.03)
+            couplings[a]?[b] = c
+        } else {
+            couple(a, b, weight: peso, theta: theta)
+        }
+    }
+
     // ---------- Ingesta: texto → semiones ----------
     // Sin tokenizador BPE ni embeddings preentrenados.
     // La "firma" se deriva de rasgos formales: longitud, simetría,
     // densidad simbólica, ritmo de puntuación. Es transducción, no lookup.
-    func ingestText(_ text: String, label: String? = nil) {
-        let words = text.split(separator: " ").map(String.init)
-        for w in words.prefix(24) {
-            let sig = signatureForText(w)
-            let s = Semion(label: label ?? w, signature: sig)
-            insert(s)
+    /// - Returns: los ids de los semiones de la frase, en orden.
+    @discardableResult
+    func ingestText(_ text: String, label: String? = nil) -> [UUID] {
+        var words = Self.tokenizar(text)
+        guard !words.isEmpty else { return [] }
+        // Textos largos: en vez de cortar a ciegas, quedarse con las
+        // palabras más salientes (frecuentes en el texto, con contenido,
+        // no partículas) conservando su orden original.
+        if words.count > Self.maxTokensIngesta {
+            var frec: [String: Int] = [:]
+            for w in words { frec[w, default: 0] += 1 }
+            func saliencia(_ w: String) -> Double {
+                let contenido = w.count > 3 ? 1.0 : (w.count > 2 ? 0.6 : 0.2)
+                let particula = LenguaResh.esParticula(w) ? 0.3 : 1.0
+                return Double(frec[w] ?? 1).squareRoot() * contenido * particula
+            }
+            let elegidos = Set(words.indices
+                .sorted { saliencia(words[$0]) > saliencia(words[$1]) || (saliencia(words[$0]) == saliencia(words[$1]) && $0 < $1) }
+                .prefix(Self.maxTokensIngesta))
+            words = words.indices.filter { elegidos.contains($0) }.map { words[$0] }
         }
-        // Acoplar secuencialmente (sintaxis como resonancia, no como posición)
-        let ids = Array(semions.values.suffix(words.count)).map(\.id)
-        for (a, b) in zip(ids, ids.dropFirst()) {
-            couple(a, b, weight: 0.7, theta: 0.3)
+        var ids: [UUID] = []
+        ids.reserveCapacity(words.count)
+        let ahora = Date()
+        for w in words {
+            let etiqueta = label ?? w
+            if let id = indiceEtiqueta[etiqueta], var s = semions[id] {
+                // Ya existe: oír de nuevo = reforzar, no duplicar.
+                s.amplitude = min(1.0, s.amplitude + 0.1)
+                s.lastActive = ahora
+                semions[id] = s
+                if ids.last != id { ids.append(id) }
+            } else {
+                let s = Semion(label: etiqueta, signature: signatureForText(w))
+                insert(s)
+                ids.append(s.id)
+            }
         }
-        appendLog("ingesta texto: \(words.count) semiones")
+        // Acoplar secuencialmente (sintaxis como resonancia, no como posición).
+        // Antes se acoplaban semions.values.suffix(n): un diccionario no tiene
+        // orden, así que se unían semiones AL AZAR. Ahora es la frase real:
+        // vecino directo fuerte, vuelta débil, y salto de 2 (contexto).
+        for k in 0 ..< ids.count {
+            if k + 1 < ids.count {
+                reforzarAcople(ids[k], ids[k + 1], peso: 0.7, theta: 0.3)
+                reforzarAcople(ids[k + 1], ids[k], peso: 0.35, theta: -0.3)
+            }
+            if k + 2 < ids.count {
+                reforzarAcople(ids[k], ids[k + 2], peso: 0.3, theta: 0.6)
+            }
+        }
+        appendLog("ingesta texto: \(ids.count) semiones")
         pushContexto("ingesta: \(text.prefix(40))")
+        return ids
     }
 
     func signatureForText(_ word: String) -> [Double] {
@@ -237,36 +353,72 @@ actor ResonantMind {
         let upperDensity = Double(word.filter(\.isUppercase).count) / max(1, len)
         let vowelDensity = Double(word.filter { "aeiouAEIOU".contains($0) }.count) / max(1, len)
         let symbolDensity = Double(word.filter { "+-*/=<>^".contains($0) }.count) / max(1, len)
-        return [len / 20.0,
+        return Self.sanear([min(1, len / 20.0),
                 mean.truncatingRemainder(dividingBy: 128) / 128.0,
                 min(1, variance / 4000.0),
                 symmetry / max(1, len),
                 digitDensity,
                 upperDensity,
                 vowelDensity,
-                symbolDensity]
+                symbolDensity])
+    }
+
+    /// Higiene de datos: toda firma queda con 8 dims finitas en 0...1.
+    /// Un NaN (p. ej. de un cuadro vacío) contaminaba cada distancia y
+    /// cada fusión que lo tocara.
+    static let dimFirma = 8
+    static func sanear(_ f: [Double]) -> [Double] {
+        var out = f.prefix(dimFirma).map { $0.isFinite ? min(1, max(0, $0)) : 0 }
+        while out.count < dimFirma { out.append(0) }
+        return out
+    }
+
+    /// Hash estable (FNV-1a). `hashValue` de Swift cambia en cada arranque,
+    /// así que la misma etiqueta daba firmas distintas entre sesiones.
+    static func hashEstable(_ s: String) -> Double {
+        var h: UInt64 = 0xcbf29ce484222325
+        for b in s.utf8 { h ^= UInt64(b); h = h &* 0x100000001b3 }
+        return Double(h % 1000) / 1000.0
     }
 
     // ---------- Ingesta: visión y audición (transducción directa) ----------
     // En Playgrounds esto recibe descriptores ya extraídos (p. ej. de
     // Vision/AVFoundation) y los convierte a semiones sin CNN.
     func ingestImage(signature: [Double], label: String) {
-        var s = Semion(label: "img:\(label)", signature: signature, charge: 2)
+        var s = Semion(label: "img:\(label)", signature: Self.sanear(signature), charge: 2)
         s.amplitude = 0.8
         insert(s)
         appendLog("ingesta imagen: \(label)")
     }
 
     func ingestAudio(samples: [Double], label: String) {
-        // Firma rítmica: energía, cruces por cero, hash de etiqueta
-        let energy = samples.map { $0 * $0 }.reduce(0, +) / max(1, Double(samples.count))
+        // Firma rítmica de 8 dims (mismo espacio que texto y visión, antes
+        // eran 3 y no se podía comparar bien con lo demás): energía, cruces
+        // por cero, pico, factor de cresta, brillo, ataque, rango dinámico
+        // y hash estable de la etiqueta.
+        let limpias = samples.filter(\.isFinite)
+        let n = Double(max(1, limpias.count))
+        let energy = limpias.reduce(0) { $0 + $1 * $1 } / n
         var zeroCross = 0
-        for (a, b) in zip(samples, samples.dropFirst()) where (a < 0) != (b < 0) {
-            zeroCross += 1
+        var brillo = 0.0
+        for (a, b) in zip(limpias, limpias.dropFirst()) {
+            if (a < 0) != (b < 0) { zeroCross += 1 }
+            brillo += abs(b - a)
         }
-        let sig = [min(1, energy * 10),
-                   Double(zeroCross) / max(1, Double(samples.count)),
-                   label.hashValue.doubleTruncated]
+        let absolutas = limpias.map { abs($0) }
+        let pico = absolutas.max() ?? 0
+        let rms = energy.squareRoot()
+        let cresta = rms > 0 ? pico / rms : 0
+        let ataque = Double(absolutas.firstIndex(of: pico) ?? 0) / n
+        let suelo = absolutas.min() ?? 0
+        let sig = Self.sanear([min(1, energy * 10),
+                               Double(zeroCross) / n,
+                               min(1, pico),
+                               min(1, cresta / 10),
+                               min(1, brillo / n),
+                               ataque,
+                               min(1, pico - suelo),
+                               Self.hashEstable(label)])
         var s = Semion(label: "aud:\(label)", signature: sig, charge: -1)
         s.frequency = 1.0 + min(3, energy * 20)
         insert(s)
@@ -334,9 +486,9 @@ actor ResonantMind {
         // se refrescan periódicamente (los objetivos no se desvanecen).
         // Así cada mente "quiere" algo distinto y actúa en consecuencia.
         objetivo = objetivoPara(r)
-        ingestText(objetivo)
-        let nObj = objetivo.split(separator: " ").count
-        objetivoIds = Array(semions.values.suffix(nObj)).map(\.id)
+        // Los ids salen de la ingesta misma (antes: semions.values.suffix,
+        // que en un diccionario son semiones al azar, no el objetivo).
+        objetivoIds = ingestText(objetivo)
         for id in objetivoIds {
             if var s = semions[id] { s.amplitude = 0.95; s.lastActive = Date(); semions[id] = s }
         }
@@ -399,9 +551,31 @@ actor ResonantMind {
     // bucle eterno.
     func veredicto(sobre input: String) -> (atractor: String, coherencia: Double, incrustacion: Double) {
         // Sin etiqueta forzada: cada palabra del input conserva su nombre.
-        ingestText(input)
+        let idsInput = ingestText(input)
         // El input deliberado es contexto compartido (las 18 lo reciben).
-        huellaCompartida.formUnion(input.split(separator: " ").map(String.init))
+        registrarCompartido(Self.tokenizar(input))
+        // Relevancia: el veredicto es SOBRE el input. Antes ganaba el semión
+        // más coherente de toda la red aunque no tuviera nada que ver con la
+        // pregunta. Ahora lo que el input toca (y sus vecinos) pesa más.
+        var relevancia: [UUID: Double] = [:]
+        for id in idsInput {
+            relevancia[id] = 1.0
+            for j in (couplings[id] ?? [:]).keys where relevancia[j] == nil { relevancia[j] = 0.6 }
+        }
+        func puntaje(_ s: Semion) -> Double {
+            let c = coherence(of: s.id)
+            let r = relevancia[s.id] ?? 0
+            return c >= 0 ? c * (1 + 0.5 * r) : c
+        }
+        func ganadorActual() -> Semion? {
+            var mejor: Semion? = nil
+            var mejorP = -Double.infinity
+            for s in semions.values {
+                let p = puntaje(s)
+                if p > mejorP { mejorP = p; mejor = s }
+            }
+            return mejor
+        }
         // Recocido (annealing ×20): exploración caliente → asentamiento frío.
         // El ruido decae a lo largo de los 120 micro-ciclos: primero salta
         // entre atractores candidatos, al final se asienta en el mejor.
@@ -417,13 +591,13 @@ actor ResonantMind {
             decay()
             propagateResonance(completa: true)
             if i % 10 == 9 {
-                let g = semions.values.max(by: { coherence(of: $0.id) < coherence(of: $1.id) })?.label
+                let g = ganadorActual()?.label
                 if g == ganadorPrevio { rachaEstable += 1 } else { ganadorPrevio = g; rachaEstable = 0 }
                 if rachaEstable >= 2 { break }
             }
         }
         nivelRuido = ruidoPrevio
-        guard let ganador = semions.values.max(by: { coherence(of: $0.id) < coherence(of: $1.id) }) else {
+        guard let ganador = ganadorActual() else {
             return ("vacío", 0, 0)
         }
         // Inferencia transitiva ×20: refuerza el camino A→B→C para que el
@@ -464,7 +638,7 @@ actor ResonantMind {
     /// - Returns: la etiqueta inhibida (para difundir "ne <etiqueta>").
     func inhibirAtractorLider() -> String? {
         guard rol == .critico else { return nil }
-        guard let lider = semions.values.max(by: { coherence(of: $0.id) < coherence(of: $1.id) }) else { return nil }
+        guard let lider = masCoherente(semions.values) else { return nil }
         let activos = semions.values.filter { $0.amplitude > 0.5 && $0.id != lider.id }.prefix(24)
         for s in activos {
             couple(s.id, lider.id, weight: 0.6, theta: Double.pi)
@@ -484,13 +658,8 @@ actor ResonantMind {
     // a huellaCompartida: lo que tuvo consecuencias pesa más al votar.
     // Así la "verdad" deja de ser solo coherencia interna.
     func absorberSuceso(_ suceso: SucesoMundo) {
-        ingestText(suceso.hecho)
-        let tokens = Set(suceso.hecho.split(separator: " ").map(String.init))
-        huellaCompartida.formUnion(tokens)
-        if huellaCompartida.count > 4000 {
-            huellaCompartida = Set(huellaCompartida.suffix(4000))
-        }
-        let ids = Set(semions.values.filter { tokens.contains($0.label) }.map(\.id))
+        let ids = Set(ingestText(suceso.hecho))
+        registrarCompartido(Self.tokenizar(suceso.hecho))
         guard !ids.isEmpty else { return }
         for a in ids {
             guard var inner = couplings[a] else { continue }
@@ -571,10 +740,12 @@ actor ResonantMind {
     /// brillo medio, varianza, 4 cuadrantes, movimiento, dirección del flujo.
     private func firmaVisual(de c: CuadroVisual) -> [Double] {
         let p = c.pixeles
+        let l = CuadroVisual.lado
+        // Cuadro vacío o de otro tamaño: firma neutra en vez de NaN o crash.
+        guard p.count == l * l else { return Self.sanear([0, 0, 0, 0, 0, 0, Double(c.movimiento), 0.5]) }
         let n = Double(p.count)
         let media = Double(p.reduce(0, +)) / n
         let varianza = Double(p.map { ($0 - Float(media)) * ($0 - Float(media)) }.reduce(0, +)) / n
-        let l = CuadroVisual.lado
         var cuad = [Double](repeating: 0, count: 4)
         for y in 0 ..< l {
             for x in 0 ..< l {
@@ -589,12 +760,12 @@ actor ResonantMind {
         let vx = Double(c.flujoX), vy = Double(c.flujoY)
         let vel = (vx * vx + vy * vy).squareRoot()
         let dir = vel > 0.03 ? atan2(vy, vx) / (2 * Double.pi) + 0.5 : 0.5
-        return [media,
+        return Self.sanear([media,
                 min(1, varianza * 4),
                 cuad[0] / porCuad, cuad[1] / porCuad,
                 cuad[2] / porCuad, cuad[3] / porCuad,
                 Double(c.movimiento),
-                dir]
+                dir])
     }
 
     // ---------- Habla autónoma entre mentes ----------
@@ -614,16 +785,18 @@ actor ResonantMind {
             // ×1500 — enseñanza proactiva: además del significado, regalo una
             // palabra vecina para que el éter siga aprendiendo solo.
             var dicho = "\(palabra) significa \(esp)"
-            if let s = semions.values.first(where: { $0.label == palabra }),
+            if let s = semionCon(etiqueta: palabra),
                let vec = vecinoFuerte(de: s.id),
-               let r = raizDecible(vec.label), r != palabra {
+               let r = raizDecible(vec.label), r != palabra, !LenguaResh.esParticula(r) {
                 dicho += " va \(r)"
             }
             pushContexto("dije: \(dicho)")
             return (dicho, .dato, pesoResp)
         }
         // 2. Palabras desconocidas pendientes: pregunto por una.
-        if let p = preguntasPendientes.popLast(), Bool.random() {
+        // (Primero el azar y luego sacar: antes se sacaba y, si el azar
+        // decía que no, la pregunta se perdía para siempre.)
+        if Bool.random(), let p = preguntasPendientes.popLast() {
             // ×150: si alguien la mencionó antes, le pregunto A ÉL por nombre.
             let clave = p.lowercased().trimmingCharacters(in: .punctuationCharacters)
             let dicho: String
@@ -650,8 +823,8 @@ actor ResonantMind {
         // hace lo que quiere dentro de su dinámica.
         // 3. Habla libre con objetivo (×150: la memoria de trabajo manda la
         // mitad de las veces — así la conversación tiene hilo conductor).
-        let topGlobal = semions.values.max(by: { coherence(of: $0.id) < coherence(of: $1.id) })
-        let topFoco = contenidoFoco().max { coherence(of: $0.id) < coherence(of: $1.id) }
+        let topGlobal = masCoherente(semions.values)
+        let topFoco = masCoherente(contenidoFoco())
         let top: Semion?
         if topFoco != nil, Double.random(in: 0 ... 1) < 0.5 {
             top = topFoco
@@ -671,7 +844,7 @@ actor ResonantMind {
             return nil
         }
         var elegido = top
-        let topObj = objetivoIds.compactMap { semions[$0] }.max { coherence(of: $0.id) < coherence(of: $1.id) }
+        let topObj = masCoherente(objetivoIds.compactMap { semions[$0] })
         let dado = Double.random(in: 0 ... 1)
         if dado < 0.35, let o = topObj, coherence(of: o.id) > 0.2 {
             elegido = o  // mi objetivo me tira
@@ -801,8 +974,10 @@ actor ResonantMind {
         // ×150 — cerebro predictivo: predice ANTES de transducir.
         let esperadas = Set(predecir())
         // Sin etiqueta forzada: las palabras del mensaje conservan su nombre.
-        ingestText(mensaje)
-        let toksRec = mensaje.split(separator: " ").map(String.init)
+        // Tokens normalizados (sin "?" ni "," pegados): antes "kash?" y
+        // "kash" eran palabras distintas y las preguntas no se entendían.
+        let idsMensaje = ingestText(mensaje)
+        let toksRec = Self.tokenizar(mensaje)
         let setToks = Set(toksRec)
         // Sorpresa = fracción no predicha. Lo sorprendente se aprende más
         // (amplitud) y captura el foco: la atención sigue a la sorpresa.
@@ -813,7 +988,7 @@ actor ResonantMind {
             let acierto = setToks.intersection(esperadas).count
             sorpresa = 1.0 - Double(acierto) / Double(max(1, setToks.count))
         }
-        let semsMensaje = semions.values.filter { setToks.contains($0.label) }
+        let semsMensaje = idsMensaje.compactMap { semions[$0] }
         for s in semsMensaje {
             var m = s
             m.amplitude = min(1.0, m.amplitude + 0.25 * sorpresa + 0.05)
@@ -833,28 +1008,22 @@ actor ResonantMind {
         // se poda en consolidate(). Así runForever por fin ACUMULA.
         if rol != self.rol.rawValue {
             let setTokens = setToks
-            huellaCompartida.formUnion(setTokens)
+            registrarCompartido(toksRec)
             // ×150 — teoría de la mente mínima: quién dijo qué.
-            for t in setTokens {
-                let k = t.lowercased().trimmingCharacters(in: .punctuationCharacters)
-                if !k.isEmpty { ultimoEmisor[k] = rol }
-            }
+            for k in setTokens { ultimoEmisor[k] = rol }
             if ultimoEmisor.count > 2000 {
                 ultimoEmisor = Dictionary(uniqueKeysWithValues: ultimoEmisor.suffix(1000).map { ($0.key, $0.value) })
             }
             // ×1500: si el éter retoma raíces que dije, mi último modo suma
             // éxito (así cada mente calibra su propio estilo de hablar).
-            let limpios = Set(setTokens.map { $0.lowercased().trimmingCharacters(in: .punctuationCharacters) })
-            let retomadas = limpios.intersection(raicesEmitidas)
+            let retomadas = setTokens.intersection(raicesEmitidas)
             if !retomadas.isEmpty {
                 exitoModo[ultimoModo, default: 0] += 1
                 raicesEmitidas.removeAll { retomadas.contains($0) }
             }
-            if huellaCompartida.count > 4000 {
-                huellaCompartida = Set(huellaCompartida.suffix(4000))
-            }
-            for id in semions.keys {
-                guard var s = semions[id], s.label.contains("⊕"), setTokens.contains(s.label) else { continue }
+            // Índice O(1) en vez de recorrer toda la red buscando fusiones.
+            for t in setTokens where t.contains("⊕") {
+                guard let id = indiceEtiqueta[t], var s = semions[id] else { continue }
                 s.usosDialogicos += 1
                 s.amplitude = min(1, s.amplitude + 0.15)
                 s.lastActive = Date()
@@ -864,11 +1033,12 @@ actor ResonantMind {
         // El desacuerdo es un operador aprendido: "ne X" acopla la partícula
         // de negación en oposición de fase con las creencias existentes en X.
         // Las mentes aprenden qué significa "ne" usándola, no por definición.
-        let toksNe = mensaje.split(separator: " ").map(String.init)
-        if toksNe.count == 2, toksNe[0] == "ne" {
-            let objetivo = toksNe[1]
-            if let neId = semions.values.filter({ $0.label == "ne" }).max(by: { $0.lastActive < $1.lastActive })?.id {
-                let blancos = semions.values.filter { $0.label == objetivo && $0.id != neId }.prefix(6)
+        // (Ahora también entiende "ne X va Y": niega cada raíz nombrada.)
+        if toksRec.count >= 2, toksRec[0] == "ne" {
+            let objetivos = Set(toksRec.dropFirst().filter { !LenguaResh.esParticula($0) })
+            if let neId = indiceEtiqueta["ne"] {
+                let blancos = objetivos.compactMap { indiceEtiqueta[$0] }.filter { $0 != neId }.compactMap { semions[$0] }.prefix(6)
+                let objetivo = objetivos.sorted().joined(separator: " ")
                 for b in blancos {
                     couple(neId, b.id, weight: 0.35, theta: Double.pi)
                 }
@@ -877,15 +1047,22 @@ actor ResonantMind {
                 }
             }
         }
-        for token in mensaje.split(separator: " ").map(String.init) {
+        for token in toksRec {
             if esReshDesconocido(token) && !preguntasPendientes.contains(token) {
                 preguntasPendientes.append(token)
             }
         }
+        // Cota: si nadie responde, las preguntas no se acumulan sin fin.
+        if preguntasPendientes.count > 32 { preguntasPendientes.removeFirst(preguntasPendientes.count - 32) }
         if mensaje.contains("qué significa") || mensaje.hasPrefix("ye ") {
             // ×150: si me nombran ("ti <mirol>"), la respuesta es prioritaria.
             let dirigida = mensaje.contains("ti \(self.rol.rawValue)")
-            for token in mensaje.split(separator: " ").map(String.init) where esFormaResh(token) {
+            // Se busca la palabra PREGUNTADA: se saltan las partículas
+            // ("ye", "ti", "va"...) y los nombres de rol. Antes la primera
+            // forma Resh era "ye" y la respuesta era "ye significa
+            // marcador de pregunta" en vez de responder lo preguntado.
+            let roles = Set(RolMental.allCases.map(\.rawValue))
+            for token in toksRec where esFormaResh(token) && !LenguaResh.esParticula(token) && !roles.contains(token) {
                 if españolDe(resh: token) != nil {
                     ultimaPregunta = (palabra: token, de: rol)
                     preguntaDirigida = dirigida
@@ -898,11 +1075,14 @@ actor ResonantMind {
     }
 
     // ¿Parece una forma Resh? (alfabeto de 16 letras, 2+ caracteres)
+    // ...o es una forma que esta mente ya conoce: lo enseñado por el humano
+    // ("kash") o partículas como "sha" llevan 'h', fuera del alfabeto, y
+    // antes nunca se reconocían como Resh (la enseñanza no servía).
+    private static let alfabetoResh = Set("aeiouktpsmnrlvzy-")
     private func esFormaResh(_ t: String) -> Bool {
         let s = t.lowercased().trimmingCharacters(in: .punctuationCharacters)
         guard s.count >= 2 else { return false }
-        let alfabeto = Set("aeiouktpsmnrlvzy-")
-        return s.allSatisfy { alfabeto.contains($0) }
+        return s.allSatisfy { Self.alfabetoResh.contains($0) } || reshConocido.contains(s)
     }
 
     // Resh desconocido = parece Resh, no es español del léxico y no lo sé.
@@ -922,17 +1102,14 @@ actor ResonantMind {
     /// Con silencioso=true no deja rastro en log/contexto/episodios (para
     /// cargas masivas como el vocabulario inicial del rol).
     func enseñar(español: String, significa: [String], silencioso: Bool = false) {
-        let palabrasEsp = Set(español.split(separator: " ").map(String.init))
-        ingestText(español)
-        let idsEsp = semions.values.filter { palabrasEsp.contains($0.label) }.map(\.id)
+        let idsEsp = ingestText(español)
         for resh in significa {
-            ingestText(resh)
+            let idsResh = ingestText(resh)
             var e = memoriaLexica[español] ?? EntradaMemoria(variantes: [], fuerza: 0, usos: 0, ultimaVez: Date())
             if !e.variantes.contains(resh) { e.variantes.append(resh) }
             e.fuerza = 1.0; e.usos += 1; e.ultimaVez = Date()
             memoriaLexica[español] = e
             reshConocido.formUnion(significa)
-            let idsResh = semions.values.filter { $0.label == resh }.map(\.id)
             for a in idsEsp {
                 for b in idsResh where a != b {
                     couple(a, b, weight: 1.0, theta: 0)
@@ -1034,31 +1211,60 @@ actor ResonantMind {
     }
 
     // ---------- Traducción por reconstrucción ----------
-    // Traducir NO es consultar una tabla: es inyectar la palabra, dejar
-    // relajar la red y leer el semión más coherente con la forma buscada.
-    // Lo nunca enseñado no resuena: devuelve nil en vez de inventar.
+    // Traducir NO es consultar una tabla: es excitar la palabra y leer qué
+    // resuena con ella en SU vecindario (acople × amplitud × alineación de
+    // fase). Lo nunca enseñado no resuena: devuelve nil en vez de inventar.
     // Degradación graciosa y generalización por resonancia: la diferencia
     // entre una tabla hash y una memoria.
-    private func reconstruirHaciaResh(_ palabra: String, microCiclos: Int = 8) -> String? {
-        ingestText(palabra)
-        for _ in 0 ..< microCiclos { decay(); propagateResonance() }
-        let candidatos = semions.values.filter {
-            !$0.label.contains("⊕") && esFormaResh($0.label) && !LenguaResh.esEspanol($0.label)
+    //
+    // Antes se inyectaba la palabra (un semión nuevo por consulta, y se
+    // consulta muchas veces por mensaje), se relajaba la red ENTERA 8
+    // ciclos y se devolvía el semión más coherente de toda la red, que
+    // casi nunca tenía relación con la palabra: traducciones al azar,
+    // red contaminada y mucho cómputo. Ahora la lectura es local.
+    private func resonanciaLocal(_ palabra: String, acepta: (String) -> Bool) -> String? {
+        let clave = palabra.lowercased().trimmingCharacters(in: .punctuationCharacters)
+        guard let origen = semionCon(etiqueta: clave) else { return nil }
+        var puntajes: [UUID: Double] = [:]
+        func alineacion(_ a: Semion, _ b: Semion, _ c: Coupling) -> Double {
+            (1 + cos(b.phase - a.phase - c.theta)) / 2
         }
-        guard let mejor = candidatos.max(by: { coherence(of: $0.id) < coherence(of: $1.id) }),
-              coherence(of: mejor.id) > 0.08 else { return nil }
-        return mejor.label
+        // Solo cuentan los acoples de EQUIVALENCIA (enseñados, o reforzados
+        // por mucho uso). Un vecino casual de frase ("significa" en "qué
+        // significa X") no es una traducción de X.
+        let umbralEquivalencia = 0.85
+        for (j, c1) in couplings[origen.id] ?? [:] where c1.weight >= umbralEquivalencia {
+            guard let sj = semions[j] else { continue }
+            let p1 = c1.weight * sj.amplitude * alineacion(origen, sj, c1)
+            if acepta(sj.label) { puntajes[j, default: 0] += p1 }
+            // Segundo salto, atenuado: generaliza por la red (sinónimos,
+            // variantes enseñadas a una palabra vecina).
+            for (k, c2) in couplings[j] ?? [:] where k != origen.id && c2.weight >= umbralEquivalencia {
+                guard let sk = semions[k], acepta(sk.label) else { continue }
+                puntajes[k, default: 0] += 0.4 * c1.weight * c2.weight * sk.amplitude * alineacion(sj, sk, c2)
+            }
+        }
+        guard let mejor = puntajes.max(by: { $0.value < $1.value }),
+              mejor.value > 0.08, let s = semions[mejor.key] else { return nil }
+        return s.label
     }
 
-    private func reconstruirHaciaEspañol(_ palabra: String, microCiclos: Int = 8) -> String? {
-        ingestText(palabra)
-        for _ in 0 ..< microCiclos { decay(); propagateResonance() }
-        let candidatos = semions.values.filter {
-            !$0.label.contains("⊕") && !esFormaResh($0.label)
+    private func esEtiquetaLexica(_ l: String) -> Bool {
+        !l.contains("⊕") && !l.contains(":") && l != "veo"
+    }
+
+    private func reconstruirHaciaResh(_ palabra: String) -> String? {
+        resonanciaLocal(palabra) {
+            esEtiquetaLexica($0) && esFormaResh($0) && !LenguaResh.esEspanol($0)
         }
-        guard let mejor = candidatos.max(by: { coherence(of: $0.id) < coherence(of: $1.id) }),
-              coherence(of: mejor.id) > 0.08 else { return nil }
-        return mejor.label
+    }
+
+    private func reconstruirHaciaEspañol(_ palabra: String) -> String? {
+        // Español = lo que el léxico reconoce como español, o lo que no
+        // tiene forma Resh ("luz" o "sol" usan letras Resh y son español).
+        resonanciaLocal(palabra) {
+            esEtiquetaLexica($0) && (LenguaResh.esEspanol($0) || !esFormaResh($0))
+        }
     }
 
     /// Español -> Resh por reconstrucción. Usar es recordar: el éxito
@@ -1110,19 +1316,32 @@ actor ResonantMind {
     /// Curva de olvido: lo no usado se debilita hasta desaparecer.
     /// Y el olvido es estructural: al borrar la traza se debilitan los
     /// acoplamientos que la sostenían (no se borra el diccionario y ya).
+    /// Repaso espaciado: cuanto más se usó una palabra, más lento se
+    /// olvida (como en la memoria humana). Antes todo decaía igual
+    /// (×0.999 por ciclo): una palabra enseñada se borraba en ~7 minutos
+    /// aunque se hubiera usado cien veces.
     private func decaerMemoria() {
-        for k in memoriaLexica.keys {
-            memoriaLexica[k]?.fuerza *= 0.999
-            if (memoriaLexica[k]?.fuerza ?? 1) < 0.05 {
-                if let e = memoriaLexica[k] { olvidarEstructuralmente(español: k, variantes: e.variantes) }
-                memoriaLexica.removeValue(forKey: k)
+        var olvidadas: [(String, [String])] = []
+        for (k, e) in memoriaLexica {
+            let tasa = 0.001 / (1 + log1p(Double(e.usos)))
+            let f = e.fuerza * (1 - tasa)
+            if f < 0.05 {
+                olvidadas.append((k, e.variantes))
+            } else {
+                memoriaLexica[k]?.fuerza = f
             }
+        }
+        for (k, v) in olvidadas {
+            olvidarEstructuralmente(español: k, variantes: v)
+            memoriaLexica.removeValue(forKey: k)
         }
     }
 
     private func olvidarEstructuralmente(español: String, variantes: [String]) {
-        let blancos = Set([español] + variantes)
-        let ids = Set(semions.values.filter { blancos.contains($0.label) }.map(\.id))
+        let blancos = Set(Self.tokenizar(español) + variantes.map { $0.lowercased() })
+        let ids = Set(blancos.compactMap { indiceEtiqueta[$0] })
+        // Lo innato no se des-conoce: olvidar lo vivido no borra el idioma.
+        reshConocido.subtract(variantes.filter { LenguaResh.glosaDe($0) == nil })
         guard !ids.isEmpty else { return }
         for a in ids {
             guard var inner = couplings[a] else { continue }
@@ -1134,7 +1353,6 @@ actor ResonantMind {
             }
             couplings[a] = inner
         }
-        reshConocido.subtract(variantes)
     }
 
     // ---------- Dinámica ----------
@@ -1177,7 +1395,9 @@ actor ResonantMind {
                 }
                 si.phase += 0.05 * deltaPhase
                 si.phase.formTruncatingRemainder(dividingBy: 2 * Double.pi)
-                si.lastActive = Date()
+                // (Ya no se marca lastActive aquí: la propagación toca a
+                // TODOS, así que "activo" dejaba de distinguir lo recién
+                // oído de lo viejo, y la poda por antigüedad era ciega.)
                 semions[i] = si
             }
             procesados += 1
@@ -1213,6 +1433,17 @@ actor ResonantMind {
         let childCharge: Int = (a.charge + b.charge == 0) ? 1 : a.charge
         // Etiqueta acotada: evita "rol⊕rol⊕rol⊕..." infinito
         let etiqueta = String("\(a.label.prefix(10))⊕\(b.label.prefix(10))".prefix(24))
+        // Si esa fusión ya existe, se refuerza en vez de clonarla (antes
+        // la misma idea se repetía hasta llenar la red).
+        if let existente = semionCon(etiqueta: etiqueta) {
+            var e = existente
+            e.amplitude = min(1, e.amplitude + 0.05)
+            e.lastActive = Date()
+            semions[e.id] = e
+            reforzarAcople(a.id, e.id, peso: 0.5, theta: 0.1)
+            reforzarAcople(b.id, e.id, peso: 0.5, theta: -0.1)
+            return
+        }
         var child = Semion(label: etiqueta, signature: childSig, charge: childCharge)
         child.phase = (a.phase + b.phase) / 2
         child.amplitude = comoHipotesis ? 0.35 : min(1, (a.amplitude + b.amplitude) / 2 + 0.1)
@@ -1230,7 +1461,7 @@ actor ResonantMind {
             decay()
             propagateResonance(completa: true)
         }
-        if let winner = semions.values.max(by: { coherence(of: $0.id) < coherence(of: $1.id) }) {
+        if let winner = masCoherente(semions.values) {
             appendLog("tarea «\(task.prefix(40))» → atractor: \(winner.label)")
         }
     }
@@ -1247,17 +1478,11 @@ actor ResonantMind {
         let huerfanas = semions.values
             .filter { $0.label.contains("⊕") && $0.usosDialogicos == 0 }
             .sorted { $0.lastActive < $1.lastActive }
-        for v in huerfanas.prefix(sobran) {
-            semions.removeValue(forKey: v.id)
-            couplings.removeValue(forKey: v.id)
-        }
+        quitar(Set(huerfanas.prefix(sobran).map(\.id)))
         sobran = semions.count - maxSemions
         if sobran > 0 {
-            let sorted = semions.values.sorted { coherence(of: $0.id) < coherence(of: $1.id) }
-            for victim in sorted.prefix(sobran) {
-                semions.removeValue(forKey: victim.id)
-                couplings.removeValue(forKey: victim.id)
-            }
+            let sorted = semions.values.map { ($0.id, coherence(of: $0.id)) }.sorted { $0.1 < $1.1 }
+            quitar(Set(sorted.prefix(sobran).map(\.0)))
         }
         appendLog("consolidación: poda a \(maxSemions)")
     }
@@ -1308,14 +1533,16 @@ actor ResonantMind {
         intentos += 1  // una corrección = la mente se equivocó: calibra su confianza
         registrarEpisodio(correction)
         // 1. Qué cree la mente AHORA (el atractor a destronar si es erróneo)
-        ingestText(contextLabel)
+        let idsCtx = ingestText(contextLabel)
         for _ in 0 ..< 16 { decay(); propagateResonance() }
-        let previo = semions.values.max(by: { coherence(of: $0.id) < coherence(of: $1.id) })
+        let previo = masCoherente(semions.values)
         // 2. Ingesta de la corrección como eco
-        ingestText(correction, label: "eco:\(contextLabel)")
-        let ctx = semions.values.filter { $0.label == contextLabel }.max { $0.lastActive < $1.lastActive }
-        let eco = semions.values.filter { $0.label.hasPrefix("eco:") }.max { $0.lastActive < $1.lastActive }
-        guard let c = ctx, let e = eco else { return }
+        let idsEco = ingestText(correction, label: "eco:\(contextLabel)")
+        // Los ids salen de la ingesta: antes se buscaba la etiqueta exacta
+        // del contexto (fallaba con mayúsculas o varias palabras) y el eco
+        // "más reciente" de CUALQUIER contexto.
+        guard let cid = idsCtx.last, let eid = idsEco.last,
+              let c = semions[cid], let e = semions[eid] else { return }
         // 3a. Atracción: el eco bloquea en fase con el contexto (regla local)
         var cp = couplings[c.id]?[e.id] ?? Coupling(weight: 0.4, theta: 0)
         let observed = c.phase - e.phase
@@ -1339,9 +1566,10 @@ actor ResonantMind {
 
     /// Confianza calibrada: fracción de veredictos que coincidieron con el
     /// consenso del consejo. 0.5 = sin historia. La confianza se gana.
+    /// Con suavizado de Laplace: con poca historia no salta a 0 o a 1
+    /// por un solo voto (1 acierto de 1 ya no es "precisión perfecta").
     func precision() -> Double {
-        guard intentos > 0 else { return 0.5 }
-        return Double(aciertos) / Double(intentos)
+        Double(aciertos + 1) / Double(intentos + 2)
     }
 
     /// El consejo confirma si el voto de esta mente coincidió con el
@@ -1416,8 +1644,7 @@ actor ResonantMind {
             m.lastActive = Date()
             semions[e.id] = m
         }
-        let ancla: UUID? = scored.first?.id
-            ?? semions.values.max(by: { coherence(of: $0.id) < coherence(of: $1.id) })?.id
+        let ancla: UUID? = scored.first?.id ?? masCoherente(semions.values)?.id
         if let a = ancla { reforzarInferenciaTransitiva(desde: a) }
         // ×1500 — imaginación generativa: el replay también inventa (1 de
         // cada 2). La hipótesis nace débil; el éter decide si vive.
@@ -1633,32 +1860,60 @@ actor ResonantMind {
         // cada ciclo caliente). Al expulsar, el olvido es estructural:
         // los vecinos debilitan su acoplamiento con la traza que se va.
         if semions[s.id] == nil, semions.count >= maxSemions {
-            expulsarMasDebil()
+            expulsarMasDebiles()
         }
         semions[s.id] = s
+        indiceEtiqueta[s.label] = s.id
         if couplings[s.id] == nil { couplings[s.id] = [:] }
     }
 
-    /// Expulsa al semión más incoherente que no sea objetivo ni conocimiento
-    /// enseñado (amplitud alta). Los acoplamientos que lo sostenían se
-    /// debilitan a la mitad: el olvido es gradual, no amputación.
-    private func expulsarMasDebil() {
-        let candidatos = semions.values.filter {
-            $0.amplitude < 0.85 && !objetivoIds.contains($0.id)
+    /// Expulsa, EN LOTE, a los semiones más incoherentes que no sean
+    /// objetivo ni conocimiento enseñado (amplitud alta). Antes se expulsaba
+    /// de a uno, recorriendo toda la red en CADA inserción con la red llena
+    /// (la mayor parte del tiempo): ahora el costo se reparte entre ~24.
+    private func expulsarMasDebiles() {
+        let lote = max(1, maxSemions / 50)
+        var candidatos: [(id: UUID, c: Double)] = []
+        candidatos.reserveCapacity(semions.count)
+        let protegidos = Set(objetivoIds)
+        // Lo recién oído (último segundo) aún no tuvo tiempo de acoplarse:
+        // su coherencia es ~0 y sería la primera víctima. Se protege salvo
+        // que no haya otra cosa que expulsar.
+        let reciente = Date().addingTimeInterval(-1)
+        for s in semions.values where s.amplitude < 0.85 && !protegidos.contains(s.id) && s.lastActive < reciente {
+            candidatos.append((s.id, coherence(of: s.id)))
         }
-        guard let victima = candidatos.min(by: { coherence(of: $0.id) < coherence(of: $1.id) }) else { return }
-        for (a, var inner) in couplings where a != victima.id {
-            if var c = inner[victima.id] {
-                c.weight *= 0.5
-                inner[victima.id] = c
-                couplings[a] = inner
+        if candidatos.isEmpty {
+            for s in semions.values where s.amplitude < 0.85 && !protegidos.contains(s.id) {
+                candidatos.append((s.id, coherence(of: s.id)))
             }
         }
-        semions.removeValue(forKey: victima.id)
-        couplings.removeValue(forKey: victima.id)
+        candidatos.sort { $0.c < $1.c }
+        quitar(Set(candidatos.prefix(lote).map(\.id)))
+    }
+
+    /// Borra semiones de verdad: del mapa, del índice y de los acoples de
+    /// sus vecinos. Antes los vecinos conservaban acoples hacia semiones
+    /// ya borrados ("fantasmas") que se acumulaban sin límite.
+    private func quitar(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        for id in ids {
+            if let s = semions.removeValue(forKey: id), indiceEtiqueta[s.label] == id {
+                indiceEtiqueta.removeValue(forKey: s.label)
+            }
+            couplings.removeValue(forKey: id)
+        }
+        for a in Array(couplings.keys) {
+            guard let inner = couplings[a], inner.keys.contains(where: ids.contains) else { continue }
+            couplings[a] = inner.filter { !ids.contains($0.key) }
+        }
+        foco.removeAll(where: ids.contains)
     }
 
     private func couple(_ a: UUID, _ b: UUID, weight: Double, theta: Double) {
+        // Solo entre semiones vivos: si uno fue expulsado en medio de una
+        // operación, no se crea un acople huérfano.
+        guard semions[a] != nil, semions[b] != nil else { return }
         couplings[a, default: [:]][b] = Coupling(weight: weight, theta: theta)
     }
 
@@ -1724,14 +1979,6 @@ struct SensorFlow<Element>: AsyncSequence {
 
     func makeAsyncIterator() -> Iterator {
         Iterator(generator: generator, intervalNs: intervalNs)
-    }
-}
-
-// MARK: - Hash helpers
-
-private extension Int {
-    var doubleTruncated: Double {
-        Double(abs(self % 1000)) / 1000.0
     }
 }
 
