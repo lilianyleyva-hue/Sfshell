@@ -64,6 +64,15 @@ extension Shell {
             return n - 1
         }
 
+        // Lo que la gente escribe al querer salir ("exit", "salir"…) no se
+        // mete en el archivo: si no hubo cambios, cierra; si los hubo, avisa.
+        if ["exit", "salir", "quit", "q", "leave", "logout"].contains(t.lowercased()) {
+            if !e.cambiado {
+                editor = nil
+                return "cerrado (dentro del editor se sale con :q)\n"
+            }
+            return "estás en el editor — :wq guarda y sale · :q sale sin guardar\n"
+        }
         guard t.hasPrefix(":") else {
             e.lineas.append(linea)
             e.cambiado = true

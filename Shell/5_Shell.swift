@@ -158,7 +158,7 @@ final class Shell: @unchecked Sendable {
 
     var prompt: String {
         if let d = dentroDe { return d.prompt }
-        if let e = editor { return "\(e.nombre)·\(e.lineas.count + 1)> " }
+        if let e = editor { return "\(e.nombre) (:q sale)·\(e.lineas.count + 1)> " }
         if let r = rolIA, mode == .shell, heredocPend == nil, blockBuffer.isEmpty {
             return "\(r.rawValue)@ia:\(env.vpath(env.cwd)) $ "
         }
