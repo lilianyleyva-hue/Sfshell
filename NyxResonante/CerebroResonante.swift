@@ -168,6 +168,8 @@ actor ResonantMind {
     private var ultimoEmisor: [String: String] = [:]  // token → rol que lo dijo
     private var contadorCaminos: [String: Int] = [:]  // camino A→B→C → veces recorrido
     private var preguntaDirigida = false
+    // Pregunta por una relación ("ye X va Y?") que esta mente puede contestar.
+    private var preguntaRelacion: (x: String, y: String, de: String)?
     // ---- Inteligencia ×1500: arousal, chunking y metacognición de modos ----
     private var arousal = 0.5                      // activación: la sorpresa la sube
     private var coFoco: [String: Int] = [:]        // tríos que co-ocurren en el foco
@@ -271,10 +273,13 @@ actor ResonantMind {
     /// (y conserva su desfase aprendido) en vez de pisarlo. Antes una
     /// frase cualquiera reescribía a 0.7 un acople enseñado a 1.0 o una
     /// oposición (θ=π) aprendida del mundo o del crítico.
-    private func reforzarAcople(_ a: UUID, _ b: UUID, peso: Double, theta: Double) {
+    /// `tope`: hasta dónde puede crecer por repetición. La co-ocurrencia
+    /// en frases se queda por debajo del umbral de equivalencia (0.85):
+    /// "qué" y "significa" van juntas mil veces y no son sinónimos.
+    private func reforzarAcople(_ a: UUID, _ b: UUID, peso: Double, theta: Double, tope: Double = 1.0) {
         guard a != b else { return }
         if var c = couplings[a]?[b] {
-            c.weight = min(1.0, max(c.weight, peso) + 0.03)
+            c.weight = max(c.weight, min(tope, max(c.weight, peso) + 0.03))
             couplings[a]?[b] = c
         } else {
             couple(a, b, weight: peso, theta: theta)
@@ -329,11 +334,11 @@ actor ResonantMind {
         // vecino directo fuerte, vuelta débil, y salto de 2 (contexto).
         for k in 0 ..< ids.count {
             if k + 1 < ids.count {
-                reforzarAcople(ids[k], ids[k + 1], peso: 0.7, theta: 0.3)
-                reforzarAcople(ids[k + 1], ids[k], peso: 0.35, theta: -0.3)
+                reforzarAcople(ids[k], ids[k + 1], peso: 0.7, theta: 0.3, tope: 0.8)
+                reforzarAcople(ids[k + 1], ids[k], peso: 0.35, theta: -0.3, tope: 0.8)
             }
             if k + 2 < ids.count {
-                reforzarAcople(ids[k], ids[k + 2], peso: 0.3, theta: 0.6)
+                reforzarAcople(ids[k], ids[k + 2], peso: 0.3, theta: 0.6, tope: 0.8)
             }
         }
         appendLog("ingesta texto: \(ids.count) semiones")
@@ -793,6 +798,22 @@ actor ResonantMind {
             pushContexto("dije: \(dicho)")
             return (dicho, .dato, pesoResp)
         }
+        // 1b. Me preguntaron por una relación ("ye X va Y?"): contesto con lo
+        // que mi red sabe — ko si van juntas, ne si se oponen. Si no lo sé,
+        // me callo (no invento).
+        if let (x, y, _) = preguntaRelacion {
+            preguntaRelacion = nil
+            if let sx = semionCon(etiqueta: x), let sy = semionCon(etiqueta: y),
+               let c = couplings[sx.id]?[sy.id] ?? couplings[sy.id]?[sx.id] {
+                var dicho: String? = nil
+                if c.weight >= 0.5 && cos(c.theta) > 0.5 { dicho = "ko \(x) va \(y)" }
+                else if c.weight >= 0.3 && cos(c.theta) < -0.5 { dicho = "ne \(x) va \(y)" }
+                if let d = dicho, !yaDicho(d) {
+                    pushContexto("dije: \(d)")
+                    return (d, d.hasPrefix("ne") ? .alerta : .dato, 0.85)
+                }
+            }
+        }
         // 2. Palabras desconocidas pendientes: pregunto por una.
         // (Primero el azar y luego sacar: antes se sacaba y, si el azar
         // decía que no, la pregunta se perdía para siempre.)
@@ -836,7 +857,7 @@ actor ResonantMind {
         }
         let c = coherence(of: top.id)
         guard c > 0.12 else {
-            if c < 0.05 && semions.count > 10 && Bool.random() {
+            if c < 0.05 && semions.count > 10 && Bool.random() && esPreguntable(top.label) {
                 let dicho = "qué significa \(top.label)?"
                 pushContexto("dije: \(dicho)")
                 return (dicho, .pregunta, 0.4)
@@ -904,9 +925,21 @@ actor ResonantMind {
             case .empatia: frase = "se ko \(rx)"
             case .contexto, .intuicion: frase = "sha \(rx)"
             case .narrativa:
-                frase = cadenaNarrativa(3) ?? "\(rx) va \(vecinoFuerte(de: elegido.id)?.label ?? rx)"
+                // (El vecino se dice en Resh: antes salía su etiqueta cruda,
+                // a veces en español o una fusión "a⊕b".)
+                if let cad = cadenaNarrativa(3) {
+                    frase = cad
+                } else if let ry = vecinoDecible(de: elegido.id), ry != rx {
+                    frase = "\(rx) va \(ry)"
+                } else {
+                    frase = "\(rx) ra"
+                }
             case .sintesis, .logica:
-                frase = "mi ko \(rx) va \(vecinoFuerte(de: elegido.id)?.label ?? rx)"
+                if let ry = vecinoDecible(de: elegido.id), ry != rx {
+                    frase = "mi ko \(rx) va \(ry)"
+                } else {
+                    frase = "mi ko \(rx)"
+                }
             case .analogia:
                 if let puente = analogiaEstructural(para: elegido.id),
                    let ry = raizDecible(puente.destino.label) {
@@ -922,6 +955,8 @@ actor ResonantMind {
         } else {
             // No sé decirlo en Resh: pregunto en vez de soltar español crudo.
             // Así el éter se auto-enseña.
+            // (Nunca por fusiones "a⊕b" ni por el marco de la pregunta.)
+            guard esPreguntable(elegido.label) else { return nil }
             let dicho = "qué significa \(elegido.label)?"
             pushContexto("dije: \(dicho)")
             return (dicho, .pregunta, 0.45)
@@ -937,9 +972,30 @@ actor ResonantMind {
 
     /// Raíz lista para decir: si ya es forma Resh la usa; si sé su
     /// traducción la usa; si no, nil (y entonces pregunto por ella).
+    /// Las partículas son gramática, no contenido: "mi ko va" o "ye ko?"
+    /// no dicen nada, así que nunca se usan como raíz.
+    /// Tampoco el marco de las preguntas ("qué", "significa"): son cómo
+    /// se pregunta, no de qué se habla.
+    private static let marcoPregunta: Set<String> = ["qué", "que", "significa", "ton"]
     private func raizDecible(_ etiqueta: String) -> String? {
-        if esFormaResh(etiqueta) { return etiqueta }
-        return traducirAresh(etiqueta)
+        guard !Self.marcoPregunta.contains(etiqueta) else { return nil }
+        let r = esFormaResh(etiqueta) ? etiqueta : traducirAresh(etiqueta)
+        guard let raiz = r, !LenguaResh.esParticula(raiz), raiz != "kep" else { return nil }
+        return raiz
+    }
+
+    /// Una etiqueta por la que tiene sentido preguntar "qué significa".
+    private func esPreguntable(_ l: String) -> Bool {
+        esEtiquetaLexica(l) && !Self.marcoPregunta.contains(l) && l.count > 1
+    }
+
+    /// El vecino más acoplado que se pueda decir en Resh.
+    private func vecinoDecible(de id: UUID) -> String? {
+        guard let cs = couplings[id] else { return nil }
+        for (j, _) in cs.sorted(by: { $0.value.weight > $1.value.weight }).prefix(5) {
+            if let l = semions[j]?.label, !l.contains("⊕"), let r = raizDecible(l) { return r }
+        }
+        return nil
     }
 
     /// Vecino más acoplado: para encadenar ("X va Y").
@@ -1054,7 +1110,9 @@ actor ResonantMind {
         }
         // Cota: si nadie responde, las preguntas no se acumulan sin fin.
         if preguntasPendientes.count > 32 { preguntasPendientes.removeFirst(preguntasPendientes.count - 32) }
-        if mensaje.contains("qué significa") || mensaje.hasPrefix("ye ") {
+        // Comprensión del Resh: leer la frase, no solo transducirla.
+        let preguntaPorRelacion = comprender(mensaje, de: rol)
+        if !preguntaPorRelacion && (mensaje.contains("qué significa") || toksRec.first == "ye") {
             // ×150: si me nombran ("ti <mirol>"), la respuesta es prioritaria.
             let dirigida = mensaje.contains("ti \(self.rol.rawValue)")
             // Se busca la palabra PREGUNTADA: se saltan las partículas
@@ -1074,15 +1132,108 @@ actor ResonantMind {
         appendLog("◀ \(rol) [\(tipo.rawValue)]: \(mensaje.prefix(34))")
     }
 
-    // ¿Parece una forma Resh? (alfabeto de 16 letras, 2+ caracteres)
-    // ...o es una forma que esta mente ya conoce: lo enseñado por el humano
-    // ("kash") o partículas como "sha" llevan 'h', fuera del alfabeto, y
-    // antes nunca se reconocían como Resh (la enseñanza no servía).
-    private static let alfabetoResh = Set("aeiouktpsmnrlvzy-")
+    // ---------- Comprensión del Resh ----------
+    // Antes la mente solo transducía: las palabras de un mensaje quedaban
+    // acopladas en fila, y "kash significa árbol" dicho por otra mente no
+    // enseñaba nada (el acople en fila no llega a equivalencia). Ahora la
+    // frase se analiza con la gramática del idioma y cada forma hace algo:
+    //   define  -> aprende la palabra (el éter por fin se auto-enseña)
+    //   ko      -> X y Y se acercan en fase (acuerdo)
+    //   kep     -> X y Y quedan ligados (analogía)
+    //   ye X va Y? -> pregunta que esta mente puede contestar
+    //   ra / narración -> entra a la memoria episódica
+    //   español -> se enlaza con su raíz Resh (entiende al humano)
+    /// - Returns: true si era una pregunta por una relación X–Y.
+    private func comprender(_ mensaje: String, de emisor: String) -> Bool {
+        let a = LenguaResh.analizar(mensaje)
+        let deOtra = emisor != rol.rawValue
+        if deOtra, let d = a.definicion { aprenderDelEter(resh: d.resh, español: d.espanol) }
+        if deOtra { enlazarEspañol(a.raices) }
+        let raices = a.raices.filter { esFormaResh($0) && !LenguaResh.esParticula($0) }
+        let ids = raices.compactMap { indiceEtiqueta[$0] }
+        if a.tiempo == .pasado || a.modo == .narra {
+            for r in raices.prefix(3) { registrarEpisodio(r) }
+        }
+        guard ids.count >= 2 else { return false }
+        switch a.modo {
+        case .acuerdo:
+            reforzarAcople(ids[0], ids[1], peso: 0.6, theta: 0, tope: 0.8)
+            reforzarAcople(ids[1], ids[0], peso: 0.6, theta: 0, tope: 0.8)
+        case .analogia:
+            reforzarAcople(ids[0], ids[1], peso: 0.5, theta: 0, tope: 0.8)
+            reforzarAcople(ids[1], ids[0], peso: 0.5, theta: 0, tope: 0.8)
+            pushContexto("entendí: \(raices[0]) kep \(raices[1])")
+        case .pregunta where deOtra && mensaje.hasPrefix("ye "):
+            preguntaRelacion = (raices[0], raices[1], emisor)
+            return true
+        default:
+            break
+        }
+        return false
+    }
+
+    /// Semión de una etiqueta, creándolo en silencio si no existe.
+    private func asegurarSemion(_ etiqueta: String) -> UUID {
+        if let id = indiceEtiqueta[etiqueta], semions[id] != nil { return id }
+        let s = Semion(label: etiqueta, signature: signatureForText(etiqueta))
+        insert(s)
+        return s.id
+    }
+
+    /// "X significa Y" oído en el éter: se aprende como equivalencia,
+    /// algo más débil que lo que enseña el humano (fuerza 0.6, no 1.0).
+    /// Lo innato no se reescribe: si el léxico ya dice otra cosa, gana.
+    private func aprenderDelEter(resh: String, español: String) {
+        guard resh != español, español != "significa",
+              !LenguaResh.esParticula(resh), !LenguaResh.esParticula(español),
+              esFormaResh(resh) || LenguaResh.esFormaValida(resh) else { return }
+        if let innata = LenguaResh.glosaDe(resh), innata != español { return }
+        if memoriaLexica[español]?.variantes.contains(resh) == true { return }
+        let a = asegurarSemion(español)
+        let b = asegurarSemion(resh)
+        reforzarAcople(a, b, peso: 0.9, theta: 0)
+        reforzarAcople(b, a, peso: 0.9, theta: 0)
+        convergerFirmas(a, b, tasa: 0.15)
+        var e = memoriaLexica[español] ?? EntradaMemoria(variantes: [], fuerza: 0, usos: 0, ultimaVez: Date())
+        e.variantes.append(resh)
+        e.fuerza = max(e.fuerza, 0.6); e.usos += 1; e.ultimaVez = Date()
+        memoriaLexica[español] = e
+        reshConocido.insert(resh)
+        preguntasPendientes.removeAll { $0 == resh }
+        pushContexto("aprendí del éter: \(resh) = \(español)")
+        appendLog("aprendí del éter: \(resh) = \(español)")
+    }
+
+    /// Palabras en español (del humano, o "qué significa" de otra mente) se
+    /// enlazan con su raíz Resh y la raíz entra al foco: así la mente
+    /// responde SOBRE lo que se le dijo, y en su idioma.
+    private func enlazarEspañol(_ tokens: [String]) {
+        var n = 0
+        for t in tokens where n < 6 {
+            // (> 3 letras: "el", "la", "de" no son tema de conversación.)
+            guard t.count > 3, LenguaResh.esEspanol(t), !reshConocido.contains(t),
+                  t != "significa", t != "qué", t != "que" else { continue }
+            guard let resh = memoriaLexica[t]?.variantes.first ?? LenguaResh.traducir(t),
+                  !LenguaResh.esParticula(resh) else { continue }
+            let a = asegurarSemion(t)
+            let b = asegurarSemion(resh)
+            reforzarAcople(a, b, peso: 0.9, theta: 0)
+            reforzarAcople(b, a, peso: 0.9, theta: 0)
+            atender(b)
+            n += 1
+        }
+    }
+
+    // ¿Es una forma Resh? Lo que esta mente ya conoce (innato o enseñado,
+    // aunque lleve 'h' como "kash" o "sha"), o lo que respeta la fonotáctica
+    // del idioma (CVC, CVCC, partículas, compuestos) y no es español.
+    // Antes bastaba con usar letras del alfabeto: "alinea", "mapea" o "sol"
+    // pasaban por Resh y se decían como raíces o se preguntaban.
     private func esFormaResh(_ t: String) -> Bool {
         let s = t.lowercased().trimmingCharacters(in: .punctuationCharacters)
         guard s.count >= 2 else { return false }
-        return s.allSatisfy { Self.alfabetoResh.contains($0) } || reshConocido.contains(s)
+        if reshConocido.contains(s) { return true }
+        return LenguaResh.esFormaValida(s) && !LenguaResh.esEspanol(s)
     }
 
     // Resh desconocido = parece Resh, no es español del léxico y no lo sé.
@@ -1204,10 +1355,24 @@ actor ResonantMind {
     /// Dice el texto en Resh con lo que esta mente ya aprendió.
     /// Lo vivido resuena; lo innato (el idioma completo desde el nacer)
     /// se resuelve por la base; lo demás queda en español (no inventa).
+    /// La puntuación se conserva ("¿árbol?" -> "yuz?"): antes "árbol?"
+    /// no se reconocía y quedaba en español.
     func decirEnResh(_ texto: String) -> String {
         texto.split(separator: " ").map { w in
-            traducirAresh(String(w)) ?? String(w)
+            let palabra = String(w)
+            let nucleo = palabra.trimmingCharacters(in: .punctuationCharacters)
+            guard !nucleo.isEmpty, let resh = traducirAresh(nucleo.lowercased()) else { return palabra }
+            let fin = palabra.hasSuffix("?") ? "?" : ""
+            return resh + fin
         }.joined(separator: " ")
+    }
+
+    /// Glosa para el humano: Resh -> español con lo que ESTA mente sabe
+    /// (léxico innato + lo enseñado). No toca la red: es solo lectura.
+    func glosar(_ frase: String) -> (texto: String, comprension: Double) {
+        LenguaResh.glosar(frase) { [memoriaLexica] t in
+            memoriaLexica.first(where: { $0.value.variantes.contains(t) })?.key
+        }
     }
 
     // ---------- Traducción por reconstrucción ----------
@@ -1235,13 +1400,15 @@ actor ResonantMind {
         let umbralEquivalencia = 0.85
         for (j, c1) in couplings[origen.id] ?? [:] where c1.weight >= umbralEquivalencia {
             guard let sj = semions[j] else { continue }
-            let p1 = c1.weight * sj.amplitude * alineacion(origen, sj, c1)
+            // La alineación modula pero no anula: una equivalencia enseñada
+            // se lee aunque las fases aún no se hayan asentado.
+            let p1 = c1.weight * sj.amplitude * (0.5 + 0.5 * alineacion(origen, sj, c1))
             if acepta(sj.label) { puntajes[j, default: 0] += p1 }
             // Segundo salto, atenuado: generaliza por la red (sinónimos,
             // variantes enseñadas a una palabra vecina).
             for (k, c2) in couplings[j] ?? [:] where k != origen.id && c2.weight >= umbralEquivalencia {
                 guard let sk = semions[k], acepta(sk.label) else { continue }
-                puntajes[k, default: 0] += 0.4 * c1.weight * c2.weight * sk.amplitude * alineacion(sj, sk, c2)
+                puntajes[k, default: 0] += 0.4 * c1.weight * c2.weight * sk.amplitude * (0.5 + 0.5 * alineacion(sj, sk, c2))
             }
         }
         guard let mejor = puntajes.max(by: { $0.value < $1.value }),
@@ -1277,6 +1444,12 @@ actor ResonantMind {
             reforzarMemoria(español: palabra)
             return resh
         }
+        // Lo vivido antes que lo innato: si la resonancia aún no se asentó,
+        // la memoria privada de esta mente ya sabe la palabra enseñada.
+        if let resh = memoriaLexica[palabra]?.variantes.first {
+            reforzarMemoria(español: palabra)
+            return resh
+        }
         guard idiomaInnata, let resh = LenguaResh.traducir(palabra) else { return nil }
         sembrarMemoria(español: palabra, variantes: [resh])
         return resh
@@ -1285,6 +1458,10 @@ actor ResonantMind {
     /// Resh -> español por reconstrucción (con caída a la base innata).
     func traducirAespañol(_ palabra: String) -> String? {
         if let esp = reconstruirHaciaEspañol(palabra) {
+            reforzarMemoria(español: esp)
+            return esp
+        }
+        if let esp = memoriaLexica.first(where: { $0.value.variantes.contains(palabra) })?.key {
             reforzarMemoria(español: esp)
             return esp
         }
@@ -1695,7 +1872,16 @@ actor ResonantMind {
     /// narra "X va Y va Z" (3 eslabones).
     private func componerFrase(raices: [String], modo: ModoFrase) -> String? {
         guard !raices.isEmpty else { return nil }
-        guard raices.count >= 2 else { return raices[0] }
+        // Una sola raíz también lleva gramática (antes salía la raíz suelta).
+        guard raices.count >= 2 else {
+            let x = raices[0]
+            switch modo {
+            case .afirma: return "mi ko \(x)"
+            case .pregunta: return "ye \(x)?"
+            case .niega: return "ne \(x)"
+            case .narra: return "\(x) ra"
+            }
+        }
         let x = raices[0]
         let y = raices[1]
         switch modo {

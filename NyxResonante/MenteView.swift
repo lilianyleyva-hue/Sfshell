@@ -510,6 +510,11 @@ struct FilaChat: View {
                     }
                     Text(mensaje.texto)
                         .font(.body).foregroundColor(.white)
+                    // Glosa: lo que dijo, en español.
+                    if let glosa = mensaje.glosa {
+                        Text(glosa)
+                            .font(.caption).italic().foregroundColor(.gray)
+                    }
                     if mensaje.destacada {
                         Text("respuesta del consejo · mayor peso")
                             .font(.caption2).foregroundColor(.yellow)

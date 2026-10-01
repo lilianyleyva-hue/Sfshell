@@ -105,7 +105,8 @@ actor ConsejoResonante {
                 let haceSuficiente = Date().timeIntervalSince(ultimoChat) >= 0.8
                 let yaPublicado = publicadosRecientes.contains(mejor.texto)
                 if haceSuficiente && !yaPublicado {
-                    publicar(autor: mejor.rol.rawValue, texto: mejor.texto)
+                    let g = await glosa(de: mejor.rol, texto: mejor.texto)
+                    publicar(autor: mejor.rol.rawValue, texto: mejor.texto, glosa: g.texto, comprension: g.comprension)
                     ultimoChat = Date()
                     publicadosRecientes.append(mejor.texto)
                     publicadosRecientes = Array(publicadosRecientes.suffix(10))
@@ -113,6 +114,15 @@ actor ConsejoResonante {
             }
             await Task.yield()
         }
+    }
+
+    /// Traducción al español de lo que dijo una mente, con SU léxico (lo
+    /// que le enseñaron incluido), para que el humano entienda el Resh.
+    private func glosa(de rol: RolMental, texto: String) async -> (texto: String?, comprension: Double?) {
+        guard let mente = mentes.first(where: { $0.rol == rol })?.mente else { return (nil, nil) }
+        let g = await mente.glosar(texto)
+        let igual = g.texto.trimmingCharacters(in: .punctuationCharacters) == texto.lowercased().trimmingCharacters(in: .punctuationCharacters)
+        return (igual ? nil : g.texto, g.comprension)
     }
 
     private func mejorEmision(de emitidos: [(rol: RolMental, texto: String, peso: Double)]) -> (rol: RolMental, texto: String, peso: Double)? {
@@ -306,8 +316,10 @@ actor ConsejoResonante {
 
     func limpiarChat() { chat.removeAll() }
 
-    private func publicar(autor: String, texto: String, esHumano: Bool = false, destacada: Bool = false) {
-        chat.append(MensajeChat(texto: texto, esHumano: esHumano, autor: autor, destacada: destacada))
+    private func publicar(autor: String, texto: String, esHumano: Bool = false, destacada: Bool = false,
+                          glosa: String? = nil, comprension: Double? = nil) {
+        chat.append(MensajeChat(texto: texto, esHumano: esHumano, glosa: glosa, comprension: comprension,
+                                autor: autor, destacada: destacada))
         if chat.count > 150 { chat.removeFirst(chat.count - 150) }
     }
 
@@ -336,7 +348,9 @@ actor ConsejoResonante {
             }
         }
         for (i, e) in rafaga.enumerated() {
-            publicar(autor: e.rol.rawValue, texto: e.texto, destacada: i == mejorIndice)
+            let g = await glosa(de: e.rol, texto: e.texto)
+            publicar(autor: e.rol.rawValue, texto: e.texto, destacada: i == mejorIndice,
+                     glosa: g.texto, comprension: g.comprension)
         }
         if rafaga.isEmpty {
             publicar(autor: "consejo", texto: "…")

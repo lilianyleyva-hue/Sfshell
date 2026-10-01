@@ -156,6 +156,129 @@ enum LenguaResh {
         return pares[ini ..< fin].map { $0.0 }
     }
 
+    // ---------- Forma: ¿esto es Resh? ----------
+    // La fonotáctica del idioma es estricta: raíces CVC (las 605
+    // frecuentes) o CVCC, partículas de 2 letras (más "sha") y compuestos
+    // raíz-raíz. Antes bastaba con usar letras del alfabeto, así que
+    // palabras españolas como "alinea" o "mapea" pasaban por Resh y las
+    // mentes preguntaban por ellas o las decían como si fueran raíces.
+    static func esFormaValida(_ t: String) -> Bool {
+        let s = t.lowercased()
+        guard !s.isEmpty else { return false }
+        if particulaPorForma[s] != nil || inverso[s] != nil { return true }
+        let partes = s.split(separator: "-", omittingEmptySubsequences: false)
+        guard partes.count <= 3 else { return false }
+        return partes.allSatisfy { esRaizValida(String($0)) }
+    }
+
+    private static let setConsonantes = Set(consonantes)
+    private static let setVocales = Set(vocales)
+    private static func esRaizValida(_ p: String) -> Bool {
+        let c = Array(p)
+        guard c.count == 3 || c.count == 4 else { return false }
+        return setConsonantes.contains(c[0]) && setVocales.contains(c[1])
+            && c[2...].allSatisfy { setConsonantes.contains($0) }
+    }
+
+    // ---------- Comprensión: frase Resh -> estructura ----------
+    // La gramática mínima que las mentes ya hablan, ahora también se lee:
+    //   "mi ko X va Y"   acuerdo (X y Y van juntos)
+    //   "ne X va Y"      desacuerdo
+    //   "ye X va Y?"     pregunta por la relación X–Y
+    //   "X kep Y"        analogía (X es como Y)
+    //   "X significa Y"  definición (enseñanza por el éter)
+    //   "X va Y va Z"    narración / secuencia
+    //   ra / li          pasado / futuro
+    enum ModoResh: String {
+        case afirma, acuerdo, niega, pregunta, analogia, define, narra
+    }
+
+    enum TiempoResh: String {
+        case presente, pasado, futuro
+    }
+
+    struct AnalisisResh {
+        let modo: ModoResh
+        let tiempo: TiempoResh
+        let raices: [String]               // contenido, sin partículas
+        let definicion: (resh: String, espanol: String)?
+        let dirigidaA: String?             // "ti <rol>"
+    }
+
+    /// Tokens limpios (minúsculas, sin puntuación pegada).
+    static func tokens(_ frase: String) -> [String] {
+        frase.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).compactMap {
+            let t = String($0).lowercased()
+                .trimmingCharacters(in: CharacterSet.punctuationCharacters.subtracting(CharacterSet(charactersIn: "-")))
+            return t.isEmpty ? nil : t
+        }
+    }
+
+    static func analizar(_ frase: String) -> AnalisisResh {
+        let toks = tokens(frase)
+        var definicion: (resh: String, espanol: String)? = nil
+        if let i = toks.firstIndex(of: "significa"), i > 0, i + 1 < toks.count,
+           !toks[..<i].contains("qué"), !toks[..<i].contains("que") {
+            definicion = (toks[i - 1], toks[i + 1])
+        }
+        var dirigida: String? = nil
+        if let i = toks.firstIndex(of: "ti"), i + 1 < toks.count { dirigida = toks[i + 1] }
+        let tiempo: TiempoResh = toks.contains("ra") ? .pasado : (toks.contains("li") ? .futuro : .presente)
+        let esPregunta = frase.contains("?") || toks.first == "ye" || toks.contains("qué") || toks.contains("que")
+        let modo: ModoResh
+        if definicion != nil { modo = .define }
+        else if esPregunta { modo = .pregunta }
+        else if toks.first == "ne" || toks.contains("na") { modo = .niega }
+        else if toks.contains("kep") { modo = .analogia }
+        else if toks.contains("ko") { modo = .acuerdo }
+        else if toks.filter({ $0 == "va" }).count >= 2 { modo = .narra }
+        else { modo = .afirma }
+        let funcionales: Set<String> = ["kep", "significa", "qué", "que", dirigida ?? ""]
+        let raices = toks.filter { particulaPorForma[$0] == nil && !funcionales.contains($0) }
+        return AnalisisResh(modo: modo, tiempo: tiempo, raices: raices,
+                            definicion: definicion, dirigidaA: dirigida)
+    }
+
+    /// Glosa palabra por palabra para el humano: "mi ko yuz va tel" ->
+    /// "yo acuerdo árbol y luz". `extra` resuelve lo aprendido fuera del
+    /// léxico (lo enseñado a una mente). Devuelve también la fracción de
+    /// palabras que se entendieron.
+    static func glosar(_ frase: String, extra: (String) -> String? = { _ in nil }) -> (texto: String, comprension: Double) {
+        let toks = tokens(frase)
+        guard !toks.isEmpty else { return ("", 0) }
+        var entendidas = 0
+        // En una definición ("zork significa dragón") la palabra definida se
+        // deja en Resh: glosarla daría "dragón significa dragón".
+        let definida = analizar(frase).definicion?.resh
+        // Giros fijos del protocolo, para que se lea como español natural.
+        let giros: [String: String] = ["mi ko": "estoy de acuerdo:", "se ko": "estamos de acuerdo:",
+                                       "mi ne": "no estoy de acuerdo:", "mi sor": "recuerdo"]
+        var partes: [String] = []
+        var i = 0
+        var esPregunta = frase.contains("?")
+        while i < toks.count {
+            let t = toks[i]
+            if i + 1 < toks.count, let g = giros["\(t) \(toks[i + 1])"] {
+                partes.append(g); entendidas += 2; i += 2; continue
+            }
+            i += 1
+            if t == definida { entendidas += 1; partes.append("«\(t)»"); continue }
+            if t == "ye" { entendidas += 1; esPregunta = true; continue }
+            if t == "ne", partes.isEmpty { entendidas += 1; partes.append("no:"); continue }
+            if t == "kep" { entendidas += 1; partes.append("es como"); continue }
+            if t == "ko" { entendidas += 1; partes.append("de acuerdo:"); continue }
+            if t == "ra", i == toks.count { entendidas += 1; partes.append("(antes)"); continue }
+            if t == "li", i == toks.count { entendidas += 1; partes.append("(después)"); continue }
+            if t == "sha" { entendidas += 1; partes.append("esto"); continue }
+            if let c = conceptoPorParticula[t] { entendidas += 1; partes.append(c); continue }
+            if let e = extra(t) ?? inverso[t] { entendidas += 1; partes.append(e); continue }
+            if espanolConocido.contains(t) || t == "significa" || t == "qué" { entendidas += 1 }
+            partes.append(t)
+        }
+        let cuerpo = partes.joined(separator: " ")
+        return (esPregunta ? "¿\(cuerpo)?" : cuerpo, Double(entendidas) / Double(toks.count))
+    }
+
     /// Generador determinista (mismo orden que el script): índice ->
     /// forma. Útil para palabras fuera del léxico de 5844.
     static func formaResh(paraIndice i: Int) -> String {
