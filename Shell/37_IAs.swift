@@ -340,6 +340,10 @@ final class SistemaIAs: @unchecked Sendable {
         if rol == .analogia, Double.random(in: 0 ..< 1) < 0.3 { return ["pregunta \(otro) ye \(w)?"] }
         if rol == .memoria, Double.random(in: 0 ..< 1) < 0.3 { return ["guarda \(w) \(es)"] }
         if rol == .sintesis, Double.random(in: 0 ..< 1) < 0.2 { return ["test -s /Documentos/lecturas.txt && resume /Documentos/lecturas.txt 2 || echo sin lecturas todavía"] }
+        // la sala de chat (44_Chat.swift)
+        if rol == .empatia, Double.random(in: 0 ..< 1) < 0.2 { return ["chat se ko \(w)"] }
+        if rol == .narrativa, Double.random(in: 0 ..< 1) < 0.1 { return ["test -s /Escritorio/historia.txt && chat -a /Escritorio/historia.txt mi historia hasta ahora"] }
+        if rol == .critico, Double.random(in: 0 ..< 1) < 0.15 { return ["chat @\(otro) ne \(w)"] }
         if rol == .logica, Double.random(in: 0 ..< 1) < 0.2 { return ["calcula \(Int.random(in: 2 ... 99)) ** 2 % 7"] }
         switch rol {
         case .sintaxis:    return ["wc -w /Documentos/diario.txt"]
@@ -514,6 +518,7 @@ extension Shell {
                 dentro de su shell ellas tienen: yo pienso digo oigo nota diario
                   escritorio envia buzon aprende actua (y todos los comandos)
                 herramientas: web (navegador) busca lee resume calcula pregunta guarda/saca
+                sala común: chat · chat @rol <msg> · chat -a <archivo> · chat baja <n>
                 roles: \(RolMental.allCases.map(\.rawValue).joined(separator: " "))
 
                 """

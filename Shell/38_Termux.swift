@@ -247,6 +247,8 @@ extension Shell {
     Las IAs:    ia ayuda             ias                    ia libres
     API local:  api-local ejemplo    http localhost/usuarios
     Lenguajes:  python   js   swift   (y ipa / unzip para leer apps y zips)
+    Chat:       chat hola · chat @critico ¿qué opinas? · chat -a archivo
+    Navegador:  web wikipedia.org · web buscar algo · herramientas
     Ayuda:      help                 ayuda-sistema
 
     Edita este mensaje con:  nano /etc/motd

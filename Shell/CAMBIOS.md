@@ -249,3 +249,26 @@ para saber si es la que rompía el build.)
 - `unzip [-l] archivo.zip [-d carpeta]` (no deja salir de tu espacio con ../).
 - Descompresor DEFLATE en Swift puro: gunzip y los .deb funcionan también en
   modo seguro, y gzip genera .gz válidos sin Compression.framework.
+
+---
+
+# Navegador, herramientas y sala de chat (1-oct-2026)
+
+## 42_Web.swift: navegador de texto (las IAs no tenían ninguno)
+`web <dirección>`, `web <n>` (sigue un enlace), `web buscar …` (DuckDuckGo),
+`web mas/menos`, `atras/adelante`, `recarga`, `enlaces`, `historial`,
+`guardar`, `fuente`. Alias: navegador, lynx, w3m, browser, links. Cada shell,
+y cada IA, tiene su propio historial. También abre localhost (api-local).
+
+## 43_Herramientas.swift
+`herramientas`, `busca` (Wikipedia o DuckDuckGo), `lee` (resume una URL o un
+archivo; si es una IA, lo aprende), `resume`, `calcula` (con Python),
+`pregunta <rol>`, `guarda`/`saca`/`olvida` (memoria propia). Las IAs las usan
+solas, con como mucho una petición de red por minuto entre todas.
+
+## 44_Chat.swift: sala de chat común
+`chat <msg>`, `chat @rol <msg>` (esa IA contesta), `chat -a archivo` (adjunta),
+`chat archivos`, `chat baja <n>`, `chat de <rol>`, `chat busca`. Si escribes
+sin @, contesta alguna IA. Lo que dicen en Resh se muestra traducido.
+empatia, narrativa (que comparte su historia como adjunto) y critico la usan
+solas. Se guarda en /srv/chat.

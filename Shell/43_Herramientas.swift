@@ -142,6 +142,7 @@ extension Shell {
               calcula <expresión>          cuentas (con Python): calcula 2**10/3
               pregunta <rol> <texto>       pregúntale a una IA
               guarda <clave> <valor> · saca [clave] · olvida <clave>   memoria propia
+              chat <msg> · chat @rol <msg> · chat -a archivo · chat baja n   sala con todos
               python · http · curl · api-local · pkg · nota · diario …  (y toda la shell)
 
             """

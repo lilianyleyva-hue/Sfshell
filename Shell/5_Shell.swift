@@ -148,7 +148,7 @@ final class Shell: @unchecked Sendable {
             Shell.esc(), Shell.objetos(), Shell.mixCommands(), Shell.git(),
             Shell.macos(), Shell.logicGame(), Shell.unixMas(), Shell.bash(),
             Shell.huella(), Shell.nyx(), Shell.ias(), Shell.comandosIA(),
-            Shell.apiLocal(), Shell.termux(), Shell.python(), Shell.ipa(), Shell.web(), Shell.herramientas()
+            Shell.apiLocal(), Shell.termux(), Shell.python(), Shell.ipa(), Shell.web(), Shell.herramientas(), Shell.chat()
         ]
         for m in modulos { cmds.merge(m) { _, b in b } }
         commands = cmds
@@ -257,6 +257,13 @@ final class Shell: @unchecked Sendable {
         if trimmed.hasPrefix("calcula "), let spec = commands["calcula"] {
             let expr = String(trimmed.dropFirst(8))
             do { return try await spec.run(Ctx(name: "calcula", args: [expr], stdin: "", sh: self)) }
+            catch { env.vars["?"] = "1"; return Shell.errMark + errText(error) + "\n" }
+        }
+
+        // --- chat: el mensaje va tal cual (sin que ? * o comillas lo cambien) ---
+        if trimmed.hasPrefix("chat "), let spec = commands["chat"] {
+            let args = trimmed.dropFirst(5).split(separator: " ").map(String.init)
+            do { let r = try await spec.run(Ctx(name: "chat", args: args, stdin: "", sh: self)); env.vars["?"] = "0"; return r }
             catch { env.vars["?"] = "1"; return Shell.errMark + errText(error) + "\n" }
         }
 
