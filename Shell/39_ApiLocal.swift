@@ -391,6 +391,19 @@ extension Shell {
         var c: [String: Spec] = [:]
 
         c["api-local"] = Spec(help: "api-local — emulador de API REST en http://localhost (tú y las IAs) · api-local ayuda") { ctx in
+            try await Shell.ordenApiLocal(ctx)
+        }
+        c["json-server"] = c["api-local"]
+        c["mockapi"] = c["api-local"]
+        c["http"] = Spec(help: "http [MÉTODO] <url> [campo=texto campo:=json Cabecera:valor] — petición HTTP con JSON bonito") { ctx in
+            try await Shell.ordenHttp(ctx)
+        }
+        c["https"] = c["http"]
+        return c
+    }
+
+    /// Cuerpo de 'api-local' (función y no closure: compila más rápido).
+    static func ordenApiLocal(_ ctx: Ctx) async throws -> String {
             let api = APILocal.uno
             let a = ctx.args
             let sub = a.first?.lowercased() ?? "estado"
@@ -577,12 +590,10 @@ extension Shell {
             default:
                 throw ShErr("api-local: no conozco '\(sub)' — mira 'api-local ayuda'")
             }
-        }
-        c["json-server"] = c["api-local"]
-        c["mockapi"] = c["api-local"]
+    }
 
-        // ---------- http: peticiones cómodas, al estilo HTTPie ----------
-        c["http"] = Spec(help: "http [MÉTODO] <url> [campo=texto campo:=json Cabecera:valor] — petición HTTP con JSON bonito") { ctx in
+    /// http: peticiones cómodas, al estilo HTTPie.
+    static func ordenHttp(_ ctx: Ctx) async throws -> String {
             var a = ctx.args
             let verbos: Set<String> = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
             var metodo: String? = nil
@@ -625,10 +636,6 @@ extension Shell {
             ctx.env.vars["HTTP_STATUS"] = String(resp.statusCode)
             if resp.statusCode >= 400 { throw ShErr(out.trimmingCharacters(in: .newlines)) }
             return out
-        }
-        c["https"] = c["http"]
-
-        return c
     }
 
     /// Una petición: la contesta el emulador si es para localhost; si no, la red.

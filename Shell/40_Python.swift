@@ -1855,20 +1855,36 @@ final class PyInterprete: @unchecked Sendable {
             case "split", "rsplit":
                 let max = a.count > 1 ? (entero(a[1]) ?? -1) : (entero(kw["maxsplit"] ?? .int(-1)) ?? -1)
                 if a.isEmpty || { if case .none = a[0] { return true }; return false }() {
-                    var partes = s.split(whereSeparator: { $0.isWhitespace }).map(String.init)
-                    if max >= 0, partes.count > max + 1 { partes = Array(partes.prefix(max)) + [partes.dropFirst(max).joined(separator: " ")] }
-                    return .lista(PyLista(partes.map { .str($0) }))
+                    var partes: [String] = s.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+                    if max >= 0, partes.count > max + 1 {
+                        let resto: String = partes.dropFirst(max).joined(separator: " ")
+                        partes = Array(partes.prefix(max))
+                        partes.append(resto)
+                    }
+                    return .lista(PyLista(partes.map { PyValor.str($0) }))
                 }
                 let sep = try texto(0)
                 guard !sep.isEmpty else { throw PyError("ValueError", "empty separator") }
                 var partes = s.components(separatedBy: sep)
                 if max >= 0, partes.count > max + 1 {
-                    partes = n == "split"
-                        ? Array(partes.prefix(max)) + [partes.dropFirst(max).joined(separator: sep)]
-                        : [partes.dropLast(max).joined(separator: sep)] + Array(partes.suffix(max))
+                    // (en pasos: como una sola expresión tardaba segundos en compilar)
+                    var nuevas: [String] = []
+                    if n == "split" {
+                        nuevas = Array(partes.prefix(max))
+                        let resto: String = partes.dropFirst(max).joined(separator: sep)
+                        nuevas.append(resto)
+                    } else {
+                        let resto: String = partes.dropLast(max).joined(separator: sep)
+                        nuevas = [resto]
+                        nuevas.append(contentsOf: partes.suffix(max))
+                    }
+                    partes = nuevas
                 }
                 return .lista(PyLista(partes.map { .str($0) }))
-            case "splitlines": return .lista(PyLista(s.split(separator: "\n", omittingEmptySubsequences: false).map { .str(String($0)) }.dropLast(s.hasSuffix("\n") ? 1 : 0)))
+            case "splitlines":
+                var ls: [String] = s.components(separatedBy: "\n")
+                if s.hasSuffix("\n") { ls.removeLast() }
+                return .lista(PyLista(ls.map { PyValor.str($0) }))
             case "join": return .str(try itera(try arg(0)).map { x -> String in
                 guard case .str(let t) = x else { throw PyError("TypeError", "join() necesita textos, hay '\(x.tipo)'") }
                 return t

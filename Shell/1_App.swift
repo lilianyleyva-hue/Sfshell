@@ -32,7 +32,7 @@ final class Terminal: ObservableObject {
         // Modo seguro: solo Foundation + esta pantalla. js/swift, say, sha256,
         // gzip y nc usan sus versiones de texto. Para activarlos, define
         // APPLE_COMPLETO (ver CAMBIOS.md).
-        escribe("(modo seguro: sin voz, SHA256 ni nc)\n")
+        escribe("(modo seguro: sin motor JavaScript, voz, SHA256 ni nc — python sí funciona)\n")
         #endif
         // (Se saca 'self' a una constante antes del Task: Swift 5.10 no deja
         // usar la variable débil capturada dentro de código concurrente.)

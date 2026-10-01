@@ -313,7 +313,11 @@ extension Shell {
                     guard let r = e.nombre.range(of: ".app/Frameworks/") else { return nil }
                     return e.nombre[r.upperBound...].split(separator: "/").first.map(String.init)
                 }).sorted()
-                let familia = (p["UIDeviceFamily"] as? [Any])?.compactMap { texto($0) }.map { $0 == "1" ? "iPhone" : ($0 == "2" ? "iPad" : $0) } ?? []
+                var familia: [String] = []
+                for f in (p["UIDeviceFamily"] as? [Any]) ?? [] {
+                    let t: String = texto(f)
+                    familia.append(t == "1" ? "iPhone" : (t == "2" ? "iPad" : t))
+                }
                 let permisos = p.keys.filter { $0.hasSuffix("UsageDescription") }.count
                 var out = "\(texto(p["CFBundleDisplayName"] ?? p["CFBundleName"]))  (\(app))\n"
                 out += "identificador   \(texto(p["CFBundleIdentifier"]))\n"

@@ -272,3 +272,21 @@ solas, con como mucho una petición de red por minuto entre todas.
 sin @, contesta alguna IA. Lo que dicen en Resh se muestra traducido.
 empatia, narrativa (que comparte su historia como adjunto) y critico la usan
 solas. Se guarda en /srv/chat.
+
+---
+
+# Arreglo del build: compilación demasiado lenta (1-oct-2026)
+
+El build fallaba sin mensaje porque algunas funciones tardaban muchísimo en
+compilar, y Swift Playgrounds se rinde sin decir nada. En un servidor:
+- `metodo` (40_Python.swift): 14,5 s, con una expresión de 7 s → ahora < 0,15 s
+- `ipa()` (41_Ipa.swift): 2,3 s → < 0,15 s
+- `web()` (42_Web.swift): 2,2 s → < 0,15 s
+- `apiLocal()` (39_ApiLocal.swift): 0,5 s → 0,15 s
+Cambios: tipos explícitos, expresiones en pasos y los cuerpos largos en
+funciones en vez de closures. El chequeo de tipos del proyecto pasó de 40 s a 27 s.
+Además JavaScriptCore vuelve a depender de APPLE_COMPLETO (modo seguro), hasta
+confirmar que compila en el iPad. Python no depende de él.
+
+Regla para lo que se añada: ninguna función de más de ~0,3 s
+(swiftc -Xfrontend -warn-long-function-bodies=300).

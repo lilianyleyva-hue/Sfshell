@@ -272,6 +272,14 @@ extension Shell {
         var c: [String: Spec] = [:]
 
         c["web"] = Spec(help: "web <dirección|n|buscar texto|mas|atras|enlaces…> — navegador de texto (como lynx)") { ctx in
+            try await Shell.ordenWeb(ctx)
+        }
+        for alias in ["navegador", "lynx", "w3m", "browser", "links"] { c[alias] = c["web"] }
+        return c
+    }
+
+    /// Cuerpo de 'web' (en una función y no en un closure: compila mucho más rápido).
+    static func ordenWeb(_ ctx: Ctx) async throws -> String {
             let nav = ctx.sh.navegador
             let a = ctx.args
             let quien = ctx.sh.quienPide
@@ -308,8 +316,10 @@ extension Shell {
             case "guardar", "save":
                 guard let f = a.dropFirst().first else { throw ShErr("uso: web guardar <archivo.txt>") }
                 guard !nav.url.isEmpty else { throw ShErr("web: no hay página abierta") }
-                let texto = "\(nav.titulo)\n\(nav.url)\n\n" + nav.lineas.joined(separator: "\n") + "\n\nEnlaces:\n" +
-                            nav.enlaces.enumerated().map { "[\($0.offset + 1)] \($0.element)" }.joined(separator: "\n") + "\n"
+                var texto: String = "\(nav.titulo)\n\(nav.url)\n\n"
+                texto += nav.lineas.joined(separator: "\n")
+                texto += "\n\nEnlaces:\n"
+                for (i, e) in nav.enlaces.enumerated() { texto += "[\(i + 1)] \(e)\n" }
                 try texto.write(to: try ctx.env.resolve(f), atomically: true, encoding: .utf8)
                 return "guardada en \(f) (\(nav.lineas.count) líneas)\n"
             case "fuente", "source":
@@ -322,8 +332,5 @@ extension Shell {
                 }
                 return try await nav.carga(a.joined(separator: "%20"), quien: quien, nuevo: true)
             }
-        }
-        for alias in ["navegador", "lynx", "w3m", "browser", "links"] { c[alias] = c["web"] }
-        return c
     }
 }
