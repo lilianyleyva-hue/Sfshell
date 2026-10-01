@@ -193,8 +193,11 @@ enum RepoTermux {
             r[n] = PaqueteTermux(descripcion: "ya incluido: \(cual)", version: "integrado", spec: nil, nota: "ya viene en SwiftShell: usa \(cual)")
         }
         // Los que iOS no deja: se explica en vez de fingir.
-        for (n, por) in [("python", "iOS no deja ejecutar intérpretes descargados. Usa js (motor completo) o swift."),
-                         ("nodejs", "no hay Node en iOS. 'js' es JavaScript de verdad (JavaScriptCore)."),
+        for (n, cual) in [("python", "python (subconjunto: python archivo.py, python -c, python)"),
+                          ("python3", "python")] {
+            r[n] = PaqueteTermux(descripcion: "ya incluido: \(cual)", version: "integrado", spec: nil, nota: "ya viene en SwiftShell: usa \(cual)")
+        }
+        for (n, por) in [("nodejs", "no hay Node en iOS. 'js' es JavaScript de verdad (JavaScriptCore)."),
                          ("clang", "iOS no deja compilar y ejecutar binarios. Usa swift (traducido a JS)."),
                          ("openssh", "no se puede abrir un servidor SSH en el sandbox de iOS. nc/telnet sirven para TCP."),
                          ("ruby", "sin intérpretes externos en iOS. Usa js o los guiones .sh."),
@@ -243,6 +246,7 @@ extension Shell {
     Paquetes:   pkg search <texto>   pkg install <nombre>   pkg list-all
     Las IAs:    ia ayuda             ias                    ia libres
     API local:  api-local ejemplo    http localhost/usuarios
+    Lenguajes:  python   js   swift   (y ipa / unzip para leer apps y zips)
     Ayuda:      help                 ayuda-sistema
 
     Edita este mensaje con:  nano /etc/motd

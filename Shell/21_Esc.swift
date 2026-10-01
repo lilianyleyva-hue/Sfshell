@@ -121,6 +121,7 @@ extension Shell {
             let extra = args.isEmpty ? "" : " " + args
             switch ext {
             case "swift": return await ctx.sh.execute("swift \(p)\(extra)")
+            case "py": return await ctx.sh.execute("python \(p)\(extra)")
             case "js": return await ctx.sh.execute("js \(p)\(extra)")
             case "sh": return await ctx.sh.execute("sh \(p)")
             case "json": return await ctx.sh.execute("json pretty \(p)")

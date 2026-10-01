@@ -145,7 +145,8 @@ enum Gzip {
         }
         guard !cuerpo.isEmpty else { return Data() }
         #if !(canImport(Compression) && APPLE_COMPLETO)
-        return nil   // sin Compression.framework (Linux): no hay inflate
+        // sin Compression.framework: el descompresor en Swift puro (41_Ipa.swift)
+        return (try? Inflar.deflate(cuerpo)).map { Data($0) }
         #else
         var capacidad = esperado > 0 ? esperado : max(cuerpo.count * 8, 4096)
         for _ in 0..<6 {

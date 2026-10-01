@@ -108,9 +108,11 @@ final class Shell: @unchecked Sendable {
 
     /// Idioma activo del intérprete de la terminal.
     enum Lang: String, CaseIterable {
-        case shell, js, swift, json, xml, plist
+        case shell, js, swift, json, xml, plist, python
     }
     var mode: Lang = .shell
+    /// Python interactivo (40_Python.swift): conserva variables entre líneas.
+    var py: PyInterprete?
     var buffer: [String] = []
 
     /// Bloque if/for/while/case a medio escribir (varias líneas)
@@ -144,7 +146,7 @@ final class Shell: @unchecked Sendable {
             Shell.esc(), Shell.objetos(), Shell.mixCommands(), Shell.git(),
             Shell.macos(), Shell.logicGame(), Shell.unixMas(), Shell.bash(),
             Shell.huella(), Shell.nyx(), Shell.ias(), Shell.comandosIA(),
-            Shell.apiLocal(), Shell.termux()
+            Shell.apiLocal(), Shell.termux(), Shell.python(), Shell.ipa()
         ]
         for m in modulos { cmds.merge(m) { _, b in b } }
         commands = cmds
@@ -169,6 +171,7 @@ final class Shell: @unchecked Sendable {
         }
         if heredocPend != nil || !blockBuffer.isEmpty { return "> " }
         if mode == .shell { return "\(env.vpath(env.cwd)) $ " }
+        if mode == .python { return buffer.isEmpty ? ">>> " : "... " }
         return buffer.isEmpty ? "\(mode.rawValue)> " : "\(mode.rawValue)… "
     }
 
@@ -222,6 +225,9 @@ final class Shell: @unchecked Sendable {
             case .xml:
                 guard let d = code.data(using: .utf8) else { throw ShErr("xml: texto no válido") }
                 return try XMLTreeBuilder().parse(d).pretty() + "\n"
+            case .python:
+                let (salida, error) = await Shell.enHiloPython(PyInterprete(env: env), code, archivo: "<stdin>", interactivo: false)
+                return salida + (error.map { $0 + "\n" } ?? "")
             case .plist:
                 return try DataTools.plistShow(Data(code.utf8)) + "\n"
             }
@@ -251,6 +257,7 @@ final class Shell: @unchecked Sendable {
         }
 
         // --- dentro de un modo de idioma: todo lo escrito es código ---
+        if mode == .python { return await lineaPython(line) }
         if mode != .shell {
             if ["exit", ".exit", "quit", "shell", ":q"].contains(trimmed) {
                 mode = .shell; buffer = []

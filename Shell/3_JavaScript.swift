@@ -2,7 +2,7 @@ import Foundation
 #if os(Linux) && canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
-#if (canImport(JavaScriptCore) && APPLE_COMPLETO)
+#if canImport(JavaScriptCore)
 import JavaScriptCore
 #endif
 
@@ -12,7 +12,7 @@ import JavaScriptCore
 
 final class OutBox: @unchecked Sendable { var s = "" }
 
-#if (canImport(JavaScriptCore) && APPLE_COMPLETO)
+#if canImport(JavaScriptCore)
 final class JSRuntime: @unchecked Sendable {
     private(set) var ctx: JSContext
     private let box = OutBox()

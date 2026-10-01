@@ -25,7 +25,8 @@ extension Gzip {
             payload = Data()
         } else {
             #if !(canImport(Compression) && APPLE_COMPLETO)
-            return nil   // sin Compression.framework (Linux)
+            // sin Compression.framework: DEFLATE sin comprimir (válido para cualquier gunzip)
+            payload = Data(Inflar.guardado(bytes))
             #else
             let capacity = max(bytes.count + 512, 256)
             let dst = UnsafeMutablePointer<UInt8>.allocate(capacity: capacity)

@@ -37,7 +37,7 @@ extension Shell {
             }
         }
         let candidates = ["\(Shell.binDir)/\(name)", "\(Shell.binDir)/\(name).js",
-                          "\(Shell.binDir)/\(name).swift", "\(Shell.binDir)/\(name).mix"]
+                          "\(Shell.binDir)/\(name).swift", "\(Shell.binDir)/\(name).mix", "\(Shell.binDir)/\(name).py"]
         for path in candidates {
             guard let u = try? env.resolve(path),
                   FileManager.default.fileExists(atPath: u.path),
@@ -46,6 +46,10 @@ extension Shell {
                   let src = String(data: d, encoding: .utf8) else { continue }
             let ext = u.pathExtension.lowercased()
             return Spec(help: "\(name) — paquete instalado en \(path)") { ctx in
+                if ext == "py" {
+                    let args = ([path] + ctx.args).map { "'" + $0.replacingOccurrences(of: "'", with: "") + "'" }.joined(separator: " ")
+                    return await ctx.sh.execute("python \(args)")
+                }
                 if ext == "mix" {
                     return await Shell.runMix(src, args: ctx.args, stdin: ctx.stdin, ctx: ctx)
                 }
@@ -274,6 +278,7 @@ extension Shell {
             let extra = args.isEmpty ? "" : " " + args
             switch u.pathExtension.lowercased() {
             case "swift": return await ctx.sh.execute("swift \(p)\(extra)")
+            case "py": return await ctx.sh.execute("python \(p)\(extra)")
             case "js": return await ctx.sh.execute("js \(p)\(extra)")
             case "sh": return await ctx.sh.execute("sh \(p)")
             case "json": return await ctx.sh.execute("json pretty \(p)")

@@ -216,3 +216,36 @@ Package.swift dentro del target: `swiftSettings: [.define("APPLE_COMPLETO")]`.
 - `api-local log` muestra quién llamó (humano o qué IA), qué y con qué resultado.
 - `http` al estilo HTTPie: `http POST localhost/usuarios nombre=Eva edad:=40`.
 - Las IAs la usan solas: memoria guarda en /memorias, curiosidad y sintesis la leen.
+
+---
+
+# Python, JavaScript de vuelta, ipa y unzip (1-oct-2026)
+
+## JavaScript y Swift vuelven
+JavaScriptCore ya no depende de APPLE_COMPLETO: `js`, `swift` y los paquetes
+.js funcionan otra vez. (Es la primera pieza de Apple que se reactiva, sola,
+para saber si es la que rompía el build.)
+
+## 40_Python.swift (nuevo): Python escrito en Swift
+- `python archivo.py [args]`, `python -c '...'`, `python` (interactivo, `>>>`),
+  `./archivo.py`, `run archivo.py`, y `/usr/bin/x.py` se llama `x`.
+- No depende de JavaScript: funciona en modo seguro, en las shells de las IAs
+  y en Linux.
+- int, float, str, bool, None, list, tuple, dict, set; if/elif/else, while, for
+  (con else), def (por defecto, *args, **kwargs), lambda, global, comprensiones,
+  f-strings con formato, slicing, try/except/finally, raise, clases con herencia,
+  with open(...), assert, del, desempaquetado (a, *resto = …).
+- Módulos: math, random, time, json, os (listdir, path…), sys (argv).
+- Seguro: corre en un hilo con pila grande, corta bucles infinitos y la
+  recursión infinita con el error de Python en vez de cerrar la app.
+- Comprobado contra Python 3.11 real con tres programas de prueba: salidas
+  idénticas (solo `dict.keys()` se muestra como lista).
+- No tiene: pip, generadores (yield), decoradores, async.
+
+## 41_Ipa.swift (nuevo)
+- `ipa <app.ipa>`: nombre, identificador, versión, iOS mínimo, dispositivos,
+  ejecutable, permisos y frameworks. `ipa permisos | info | lista | extrae`.
+  Lee el .ipa; no lo instala (iOS no lo permite).
+- `unzip [-l] archivo.zip [-d carpeta]` (no deja salir de tu espacio con ../).
+- Descompresor DEFLATE en Swift puro: gunzip y los .deb funcionan también en
+  modo seguro, y gzip genera .gz válidos sin Compression.framework.
