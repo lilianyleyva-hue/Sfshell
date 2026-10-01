@@ -322,9 +322,9 @@ extension Shell {
             return out
         }
 
-        c["pickFolder"] = Spec(help: "pickFolder — importa una carpeta entera de la app Archivos y entra en ella") { ctx in
-            ctx.sh.uiPickFolder?()
-            return "elige una carpeta…\n"
+        c["pickFolder"] = Spec(help: "pickFolder — (sin interfaz) cómo traer una carpeta") { _ in
+            throw ShErr("pickFolder: la terminal es solo texto. Copia la carpeta dentro de\n" +
+                        "Documentos/shell con la app Archivos y aparecerá aquí.")
         }
 
         // --- swift y run, con mensaje claro si no está el archivo ---
@@ -335,7 +335,7 @@ extension Shell {
             m += "aquí hay: " + (items.isEmpty ? "(nada todavía — prueba 'demo')" : items.joined(separator: "  ")) + "\n"
             m += "La terminal no ve los archivos del proyecto de Swift Playgrounds:\n"
             m += "ContentView.swift ya está compilado dentro de la app y no se puede leer.\n"
-            m += "Escribe el tuyo con 'nano \(p)' o tráelo desde Archivos con 'pick' (un archivo) o 'pickFolder' (una carpeta)."
+            m += "Escribe el tuyo con 'nano \(p)' o cópialo a Documentos/shell desde la app Archivos."
             return ShErr(m)
         }
 

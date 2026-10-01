@@ -30,13 +30,22 @@ final class ShellEnv: @unchecked Sendable {
     /// funciones definidas con  nombre() { … }
     var funcs: [String: [String]] = [:]
 
-    init() {
+    /// Carpeta real de la shell del humano (Documentos/shell).
+    static var raizHumano: URL {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let base = docs.appendingPathComponent("shell", isDirectory: true)
+        return docs.appendingPathComponent("shell", isDirectory: true)
+    }
+
+    /// - Parameters:
+    ///   - raiz: carpeta real que será "/" para esta shell. Cada IA tiene
+    ///     la suya y no puede salir de ella (ver resolve()).
+    ///   - usuario: nombre que verá en $USER y en el prompt.
+    init(raiz: URL? = nil, usuario: String = "mobile") {
+        let base = raiz ?? ShellEnv.raizHumano
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
         root = base.standardizedFileURL
         cwd = root
-        vars = ["HOME": "/", "USER": "mobile", "SHELL": "swiftsh", "PWD": "/", "TERM": "swiftshell"]
+        vars = ["HOME": "/", "USER": usuario, "SHELL": "swiftsh", "PWD": "/", "TERM": "swiftshell"]
         aliases = ["ll": "ls -l", "la": "ls -a", "node": "js", "..": "cd ..", "dir": "ls"]
     }
 

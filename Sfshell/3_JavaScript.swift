@@ -1,5 +1,10 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+#if canImport(JavaScriptCore)
 import JavaScriptCore
+#endif
 
 // ============================================================
 // MARK: - Motor JavaScript (JavaScriptCore)
@@ -7,6 +12,7 @@ import JavaScriptCore
 
 final class OutBox: @unchecked Sendable { var s = "" }
 
+#if canImport(JavaScriptCore)
 final class JSRuntime: @unchecked Sendable {
     private(set) var ctx: JSContext
     private let box = OutBox()
@@ -125,6 +131,17 @@ final class JSRuntime: @unchecked Sendable {
         return out
     }
 }
+#else
+/// Sin JavaScriptCore (Linux/Debian): el resto de la shell funciona igual,
+/// solo 'js' y 'swift' avisan de que no hay motor.
+final class JSRuntime: @unchecked Sendable {
+    weak var envRef: ShellEnv?
+    func reset() {}
+    func eval(_ code: String) throws -> String {
+        throw ShErr("js: no hay motor JavaScript en este sistema")
+    }
+}
+#endif
 
 // ============================================================
 // MARK: - Traductor de un subconjunto de Swift a JavaScript

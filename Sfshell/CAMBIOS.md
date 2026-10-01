@@ -120,3 +120,49 @@ estructuras de control, funciones y argumentos. `bash` es sinónimo de `sh`.
 - 36_Nyx.swift + CerebroResonante, ConsejoResonante, LenguaResh, MenteView — las 18 mentes (`nyx …`, `nyx ver`, app Nyx en el escritorio).
 - Retoques para conectarlas: 9_UI, 19_Simulacro (Huella/, Nyx/), 20_Apis, 30_Desktop.
 - 3_JavaScript y 12_CommandsMore: retocados para que también compilen en modo Swift 6.
+
+---
+
+# Solo texto + una shell para cada IA (1-oct-2026)
+
+## Sin interfaz gráfica
+- Fuera: 9_UI, 23_Media (cámara/dibujo), 27_Settings, 30_Desktop, 31_Browser,
+  32_Monitor y MenteView. `nyx ver` ya no existe.
+- **1_App.swift**: una sola pantalla de texto (salida + línea para escribir).
+  En Linux/Debian el mismo proyecto compila como programa de terminal.
+- **16_Plantillas.swift**: queda `new` (plantillas por idioma); `files` se fue.
+- **34_Editor.swift** (nuevo): `nano`/`vi`/`edit` editan en la propia terminal:
+  texto suelto se añade · `:p` ver · `:3 texto` cambiar · `:i 3 texto` insertar ·
+  `:d 3-5` borrar · `:s/a/b/` reemplazar · `:w` `:q` `:wq` · `:r` guardar y ejecutar.
+- `pick`, `pickFolder` y `save` explican cómo usar la carpeta Documentos/shell.
+- **0_Plataforma.swift** (nuevo): portapapeles, dispositivo, etc. CryptoKit,
+  Compression, Network y JavaScriptCore van con `#if canImport`: en Linux
+  la shell compila entera (solo `js`/`swift` avisan de que no hay motor).
+
+## Cada IA con su espacio y su shell (37_IAs.swift, nuevo)
+- Las 18 mentes de Nyx tienen cada una su carpeta `/ias/<rol>` con
+  Escritorio, Documentos, buzon y scripts. Para ella eso es `/`: no puede salir.
+- Cada una tiene su propia Shell completa (historial, variables, alias,
+  funciones) y control total dentro de su espacio. Si se borra todo,
+  sus carpetas vuelven vacías.
+- Lo que pasa en su shell vuelve a su mente: éxito = `ko`, fallo = `ne`.
+- Bitácora en memoria y en su disco: `/Documentos/bitacora.log`.
+
+### Tus comandos
+    ias                         las 18: archivos, tamaño, último comando
+    ia <rol>                    estado, mente y bitácora
+    ia <rol> <comando …>        en SU shell (>, |, $VAR también son suyos)
+    ia entra <rol>              tu terminal pasa a su shell · salir
+    ia todas <comando …>        en las 18
+    ia tarea <rol> <comando …>  lo hará en su próximo turno
+    ia turno [n]                n rondas: cada una actúa una vez
+    ia libres [s] · ia quietas  actúan solas / se detienen
+    ia bitacora <rol> [n]
+
+### Los comandos de ellas (dentro de su shell)
+    yo · pienso <tema> · digo <msg> · oigo [n] · nota <texto> · diario [n]
+    escritorio · envia <rol|humano> <archivo> · buzon · aprende es = resh · actua
+
+Cuando actúan solas, cada una escribe su diario y hace lo de su rol con
+órdenes reales: codigo escribe y corre guiones, narrativa escribe una
+historia, analogia manda ideas a otras, etica cuida el espacio, etc.

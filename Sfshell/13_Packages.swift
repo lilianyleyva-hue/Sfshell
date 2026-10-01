@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 // ============================================================
 // MARK: - Paquetes: instalar scripts y usarlos como comandos

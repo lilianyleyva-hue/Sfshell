@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(CryptoKit)
 import CryptoKit
+#endif
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -594,8 +596,7 @@ extension Shell {
                 out += await ctx.sh.execute("wget \(destino)")
 
             case "import":
-                ctx.sh.uiPick?()
-                out += "abriendo el selector de archivos…\n"
+                out += "Get/import: copia el archivo a Documentos/shell con la app Archivos\n"
 
             case "wed", "web":
                 let u = arg.isEmpty ? resto() : arg
@@ -938,7 +939,11 @@ extension Shell {
                     out += "Hash/: \(n) no existe\n"; break
                 }
                 // se hashean los bytes reales, no el texto (los binarios daban hash falso)
+                #if canImport(CryptoKit)
                 let h = SHA256.hash(data: datos).map { String(format: "%02x", $0) }.joined()
+                #else
+                let h = Plataforma.fnv64(datos)
+                #endif
                 ctx.env.vars["HASH"] = h
                 out += h + "\n"
 

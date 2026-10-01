@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationXML)
+import FoundationXML
+#endif
 
 // ============================================================
 // MARK: - Utilidades de datos (JSON / XML / plist)

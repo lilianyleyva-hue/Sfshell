@@ -11,7 +11,6 @@ import Foundation
 // nyx mentes              precisión y tamaño de cada mente
 // nyx despierta | duerme  pensamiento continuo encendido / apagado
 // nyx guarda              guarda su memoria ya
-// nyx ver                 abre la ventana de Nyx
 // nyx log                 lo último que pasó en el consejo
 // Simulacro: Nyx/pregunta
 // Memoria: /var/nyx/memoria.json
@@ -90,7 +89,7 @@ extension Shell {
     static func nyx() -> [String: Spec] {
         var c: [String: Spec] = [:]
 
-        c["nyx"] = Spec(help: "nyx <pregunta> — las 18 mentes deliberan · nyx habla|enseña|resh|mentes|despierta|duerme|guarda|ver|log") { ctx in
+        c["nyx"] = Spec(help: "nyx <pregunta> — las 18 mentes deliberan · nyx habla|enseña|resh|mentes|despierta|duerme|guarda|log") { ctx in
             let nucleo = NyxNucleo.uno
             let consejo = nucleo.consejo
             let url = try? ctx.env.resolve(NyxNucleo.ruta)
@@ -107,7 +106,7 @@ extension Shell {
                 let despiertas = await consejo.despiertas
                 out += "nyx: \(estado.count) mentes · \(semiones) semiones · \(palabras) palabras aprendidas · "
                 out += despiertas ? "despiertas\n" : "dormidas (solo piensan cuando les hablas)\n"
-                out += "  nyx <pregunta> · nyx habla <msg> · nyx enseña árbol = kash · nyx ver\n"
+                out += "  nyx <pregunta> · nyx habla <msg> · nyx enseña árbol = kash\n"
                 return out
 
             case "habla":
@@ -158,11 +157,6 @@ extension Shell {
             case "guarda":
                 let ok = await nucleo.guardar()
                 return out + (ok ? "nyx: memoria guardada en \(NyxNucleo.ruta)\n" : "nyx: no pude guardar\n")
-
-            case "ver":
-                guard let abrir = ctx.sh.uiNyx else { return out + "nyx: no hay ventana disponible\n" }
-                abrir()
-                return out
 
             case "log":
                 return out + (await consejo.recentLog(20)).joined(separator: "\n") + "\n"

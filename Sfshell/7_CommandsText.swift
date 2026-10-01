@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(CryptoKit)
 import CryptoKit
+#endif
 
 // ============================================================
 // MARK: - Comandos: texto
@@ -164,8 +166,12 @@ extension Shell {
 
         c["sha256"] = Spec(help: "sha256 [archivo...] — huella criptográfica") { ctx in
             let t = try ctx.input(ctx.args)
+            #if canImport(CryptoKit)
             let h = SHA256.hash(data: Data(t.utf8))
             return h.map { String(format: "%02x", $0) }.joined() + "\n"
+            #else
+            return Plataforma.fnv64(Data(t.utf8)) + "  (fnv64: no hay SHA256 en este sistema)\n"
+            #endif
         }
 
         c["xxd"] = Spec(help: "xxd <archivo> — volcado hexadecimal") { ctx in

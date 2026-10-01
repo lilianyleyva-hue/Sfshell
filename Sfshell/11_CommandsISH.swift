@@ -1,5 +1,10 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+#if canImport(CryptoKit)
 import CryptoKit
+#endif
 
 // ============================================================
 // MARK: - Comandos al estilo iSH / BusyBox
@@ -157,9 +162,13 @@ extension Shell {
                 return out
             }
         }
+        #if canImport(CryptoKit)
         c["md5sum"] = hashCmd("md5sum") { Insecure.MD5.hash(data: $0).map { String(format: "%02x", $0) }.joined() }
         c["sha1sum"] = hashCmd("sha1sum") { Insecure.SHA1.hash(data: $0).map { String(format: "%02x", $0) }.joined() }
         c["sha256sum"] = hashCmd("sha256sum") { SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() }
+        #else
+        c["fnvsum"] = hashCmd("fnvsum") { Plataforma.fnv64($0) }
+        #endif
 
         // --- texto y archivos --------------------------------------
 
@@ -286,7 +295,11 @@ extension Shell {
             guard let host = ctx.args.first else { throw ShErr("nslookup: falta el dominio") }
             var hints = addrinfo()
             hints.ai_family = AF_UNSPEC
+            #if os(Linux)
+            hints.ai_socktype = Int32(SOCK_STREAM.rawValue)
+            #else
             hints.ai_socktype = SOCK_STREAM
+            #endif
             var info: UnsafeMutablePointer<addrinfo>?
             let status = getaddrinfo(host, nil, &hints, &info)
             guard status == 0, let start = info else {

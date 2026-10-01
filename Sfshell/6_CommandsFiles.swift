@@ -340,17 +340,18 @@ extension Shell {
             return "encendido hace \(up / 3600)h \((up % 3600) / 60)m\n"
         }
 
-        c["pick"] = Spec(help: "pick — importa archivos desde la app Archivos") { ctx in
-            ctx.sh.uiPick?()
-            return "abriendo el selector de archivos…\n"
+        // Sin selector ni ventana de exportar: la carpeta de la shell ya es
+        // Documentos/shell, visible desde la app Archivos.
+        c["pick"] = Spec(help: "pick — cómo traer archivos (sin interfaz)") { _ in
+            "pick: copia tus archivos dentro de Documentos/shell con la app Archivos;\n" +
+            "aparecen aquí al instante (prueba 'ls').\n"
         }
 
-        c["save"] = Spec(help: "save <archivo> — exporta un archivo a la app Archivos") { ctx in
+        c["save"] = Spec(help: "save <archivo> — dónde encontrar un archivo desde la app Archivos") { ctx in
             guard let p = ctx.args.first else { throw ShErr("save: falta el archivo") }
             let u = try ctx.env.resolve(p)
             guard ctx.env.exists(u), !ctx.env.isDir(u) else { throw ShErr("save: \(p): no es un archivo") }
-            ctx.sh.uiSave?(u)
-            return "exportando \(p)…\n"
+            return "\(p) ya está en Archivos: Documentos/shell\(ctx.env.vpath(u))\n"
         }
 
         c["nano"] = Spec(help: "nano <archivo> — editor de pantalla completa (crea el archivo si no existe)") { ctx in
@@ -358,6 +359,9 @@ extension Shell {
             let u = try ctx.env.resolve(p)
             if !ctx.env.exists(u) { FileManager.default.createFile(atPath: u.path, contents: Data()) }
             guard !ctx.env.isDir(u) else { throw ShErr("nano: \(p): es un directorio") }
+            guard ctx.sh.uiEdit != nil else {
+                throw ShErr("nano: en la shell de una IA se escribe con echo, cat > o sed")
+            }
             ctx.sh.uiEdit?(u)
             return ""
         }

@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(Compression)
 import Compression
+#endif
 
 // ============================================================
 // MARK: - Deb / dpkg
@@ -142,6 +144,9 @@ enum Gzip {
             cuerpo = b                                 // deflate sin cabecera
         }
         guard !cuerpo.isEmpty else { return Data() }
+        #if !canImport(Compression)
+        return nil   // sin Compression.framework (Linux): no hay inflate
+        #else
         var capacidad = esperado > 0 ? esperado : max(cuerpo.count * 8, 4096)
         for _ in 0..<6 {
             let dst = UnsafeMutablePointer<UInt8>.allocate(capacity: capacidad)
@@ -156,6 +161,7 @@ enum Gzip {
             capacidad *= 4                             // no cupo: más espacio
         }
         return nil
+        #endif
     }
 }
 

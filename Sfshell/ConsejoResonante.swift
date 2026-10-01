@@ -142,6 +142,23 @@ actor ConsejoResonante {
         appendLog("percepción: \(hecho.prefix(40))")
     }
 
+    // ---------- Para las shells de las IAs (37_IAs.swift) ----------
+
+    /// La mente de un rol, para que su shell pueda consultarla.
+    func mente(_ rol: RolMental) -> ResonantMind? {
+        mentes.first(where: { $0.rol == rol })?.mente
+    }
+
+    /// Una IA habla al éter desde su shell ('digo …'): lo oyen las otras 17
+    /// y queda en el chat con su nombre.
+    func difundir(de emisor: RolMental, mensaje: String) async {
+        for (rol, mente) in mentes where rol != emisor {
+            await mente.recibir(mensaje: mensaje, de: emisor.rawValue, tipo: .dato)
+        }
+        publicar(autor: emisor.rawValue, texto: mensaje)
+        appendLog("\(emisor.rawValue) [shell]: \(mensaje.prefix(44))")
+    }
+
     func traducirAresh(_ texto: String) async -> String {
         guard let m = mentes.first(where: { $0.rol == .semantica })?.mente ?? mentes.first?.mente else { return texto }
         return await m.decirEnResh(texto)

@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(AVFoundation)
 import AVFoundation
+#endif
 
 // MARK: - Contexto de comando
 // ============================================================
@@ -80,24 +82,29 @@ func humanSize(_ n: Int) -> String {
 // ============================================================
 
 final class Shell: @unchecked Sendable {
-    let env = ShellEnv()
+    let env: ShellEnv
+    /// Si esta shell es la de una IA, cuál. nil = la del humano.
+    let rolIA: RolMental?
     let js = JSRuntime()
+    #if canImport(AVFoundation)
     let speech = AVSpeechSynthesizer()   // para 'say': si se crea una nueva cada vez, se corta a medias
+    #endif
     var commands: [String: Spec] = [:]
     var adivinaEstado: AdivinaState?     // partida en marcha del juego 'adivina' (48 reglas)
 
-    // Ganchos de interfaz (los conecta la vista)
+    // Ganchos de la terminal de texto (solo texto: no hay ventanas)
     var uiClear: (@Sendable () -> Void)?
-    var uiPick: (@Sendable () -> Void)?
-    var uiPickFolder: (@Sendable () -> Void)?
-    var uiFiles: (@Sendable () -> Void)?
-    var uiCamera: (@Sendable () -> Void)?
-    var uiDraw: (@Sendable (String, String) -> Void)?
     var uiType: (@Sendable (String) -> Void)?
-    var uiSave: (@Sendable (URL) -> Void)?
+    /// Abre el editor de líneas (34_Editor.swift). Las shells de las IAs
+    /// no lo tienen: ellas escriben con echo, cat > y sed.
     var uiEdit: (@Sendable (URL) -> Void)?
-    var uiBrowser: (@Sendable (String?) -> Void)?
-    var uiNyx: (@Sendable () -> Void)?   // abre la ventana de las 18 mentes
+
+    /// Editor de texto abierto (nano/vi/edit): las líneas van a él.
+    var editor: EdicionTexto?
+    /// Lo que el editor quiere mostrar al abrirse.
+    var avisoEditor: String?
+    /// 'ia entra <rol>': la terminal habla con la shell de esa IA.
+    var dentroDe: Shell?
 
     /// Idioma activo del intérprete de la terminal.
     enum Lang: String, CaseIterable {
@@ -118,7 +125,9 @@ final class Shell: @unchecked Sendable {
     var bgJobs: [Trabajo] = []
     var bgNext = 1
 
-    init() {
+    init(raiz: URL? = nil, usuario: String = "mobile", rolIA: RolMental? = nil) {
+        env = ShellEnv(raiz: raiz, usuario: usuario)
+        self.rolIA = rolIA
         // El registro se arma con un bucle y no con una cadena de
         // '.merging(...)': esa cadena era tan larga que el compilador se
         // rendía ("unable to type-check this expression in reasonable
@@ -131,18 +140,28 @@ final class Shell: @unchecked Sendable {
         // Al final, las IAs propias: Huella (aprende viendo) y Nyx (18 mentes)
         let modulos: [[String: Spec]] = [
             Shell.extras(), Shell.ish(), Shell.more(), Shell.packages(), Shell.deb(),
-            Shell.shellPlus(), Shell.filesUI(), Shell.apk(), Shell.simulacro(), Shell.apis(),
-            Shell.esc(), Shell.objetos(), Shell.media(), Shell.mixCommands(), Shell.git(),
-            Shell.macos(), Shell.logicGame(), Shell.unixMas(), Shell.browserCmd(), Shell.bash(),
-            Shell.huella(), Shell.nyx()
+            Shell.shellPlus(), Shell.plantillasCmd(), Shell.apk(), Shell.simulacro(), Shell.apis(),
+            Shell.esc(), Shell.objetos(), Shell.mixCommands(), Shell.git(),
+            Shell.macos(), Shell.logicGame(), Shell.unixMas(), Shell.bash(),
+            Shell.huella(), Shell.nyx(), Shell.ias(), Shell.comandosIA()
         ]
         for m in modulos { cmds.merge(m) { _, b in b } }
         commands = cmds
         js.envRef = env
         loadHistory()
+        // El editor de texto es parte de la shell (no de una vista). Solo
+        // la del humano lo usa: una IA no teclea línea a línea.
+        if rolIA == nil {
+            uiEdit = { [weak self] url in self?.abrirEditor(url) }
+        }
     }
 
     var prompt: String {
+        if let d = dentroDe { return d.prompt }
+        if let e = editor { return "\(e.nombre)·\(e.lineas.count + 1)> " }
+        if let r = rolIA, mode == .shell, heredocPend == nil, blockBuffer.isEmpty {
+            return "\(r.rawValue)@ia:\(env.vpath(env.cwd)) $ "
+        }
         if heredocPend != nil || !blockBuffer.isEmpty { return "> " }
         if mode == .shell { return "\(env.vpath(env.cwd)) $ " }
         return buffer.isEmpty ? "\(mode.rawValue)> " : "\(mode.rawValue)… "
@@ -208,6 +227,23 @@ final class Shell: @unchecked Sendable {
 
     func execute(_ line: String) async -> String {
         var trimmed = line.trimmingCharacters(in: .whitespaces)
+
+        // --- dentro de la shell de una IA ('ia entra <rol>') ---
+        if let d = dentroDe {
+            if ["salir", "exit", "logout"].contains(trimmed) {
+                dentroDe = nil
+                return "de vuelta a tu shell\n"
+            }
+            return await SistemaIAs.uno.ejecutar(line, en: d, por: "humano")
+        }
+
+        // --- editor de texto abierto ---
+        if editor != nil { return await lineaEditor(line) }
+
+        // --- 'ia <rol> …': la línea entera (con >, |, $VAR…) es para SU shell ---
+        if rolIA == nil, trimmed.hasPrefix("ia "), let r = await SistemaIAs.uno.lineaCruda(trimmed, self) {
+            return r
+        }
 
         // --- dentro de un modo de idioma: todo lo escrito es código ---
         if mode != .shell {
@@ -414,6 +450,7 @@ final class Shell: @unchecked Sendable {
                 let ctx = Ctx(name: name, args: Array(argv.dropFirst()), stdin: stdin, sh: self)
                 do { salida = try await spec.run(ctx) }
                 catch { fallo = errText(error) }
+                if let a = avisoEditor { salida += a; avisoEditor = nil }
             } else {
                 fallo = "\(name): comando no encontrado (escribe 'help' o 'pkg search')"
             }

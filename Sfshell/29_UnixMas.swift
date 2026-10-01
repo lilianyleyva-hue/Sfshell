@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(Compression)
 import Compression
+#endif
 
 // ============================================================
 // MARK: - Lo que faltaba del catálogo clásico de Unix/Linux
@@ -22,6 +24,9 @@ extension Gzip {
         if bytes.isEmpty {
             payload = Data()
         } else {
+            #if !canImport(Compression)
+            return nil   // sin Compression.framework (Linux)
+            #else
             let capacity = max(bytes.count + 512, 256)
             let dst = UnsafeMutablePointer<UInt8>.allocate(capacity: capacity)
             defer { dst.deallocate() }
@@ -31,6 +36,7 @@ extension Gzip {
             }
             guard n > 0 else { return nil }
             payload = Data(bytes: dst, count: n)
+            #endif
         }
         var out = Data([0x1f, 0x8b, 0x08, 0x00, 0, 0, 0, 0, 0x00, 0xff])   // cabecera gzip mínima
         out.append(payload)
@@ -143,11 +149,16 @@ extension Shell {
             while let n = nodo {
                 let iface = n.pointee
                 let nombre = String(cString: iface.ifa_name)
-                if let sa = iface.ifa_addr, sa.pointee.sa_family == UInt8(AF_INET) || sa.pointee.sa_family == UInt8(AF_INET6) {
+                if let sa = iface.ifa_addr, sa.pointee.sa_family == sa_family_t(AF_INET) || sa.pointee.sa_family == sa_family_t(AF_INET6) {
                     var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-                    getnameinfo(sa, socklen_t(sa.pointee.sa_len), &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST)
+                    #if os(Linux)
+                    let largo = socklen_t(sa.pointee.sa_family == sa_family_t(AF_INET) ? MemoryLayout<sockaddr_in>.size : MemoryLayout<sockaddr_in6>.size)
+                    #else
+                    let largo = socklen_t(sa.pointee.sa_len)
+                    #endif
+                    getnameinfo(sa, largo, &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST)
                     let addr = String(cString: host)
-                    let etiqueta = (sa.pointee.sa_family == UInt8(AF_INET) ? "inet  " : "inet6 ") + addr
+                    let etiqueta = (sa.pointee.sa_family == sa_family_t(AF_INET) ? "inet  " : "inet6 ") + addr
                     if direcciones[nombre] == nil { orden.append(nombre) }
                     direcciones[nombre, default: []].append(etiqueta)
                 }

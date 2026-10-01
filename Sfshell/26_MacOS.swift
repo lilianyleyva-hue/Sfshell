@@ -1,6 +1,10 @@
 import Foundation
+#if canImport(UIKit)
 import UIKit
+#endif
+#if canImport(AVFoundation)
 import AVFoundation
+#endif
 
 // ============================================================
 // MARK: - Sabor macOS (y un par de herramientas Linux más)
@@ -27,26 +31,30 @@ extension Shell {
             guard !texto.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw ShErr("say: falta el texto")
             }
+            #if canImport(AVFoundation)
             await MainActor.run {
                 let u = AVSpeechUtterance(string: texto)
                 u.voice = AVSpeechSynthesisVoice(language: Locale.current.identifier) ?? AVSpeechSynthesisVoice(language: "es-ES")
                 ctx.sh.speech.speak(u)
             }
             return "🔊 \(texto)\n"
+            #else
+            return "(sin voz en este sistema) \(texto)\n"
+            #endif
         }
 
         c["caffeinate"] = Spec(help: "caffeinate [on|off] — evita que la pantalla se apague, como en macOS") { ctx in
             let on = ctx.args.first?.lowercased() != "off"
+            #if canImport(UIKit)
             await MainActor.run { UIApplication.shared.isIdleTimerDisabled = on }
+            #endif
             return on ? "pantalla despierta mientras dure la sesión ('caffeinate off' para soltarla)\n"
                       : "ya puede apagarse la pantalla otra vez\n"
         }
 
         c["sw_vers"] = Spec(help: "sw_vers — versión del sistema, al estilo macOS") { _ in
-            await MainActor.run {
-                let d = UIDevice.current
-                return "ProductName:\t\(d.systemName)\nProductVersion:\t\(d.systemVersion)\nModelo:\t\t\(d.model)\n"
-            }
+            let d = await Plataforma.dispositivo()
+            return "ProductName:\t\(d.sistema)\nProductVersion:\t\(d.version)\nModelo:\t\t\(d.modelo)\n"
         }
 
         c["system_profiler"] = Spec(help: "system_profiler — lo mismo que 'device', con el nombre de macOS") { ctx in

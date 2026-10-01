@@ -1,6 +1,13 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+#if canImport(Network)
 import Network
+#endif
+#if canImport(UIKit)
 import UIKit
+#endif
 
 // ============================================================
 // MARK: - Comandos al estilo Blink y Termux, más algunos extras
@@ -8,6 +15,7 @@ import UIKit
 
 final class Once: @unchecked Sendable { var done = false }
 
+#if canImport(Network)
 enum TCP {
     /// Abre una conexión TCP, manda un texto y devuelve lo que llegue.
     static func request(host: String, port: UInt16, send: String, timeout: Double = 15) async throws -> String {
@@ -60,6 +68,13 @@ enum TCP {
         }
     }
 }
+#else
+enum TCP {
+    static func request(host: String, port: UInt16, send: String, timeout: Double = 15) async throws -> String {
+        throw ShErr("nc: sin conexiones TCP directas en este sistema")
+    }
+}
+#endif
 
 extension Shell {
 
@@ -110,7 +125,9 @@ extension Shell {
             guard let s = ctx.args.first else { throw ShErr("open: falta la dirección") }
             let full = s.contains("://") ? s : "https://" + s
             guard let url = URL(string: full) else { throw ShErr("open: dirección no válida") }
+            #if canImport(UIKit)
             await MainActor.run { UIApplication.shared.open(url) }
+            #endif
             return "abriendo \(full)\n"
         }
         c["link"] = c["open"]
@@ -140,7 +157,8 @@ extension Shell {
         }
 
         c["battery"] = Spec(help: "battery — estado de la batería") { _ in
-            await MainActor.run {
+            #if canImport(UIKit)
+            return await MainActor.run {
                 let d = UIDevice.current
                 d.isBatteryMonitoringEnabled = true
                 let pct = d.batteryLevel < 0 ? "desconocido" : "\(Int(d.batteryLevel * 100))%"
@@ -153,41 +171,44 @@ extension Shell {
                 }
                 return "nivel   \(pct)\nestado  \(estado)\n"
             }
+            #else
+            return "battery: no disponible en este sistema\n"
+            #endif
         }
         c["termux-battery-status"] = c["battery"]
 
         c["clip"] = Spec(help: "clip — copia la entrada al portapapeles") { ctx in
             let t = ctx.stdin.isEmpty ? ctx.args.joined(separator: " ") : ctx.stdin
             guard !t.isEmpty else { throw ShErr("clip: no hay nada que copiar") }
-            await MainActor.run { UIPasteboard.general.string = t }
+            await Plataforma.copiar(t)
             return "copiados \(t.count) caracteres\n"
         }
         c["termux-clipboard-set"] = c["clip"]
 
         c["clipget"] = Spec(help: "clipget — pega el contenido del portapapeles") { _ in
-            let t = await MainActor.run { UIPasteboard.general.string ?? "" }
+            let t = await Plataforma.pegar()
             return t.isEmpty ? "(portapapeles vacío)\n" : t + "\n"
         }
         c["termux-clipboard-get"] = c["clipget"]
 
         c["vibrate"] = Spec(help: "vibrate — hace vibrar el dispositivo") { _ in
+            #if canImport(UIKit)
             await MainActor.run {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             }
+            #endif
             return ""
         }
         c["termux-vibrate"] = c["vibrate"]
 
         c["device"] = Spec(help: "device — información del iPad") { _ in
-            await MainActor.run {
-                let d = UIDevice.current
-                var out = "nombre    \(d.name)\n"
-                out += "modelo    \(d.model)\n"
-                out += "sistema   \(d.systemName) \(d.systemVersion)\n"
-                out += "pantalla  \(Int(UIScreen.main.bounds.width))x\(Int(UIScreen.main.bounds.height))\n"
-                out += "núcleos   \(ProcessInfo.processInfo.activeProcessorCount)\n"
-                return out
-            }
+            let d = await Plataforma.dispositivo()
+            var out = "nombre    \(d.nombre)\n"
+            out += "modelo    \(d.modelo)\n"
+            out += "sistema   \(d.sistema) \(d.version)\n"
+            out += "pantalla  \(d.pantalla)\n"
+            out += "núcleos   \(ProcessInfo.processInfo.activeProcessorCount)\n"
+            return out
         }
         c["termux-info"] = c["device"]
 
