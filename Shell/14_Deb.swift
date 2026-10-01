@@ -1,5 +1,5 @@
 import Foundation
-#if canImport(Compression)
+#if (canImport(Compression) && APPLE_COMPLETO)
 import Compression
 #endif
 
@@ -144,7 +144,7 @@ enum Gzip {
             cuerpo = b                                 // deflate sin cabecera
         }
         guard !cuerpo.isEmpty else { return Data() }
-        #if !canImport(Compression)
+        #if !(canImport(Compression) && APPLE_COMPLETO)
         return nil   // sin Compression.framework (Linux): no hay inflate
         #else
         var capacidad = esperado > 0 ? esperado : max(cuerpo.count * 8, 4096)

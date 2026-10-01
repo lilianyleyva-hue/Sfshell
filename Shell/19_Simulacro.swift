@@ -1,8 +1,8 @@
 import Foundation
-#if canImport(CryptoKit)
+#if (canImport(CryptoKit) && APPLE_COMPLETO)
 import CryptoKit
 #endif
-#if canImport(UIKit)
+#if (canImport(UIKit) && APPLE_COMPLETO)
 import UIKit
 #endif
 
@@ -939,7 +939,7 @@ extension Shell {
                     out += "Hash/: \(n) no existe\n"; break
                 }
                 // se hashean los bytes reales, no el texto (los binarios daban hash falso)
-                #if canImport(CryptoKit)
+                #if (canImport(CryptoKit) && APPLE_COMPLETO)
                 let h = SHA256.hash(data: datos).map { String(format: "%02x", $0) }.joined()
                 #else
                 let h = Plataforma.fnv64(datos)
@@ -1014,7 +1014,7 @@ extension Shell {
                 let contenido = delArchivo.isEmpty ? objetivo : delArchivo
                 // antes pasaba por la línea de comandos: los saltos de línea,
                 // comillas y '|' del archivo rompían la copia
-                #if canImport(UIKit)
+                #if (canImport(UIKit) && APPLE_COMPLETO)
                 await MainActor.run { UIPasteboard.general.string = contenido }
                 out += "copiados \(contenido.count) caracteres" + (delArchivo.isEmpty ? "" : " de \(objetivo)") + "\n"
                 #else

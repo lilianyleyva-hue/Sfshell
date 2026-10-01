@@ -2,7 +2,7 @@ import Foundation
 #if os(Linux) && canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
-#if canImport(CryptoKit)
+#if (canImport(CryptoKit) && APPLE_COMPLETO)
 import CryptoKit
 #endif
 
@@ -162,7 +162,7 @@ extension Shell {
                 return out
             }
         }
-        #if canImport(CryptoKit)
+        #if (canImport(CryptoKit) && APPLE_COMPLETO)
         c["md5sum"] = hashCmd("md5sum") { Insecure.MD5.hash(data: $0).map { String(format: "%02x", $0) }.joined() }
         c["sha1sum"] = hashCmd("sha1sum") { Insecure.SHA1.hash(data: $0).map { String(format: "%02x", $0) }.joined() }
         c["sha256sum"] = hashCmd("sha256sum") { SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined() }

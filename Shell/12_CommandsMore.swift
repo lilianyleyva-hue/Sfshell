@@ -2,10 +2,10 @@ import Foundation
 #if os(Linux) && canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
-#if canImport(Network)
+#if (canImport(Network) && APPLE_COMPLETO)
 import Network
 #endif
-#if canImport(UIKit)
+#if (canImport(UIKit) && APPLE_COMPLETO)
 import UIKit
 #endif
 
@@ -15,7 +15,7 @@ import UIKit
 
 final class Once: @unchecked Sendable { var done = false }
 
-#if canImport(Network)
+#if (canImport(Network) && APPLE_COMPLETO)
 enum TCP {
     /// Abre una conexión TCP, manda un texto y devuelve lo que llegue.
     static func request(host: String, port: UInt16, send: String, timeout: Double = 15) async throws -> String {
@@ -125,7 +125,7 @@ extension Shell {
             guard let s = ctx.args.first else { throw ShErr("open: falta la dirección") }
             let full = s.contains("://") ? s : "https://" + s
             guard let url = URL(string: full) else { throw ShErr("open: dirección no válida") }
-            #if canImport(UIKit)
+            #if (canImport(UIKit) && APPLE_COMPLETO)
             await MainActor.run { UIApplication.shared.open(url) }
             #endif
             return "abriendo \(full)\n"
@@ -157,7 +157,7 @@ extension Shell {
         }
 
         c["battery"] = Spec(help: "battery — estado de la batería") { _ in
-            #if canImport(UIKit)
+            #if (canImport(UIKit) && APPLE_COMPLETO)
             return await MainActor.run {
                 let d = UIDevice.current
                 d.isBatteryMonitoringEnabled = true
@@ -192,7 +192,7 @@ extension Shell {
         c["termux-clipboard-get"] = c["clipget"]
 
         c["vibrate"] = Spec(help: "vibrate — hace vibrar el dispositivo") { _ in
-            #if canImport(UIKit)
+            #if (canImport(UIKit) && APPLE_COMPLETO)
             await MainActor.run {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             }

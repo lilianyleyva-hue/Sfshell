@@ -1,5 +1,5 @@
 import Foundation
-#if canImport(CryptoKit)
+#if (canImport(CryptoKit) && APPLE_COMPLETO)
 import CryptoKit
 #endif
 
@@ -166,7 +166,7 @@ extension Shell {
 
         c["sha256"] = Spec(help: "sha256 [archivo...] — huella criptográfica") { ctx in
             let t = try ctx.input(ctx.args)
-            #if canImport(CryptoKit)
+            #if (canImport(CryptoKit) && APPLE_COMPLETO)
             let h = SHA256.hash(data: Data(t.utf8))
             return h.map { String(format: "%02x", $0) }.joined() + "\n"
             #else

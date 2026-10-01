@@ -1,5 +1,5 @@
 import Foundation
-#if canImport(AVFoundation)
+#if (canImport(AVFoundation) && APPLE_COMPLETO)
 import AVFoundation
 #endif
 
@@ -86,7 +86,7 @@ final class Shell: @unchecked Sendable {
     /// Si esta shell es la de una IA, cuál. nil = la del humano.
     let rolIA: RolMental?
     let js = JSRuntime()
-    #if canImport(AVFoundation)
+    #if (canImport(AVFoundation) && APPLE_COMPLETO)
     let speech = AVSpeechSynthesizer()   // para 'say': si se crea una nueva cada vez, se corta a medias
     #endif
     var commands: [String: Spec] = [:]

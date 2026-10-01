@@ -1,5 +1,5 @@
 import Foundation
-#if canImport(Compression)
+#if (canImport(Compression) && APPLE_COMPLETO)
 import Compression
 #endif
 
@@ -24,7 +24,7 @@ extension Gzip {
         if bytes.isEmpty {
             payload = Data()
         } else {
-            #if !canImport(Compression)
+            #if !(canImport(Compression) && APPLE_COMPLETO)
             return nil   // sin Compression.framework (Linux)
             #else
             let capacity = max(bytes.count + 512, 256)

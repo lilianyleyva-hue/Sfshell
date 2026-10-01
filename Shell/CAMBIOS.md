@@ -166,3 +166,21 @@ estructuras de control, funciones y argumentos. `bash` es sinónimo de `sh`.
 Cuando actúan solas, cada una escribe su diario y hace lo de su rol con
 órdenes reales: codigo escribe y corre guiones, narrativa escribe una
 historia, analogia manda ideas a otras, etica cuida el espacio, etc.
+
+---
+
+# Modo seguro para el build del iPad (1-oct-2026)
+
+Las partes que dependen de frameworks exclusivos de Apple (JavaScriptCore,
+CryptoKit, Compression, Network, AVFoundation, UIKit) ahora solo se
+compilan si se define la condición `APPLE_COMPLETO`. Sin ella (lo normal en
+Swift Playgrounds) la app usa las versiones de texto: compila solo con
+Foundation + SwiftUI.
+
+Qué cambia en modo seguro: `js`/`swift` avisan que no hay motor, `say`
+muestra el texto, `sha256` da una huella fnv64, `gzip`/`.deb` no
+descomprimen, `nc` no abre TCP, `clip` usa un portapapeles interno.
+Todo lo demás (shell, IAs, Nyx, Simulacro, red con curl/wget) funciona igual.
+
+Para volver al modo completo, define `APPLE_COMPLETO`; por ejemplo, en
+Package.swift dentro del target: `swiftSettings: [.define("APPLE_COMPLETO")]`.

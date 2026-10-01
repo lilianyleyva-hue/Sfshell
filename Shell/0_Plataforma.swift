@@ -1,5 +1,5 @@
 import Foundation
-#if canImport(UIKit)
+#if (canImport(UIKit) && APPLE_COMPLETO)
 import UIKit
 #endif
 
@@ -19,7 +19,7 @@ enum Plataforma {
     private static let caja = Caja()
 
     static func copiar(_ t: String) async {
-        #if canImport(UIKit)
+        #if (canImport(UIKit) && APPLE_COMPLETO)
         await MainActor.run { UIPasteboard.general.string = t }
         #else
         caja.l.conCandado { caja.texto = t }
@@ -27,7 +27,7 @@ enum Plataforma {
     }
 
     static func pegar() async -> String {
-        #if canImport(UIKit)
+        #if (canImport(UIKit) && APPLE_COMPLETO)
         return await MainActor.run { UIPasteboard.general.string ?? "" }
         #else
         return caja.l.conCandado { caja.texto }
@@ -35,7 +35,7 @@ enum Plataforma {
     }
 
     static func dispositivo() async -> (nombre: String, modelo: String, sistema: String, version: String, pantalla: String) {
-        #if canImport(UIKit)
+        #if (canImport(UIKit) && APPLE_COMPLETO)
         return await MainActor.run {
             let d = UIDevice.current
             let b = UIScreen.main.bounds

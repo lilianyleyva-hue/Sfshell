@@ -1,8 +1,8 @@
 import Foundation
-#if canImport(UIKit)
+#if (canImport(UIKit) && APPLE_COMPLETO)
 import UIKit
 #endif
-#if canImport(AVFoundation)
+#if (canImport(AVFoundation) && APPLE_COMPLETO)
 import AVFoundation
 #endif
 
@@ -31,7 +31,7 @@ extension Shell {
             guard !texto.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw ShErr("say: falta el texto")
             }
-            #if canImport(AVFoundation)
+            #if (canImport(AVFoundation) && APPLE_COMPLETO)
             await MainActor.run {
                 let u = AVSpeechUtterance(string: texto)
                 u.voice = AVSpeechSynthesisVoice(language: Locale.current.identifier) ?? AVSpeechSynthesisVoice(language: "es-ES")
@@ -45,7 +45,7 @@ extension Shell {
 
         c["caffeinate"] = Spec(help: "caffeinate [on|off] — evita que la pantalla se apague, como en macOS") { ctx in
             let on = ctx.args.first?.lowercased() != "off"
-            #if canImport(UIKit)
+            #if (canImport(UIKit) && APPLE_COMPLETO)
             await MainActor.run { UIApplication.shared.isIdleTimerDisabled = on }
             #endif
             return on ? "pantalla despierta mientras dure la sesión ('caffeinate off' para soltarla)\n"
