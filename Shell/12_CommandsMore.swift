@@ -175,7 +175,6 @@ extension Shell {
             return "battery: no disponible en este sistema\n"
             #endif
         }
-        c["termux-battery-status"] = c["battery"]
 
         c["clip"] = Spec(help: "clip — copia la entrada al portapapeles") { ctx in
             let t = ctx.stdin.isEmpty ? ctx.args.joined(separator: " ") : ctx.stdin
@@ -183,13 +182,11 @@ extension Shell {
             await Plataforma.copiar(t)
             return "copiados \(t.count) caracteres\n"
         }
-        c["termux-clipboard-set"] = c["clip"]
 
         c["clipget"] = Spec(help: "clipget — pega el contenido del portapapeles") { _ in
             let t = await Plataforma.pegar()
             return t.isEmpty ? "(portapapeles vacío)\n" : t + "\n"
         }
-        c["termux-clipboard-get"] = c["clipget"]
 
         c["vibrate"] = Spec(help: "vibrate — hace vibrar el dispositivo") { _ in
             #if (canImport(UIKit) && APPLE_COMPLETO)
@@ -199,7 +196,6 @@ extension Shell {
             #endif
             return ""
         }
-        c["termux-vibrate"] = c["vibrate"]
 
         c["device"] = Spec(help: "device — información del iPad") { _ in
             let d = await Plataforma.dispositivo()
@@ -210,7 +206,6 @@ extension Shell {
             out += "núcleos   \(ProcessInfo.processInfo.activeProcessorCount)\n"
             return out
         }
-        c["termux-info"] = c["device"]
 
         c["toast"] = Spec(help: "toast <texto> — muestra un aviso en la terminal") { ctx in
             let t = ctx.args.joined(separator: " ")

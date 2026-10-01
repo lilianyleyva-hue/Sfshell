@@ -11,10 +11,10 @@ import FoundationNetworking
 //                   list-all · list-installed · show  (repositorio propio)
 //   paquetes        neofetch cowsay fortune sl cmatrix todo htop clima
 //                   ipinfo … solo existen cuando los instalas
-//   termux-*        setup-storage · open-url · open · toast · notification ·
-//                   notification-list · tts-speak · wake-lock/unlock ·
-//                   reload-settings · change-repo · help (y battery-status,
-//                   clipboard-get/set, info, vibrate de antes)
+//   sistema         almacenamiento · abrir-url · abrir · notificar ·
+//                   notificaciones · hablar · wake-lock/unlock · recargar ·
+//                   repo · ayuda-sistema (y toast, battery, clip, clipget,
+//                   device, vibrate de antes) — sin 'termux' en los nombres
 //   ~/.bashrc       se ejecuta al abrir (además de /etc/profile.sh)
 //   PS1             prompt a tu gusto: PS1='\u@\h:\w \$ '
 //   /etc/motd       el mensaje de bienvenida (edítalo con nano /etc/motd)
@@ -188,7 +188,7 @@ enum RepoTermux {
         // Los que en Termux se instalan pero aquí ya vienen dentro.
         for (n, cual) in [("curl", "curl"), ("wget", "wget"), ("git", "git"), ("nano", "nano (editor de líneas)"),
                           ("vim", "vi (editor de líneas)"), ("jq", "jq"), ("tree", "tree"), ("bc", "bc"),
-                          ("httpie", "http"), ("json-server", "api-local"), ("termux-api", "los comandos termux-*"),
+                          ("httpie", "http"), ("json-server", "api-local"), ("termux-api", "los comandos del sistema (ayuda-sistema)"),
                           ("coreutils", "ls, cp, mv, cat, sort…"), ("bash", "sh / bash")] {
             r[n] = PaqueteTermux(descripcion: "ya incluido: \(cual)", version: "integrado", spec: nil, nota: "ya viene en SwiftShell: usa \(cual)")
         }
@@ -243,7 +243,7 @@ extension Shell {
     Paquetes:   pkg search <texto>   pkg install <nombre>   pkg list-all
     Las IAs:    ia ayuda             ias                    ia libres
     API local:  api-local ejemplo    http localhost/usuarios
-    Ayuda:      help                 termux-help
+    Ayuda:      help                 ayuda-sistema
 
     Edita este mensaje con:  nano /etc/motd
     Tu ~/.bashrc se ejecuta al abrir (alias, PS1, export…).
@@ -420,22 +420,23 @@ extension Shell {
 
         // ---------- termux-* ----------
 
-        c["termux-help"] = Spec(help: "termux-help — los comandos termux-*") { _ in
+        c["ayuda-sistema"] = Spec(help: "ayuda-sistema — comandos del sistema (estilo Termux, sin 'termux' en el nombre)") { _ in
             """
-            termux-setup-storage        carpetas /storage (visibles en la app Archivos)
-            termux-open-url <url>       abre una dirección
-            termux-open <archivo>       muestra un archivo
-            termux-toast <texto>        un aviso
-            termux-notification -t T -c texto   notificación · termux-notification-list
-            termux-tts-speak <texto>    lo dice en voz alta
-            termux-wake-lock / unlock   evita que la pantalla se apague
-            termux-reload-settings      vuelve a leer ~/.bashrc y /etc/profile.sh
-            termux-battery-status · termux-clipboard-get/set · termux-info · termux-vibrate
+            almacenamiento            carpetas /storage (visibles en la app Archivos)
+            abrir-url <url>           abre una dirección
+            abrir <archivo|url>       abre o ejecuta un archivo
+            toast <texto>             un aviso
+            notificar -t T -c texto   notificación · notificaciones  (las últimas)
+            hablar <texto>            lo dice en voz alta
+            wake-lock / wake-unlock   evita que la pantalla se apague / lo suelta
+            recargar                  vuelve a leer ~/.bashrc y /etc/profile.sh
+            repo                      el repositorio de paquetes
+            battery · clip · clipget · device · vibrate
 
             """
         }
 
-        c["termux-setup-storage"] = Spec(help: "termux-setup-storage — crea /storage") { ctx in
+        c["almacenamiento"] = Spec(help: "almacenamiento — crea /storage") { ctx in
             for d in ["/storage/shared", "/storage/downloads", "/storage/documents"] {
                 try fm.createDirectory(at: try ctx.env.resolve(d), withIntermediateDirectories: true)
             }
@@ -443,24 +444,18 @@ extension Shell {
                    "En iOS todo tu espacio ya se ve desde la app Archivos (En mi iPad → Playgrounds → Documentos/shell).\n"
         }
 
-        c["termux-open-url"] = Spec(help: "termux-open-url <url> — abre una dirección") { ctx in
-            guard let u = ctx.args.first else { throw ShErr("uso: termux-open-url <url>") }
+        c["abrir-url"] = Spec(help: "abrir-url <url> — abre una dirección") { ctx in
+            guard let u = ctx.args.first else { throw ShErr("uso: abrir-url <url>") }
             return await ctx.sh.execute("open \(u)")
         }
 
-        c["termux-open"] = Spec(help: "termux-open <archivo|url> — abre un archivo o dirección") { ctx in
-            guard let p = ctx.args.first else { throw ShErr("uso: termux-open <archivo>") }
+        c["abrir"] = Spec(help: "abrir <archivo|url> — abre un archivo o dirección") { ctx in
+            guard let p = ctx.args.first else { throw ShErr("uso: abrir <archivo>") }
             if p.contains("://") { return await ctx.sh.execute("open \(p)") }
             return await ctx.sh.execute("run \(p)")
         }
 
-        c["termux-toast"] = Spec(help: "termux-toast <texto> — un aviso corto") { ctx in
-            let t = ctx.args.isEmpty ? ctx.stdin.trimmingCharacters(in: .whitespacesAndNewlines) : ctx.args.joined(separator: " ")
-            let linea = String(repeating: "─", count: t.count + 2)
-            return "╭\(linea)╮\n│ \(t) │\n╰\(linea)╯\n"
-        }
-
-        c["termux-notification"] = Spec(help: "termux-notification -t <título> -c <texto> — guarda y muestra una notificación") { ctx in
+        c["notificar"] = Spec(help: "notificar -t <título> -c <texto> — guarda y muestra una notificación") { ctx in
             let o = opts(ctx.args, valued: ["t", "c", "title", "content"])
             let titulo = o.vals["t"] ?? o.vals["title"] ?? "SwiftShell"
             let texto = o.vals["c"] ?? o.vals["content"] ?? (o.rest.isEmpty ? ctx.stdin : o.rest.joined(separator: " "))
@@ -470,34 +465,34 @@ extension Shell {
             return "🔔 \(titulo): \(texto)\n"
         }
 
-        c["termux-notification-list"] = Spec(help: "termux-notification-list — las últimas notificaciones") { ctx in
+        c["notificaciones"] = Spec(help: "notificaciones — las últimas notificaciones") { ctx in
             let u = try ctx.env.resolve("/var/log/notificaciones")
             let t = (try? String(contentsOf: u, encoding: .utf8)) ?? ""
             return t.isEmpty ? "sin notificaciones\n" : t.replacingOccurrences(of: "\t", with: "  ")
         }
 
-        c["termux-tts-speak"] = Spec(help: "termux-tts-speak <texto> — lo dice en voz alta") { ctx in
+        c["hablar"] = Spec(help: "hablar <texto> — lo dice en voz alta") { ctx in
             await ctx.sh.execute("say " + (ctx.args.isEmpty ? ctx.stdin : ctx.args.joined(separator: " ")))
         }
 
-        c["termux-wake-lock"] = Spec(help: "termux-wake-lock — la pantalla no se apaga") { ctx in
+        c["wake-lock"] = Spec(help: "wake-lock — la pantalla no se apaga") { ctx in
             await ctx.sh.execute("caffeinate on")
         }
-        c["termux-wake-unlock"] = Spec(help: "termux-wake-unlock — la pantalla puede apagarse") { ctx in
+        c["wake-unlock"] = Spec(help: "wake-unlock — la pantalla puede apagarse") { ctx in
             await ctx.sh.execute("caffeinate off")
         }
 
-        c["termux-reload-settings"] = Spec(help: "termux-reload-settings — vuelve a leer ~/.bashrc") { ctx in
+        c["recargar"] = Spec(help: "recargar — vuelve a leer ~/.bashrc") { ctx in
             let r = await ctx.sh.runProfile()
             return r.isEmpty ? "ajustes recargados\n" : r
         }
 
-        c["termux-change-repo"] = Spec(help: "termux-change-repo — elige el repositorio") { _ in
+        c["repo"] = Spec(help: "repo — elige el repositorio") { _ in
             "repositorio: swiftshell estable (integrado, funciona sin internet)\n"
         }
 
-        for n in ["termux-sms-send", "termux-sms-list", "termux-telephony-call", "termux-camera-photo",
-                  "termux-location", "termux-sensor", "termux-contact-list", "termux-microphone-record"] {
+        for n in ["sms", "sms-lista", "llamada", "foto",
+                  "ubicacion", "sensores", "contactos", "grabar"] {
             c[n] = Spec(help: "\(n) — no disponible en iOS") { _ in
                 throw ShErr("\(n): iOS no deja que una app de Playgrounds use eso desde la terminal")
             }

@@ -197,8 +197,9 @@ Package.swift dentro del target: `swiftSettings: [.define("APPLE_COMPLETO")]`.
   `pkg install python/nodejs/clang/openssh…` explica por qué iOS no deja y qué
   usar; `curl/git/nano/jq/httpie/json-server…` dicen que ya vienen incluidos.
 - Guiones `.sh` en /usr/bin se llaman por su nombre (`/usr/bin/saludo.sh` → `saludo`).
-- `termux-*`: setup-storage, open-url, open, toast, notification(+list),
-  tts-speak, wake-lock/unlock, reload-settings, change-repo, help.
+- Comandos del sistema (sin 'termux' en el nombre): almacenamiento, abrir-url,
+  abrir, notificar, notificaciones, hablar, wake-lock/unlock, recargar, repo,
+  ayuda-sistema (más toast, battery, clip, clipget, device, vibrate).
 - `~/.bashrc` se ejecuta al abrir; `PS1='\u@\h:\w \$ '` cambia el prompt;
   `/etc/motd` es el mensaje de bienvenida; `$PREFIX=/usr`.
 - `VAR='con espacios'` ya se acepta como asignación (2_Core.swift).
