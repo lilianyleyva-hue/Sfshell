@@ -143,7 +143,8 @@ final class Shell: @unchecked Sendable {
             Shell.shellPlus(), Shell.plantillasCmd(), Shell.apk(), Shell.simulacro(), Shell.apis(),
             Shell.esc(), Shell.objetos(), Shell.mixCommands(), Shell.git(),
             Shell.macos(), Shell.logicGame(), Shell.unixMas(), Shell.bash(),
-            Shell.huella(), Shell.nyx(), Shell.ias(), Shell.comandosIA()
+            Shell.huella(), Shell.nyx(), Shell.ias(), Shell.comandosIA(),
+            Shell.apiLocal(), Shell.termux()
         ]
         for m in modulos { cmds.merge(m) { _, b in b } }
         commands = cmds
@@ -161,6 +162,10 @@ final class Shell: @unchecked Sendable {
         if let e = editor { return "\(e.nombre) (:q sale)·\(e.lineas.count + 1)> " }
         if let r = rolIA, mode == .shell, heredocPend == nil, blockBuffer.isEmpty {
             return "\(r.rawValue)@ia:\(env.vpath(env.cwd)) $ "
+        }
+        // PS1 como en bash/Termux: PS1='\u@\h:\w \$ '
+        if mode == .shell, heredocPend == nil, blockBuffer.isEmpty, let ps1 = env.vars["PS1"], !ps1.isEmpty {
+            return Shell.expandirPS1(ps1, env)
         }
         if heredocPend != nil || !blockBuffer.isEmpty { return "> " }
         if mode == .shell { return "\(env.vpath(env.cwd)) $ " }

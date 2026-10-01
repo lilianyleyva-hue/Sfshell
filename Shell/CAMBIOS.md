@@ -184,3 +184,34 @@ Todo lo demás (shell, IAs, Nyx, Simulacro, red con curl/wget) funciona igual.
 
 Para volver al modo completo, define `APPLE_COMPLETO`; por ejemplo, en
 Package.swift dentro del target: `swiftSettings: [.define("APPLE_COMPLETO")]`.
+
+---
+
+# Termux para iOS + emulador de API (1-oct-2026)
+
+## 38_Termux.swift (nuevo)
+- `pkg` / `apt` / `apt-get` como en Termux: update, upgrade, install (varios a
+  la vez, -y), uninstall, search, list-all, list-installed, show, files.
+- Repositorio propio: neofetch, cowsay, fortune, sl, cmatrix, todo, htop,
+  clima (wttr.in), ipinfo. Solo existen cuando los instalas.
+  `pkg install python/nodejs/clang/openssh…` explica por qué iOS no deja y qué
+  usar; `curl/git/nano/jq/httpie/json-server…` dicen que ya vienen incluidos.
+- Guiones `.sh` en /usr/bin se llaman por su nombre (`/usr/bin/saludo.sh` → `saludo`).
+- `termux-*`: setup-storage, open-url, open, toast, notification(+list),
+  tts-speak, wake-lock/unlock, reload-settings, change-repo, help.
+- `~/.bashrc` se ejecuta al abrir; `PS1='\u@\h:\w \$ '` cambia el prompt;
+  `/etc/motd` es el mensaje de bienvenida; `$PREFIX=/usr`.
+- `VAR='con espacios'` ya se acepta como asignación (2_Core.swift).
+
+## 39_ApiLocal.swift (nuevo): emulador de API, para ti y las IAs
+- `http://localhost`, `127.0.0.1`, `api.local` (con cualquier puerto) responden
+  dentro de la app, sin internet, en curl, wget, api y el nuevo `http`.
+- REST automático sobre /srv/api/db.json (como json-server): GET lista con
+  filtros (`?campo=`, `q=`, `_sort`, `_order`, `_limit`, `_page`, `_gte`, `_lte`,
+  `_like`), GET/PUT/PATCH/DELETE por id, POST con id automático, objetos sueltos, /db.
+- Rutas propias: respuesta fija con `:param`, o `--ejecuta comando` en la shell
+  de quien la creó (tuya o de la IA).
+- Simula red lenta (`api-local retraso 300`) y errores (`api-local fallo 10%`).
+- `api-local log` muestra quién llamó (humano o qué IA), qué y con qué resultado.
+- `http` al estilo HTTPie: `http POST localhost/usuarios nombre=Eva edad:=40`.
+- Las IAs la usan solas: memoria guarda en /memorias, curiosidad y sintesis la leen.

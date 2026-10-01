@@ -12,7 +12,11 @@ extension Shell {
     static func net() -> [String: Spec] {
         var c: [String: Spec] = [:]
 
-        func fetch(_ urlStr: String, method: String, headers: [String], body: String?) async throws -> (Data, HTTPURLResponse) {
+        func fetch(_ urlStr: String, method: String, headers: [String], body: String?, quien: String = "humano") async throws -> (Data, HTTPURLResponse) {
+            // localhost / 127.0.0.1 / api.local: lo contesta el emulador (39_ApiLocal.swift)
+            if let r = try await APILocal.uno.atender(url: urlStr, metodo: method, cabeceras: headers, cuerpo: body, quien: quien) {
+                return r
+            }
             var s = urlStr
             if !s.contains("://") { s = "https://" + s }
             guard let url = URL(string: s) else { throw ShErr("URL no válida: \(urlStr)") }
@@ -58,7 +62,7 @@ extension Shell {
                 i += 1
             }
             guard let u = url else { throw ShErr("curl: falta la URL") }
-            let (data, resp) = try await fetch(u, method: method, headers: headers, body: body)
+            let (data, resp) = try await fetch(u, method: method, headers: headers, body: body, quien: ctx.sh.quienPide)
             if headOnly {
                 var out = "HTTP \(resp.statusCode)\n"
                 for (k, v) in resp.allHeaderFields {
@@ -77,7 +81,7 @@ extension Shell {
         c["wget"] = Spec(help: "wget [-O archivo] <url> — descarga un archivo") { ctx in
             let o = opts(ctx.args, valued: ["O"])
             guard let u = o.rest.first else { throw ShErr("wget: falta la URL") }
-            let (data, resp) = try await fetch(u, method: "GET", headers: [], body: nil)
+            let (data, resp) = try await fetch(u, method: "GET", headers: [], body: nil, quien: ctx.sh.quienPide)
             guard resp.statusCode < 400 else { throw ShErr("wget: HTTP \(resp.statusCode)") }
             var name = o.vals["O"] ?? URL(string: u.contains("://") ? u : "https://" + u)?.lastPathComponent ?? "descarga"
             if name.isEmpty { name = "index.html" }
@@ -116,7 +120,7 @@ extension Shell {
             if body != nil, !headers.contains(where: { $0.lowercased().hasPrefix("content-type") }) {
                 headers.append("Content-Type: application/json")
             }
-            let (data, resp) = try await fetch(u, method: method, headers: headers, body: body)
+            let (data, resp) = try await fetch(u, method: method, headers: headers, body: body, quien: ctx.sh.quienPide)
             let raw = String(data: data, encoding: .utf8) ?? ""
             var text = raw
             if let pretty = try? DataTools.jsonPretty(raw) { text = pretty }

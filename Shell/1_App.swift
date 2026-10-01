@@ -27,7 +27,7 @@ final class Terminal: ObservableObject {
     let shell = Shell()
 
     init() {
-        escribe("SwiftShell — solo texto. 'help' comandos · 'ia ayuda' las 18 IAs · 'nano archivo' editor\n")
+        escribe(shell.motd())
         #if !APPLE_COMPLETO
         // Modo seguro: solo Foundation + esta pantalla. js/swift, say, sha256,
         // gzip y nc usan sus versiones de texto. Para activarlos, define
@@ -141,7 +141,7 @@ struct ContentView: View {
 struct ShellTexto {
     static func main() async {
         let sh = Shell()
-        print("SwiftShell — solo texto. 'help' comandos · 'ia ayuda' las 18 IAs · 'exit' para salir")
+        print(sh.motd(), terminator: "")
         print(await sh.runProfile(), terminator: "")
         while true {
             print(sh.prompt, terminator: "")

@@ -24,6 +24,18 @@ extension Shell {
     /// Busca un script instalado y lo envuelve como si fuera un comando.
     func installedSpec(_ name: String) -> Spec? {
         guard !name.contains("/") else { return nil }
+        // paquete del repositorio Termux (38_Termux.swift): existe si se instaló
+        if let p = RepoTermux.paquete(name), let spec = p.spec,
+           let u = try? env.resolve("\(Shell.binDir)/\(name).pkg"), FileManager.default.fileExists(atPath: u.path) {
+            return spec
+        }
+        // guion .sh en /usr/bin: se llama por su nombre, como en Termux
+        if let u = try? env.resolve("\(Shell.binDir)/\(name).sh"), FileManager.default.fileExists(atPath: u.path) {
+            return Spec(help: "\(name) — guion en \(Shell.binDir)/\(name).sh") { ctx in
+                let args = ctx.args.map { "'" + $0.replacingOccurrences(of: "'", with: "") + "'" }.joined(separator: " ")
+                return await ctx.sh.execute("sh \(Shell.binDir)/\(name).sh \(args)")
+            }
+        }
         let candidates = ["\(Shell.binDir)/\(name)", "\(Shell.binDir)/\(name).js",
                           "\(Shell.binDir)/\(name).swift", "\(Shell.binDir)/\(name).mix"]
         for path in candidates {

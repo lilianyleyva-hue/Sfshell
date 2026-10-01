@@ -327,9 +327,12 @@ final class SistemaIAs: @unchecked Sendable {
                     "sh /scripts/cuenta.sh"]
         case .creativo:    return ["echo \(w)-\(SistemaIAs.raizAlAzar()) >> /Escritorio/ideas.txt"]
         case .critico:     return ["tail -n 3 /Documentos/diario.txt"]
-        case .memoria:     return ["echo \(w) >> /Documentos/palabras.txt", "sort -u /Documentos/palabras.txt | wc -l"]
+        case .memoria:
+            // guarda el recuerdo en su disco y en la API compartida (api-local)
+            return ["echo \(w) >> /Documentos/palabras.txt", "sort -u /Documentos/palabras.txt | wc -l",
+                    "http -b POST localhost/memorias rol=memoria palabra=\(w)"]
         case .percepcion:  return ["ls -l /Escritorio"]
-        case .sintesis:    return ["cat /Documentos/diario.txt | wc -l"]
+        case .sintesis:    return ["cat /Documentos/diario.txt | wc -l", "curl -s localhost/memorias | grep -c palabra"]
         case .intuicion:   return ["head -n 1 /Documentos/diario.txt"]
         case .analogia:
             return ["echo \(w) kep \(SistemaIAs.raizAlAzar()) >> /Escritorio/ideas.txt",
@@ -341,7 +344,7 @@ final class SistemaIAs: @unchecked Sendable {
             // cuida el espacio: el diario no crece sin límite
             return ["du -s /",
                     "test $(wc -l < /Documentos/diario.txt) -gt 300 && tail -n 150 /Documentos/diario.txt > /Documentos/diario.tmp && mv /Documentos/diario.tmp /Documentos/diario.txt || echo espacio en orden"]
-        case .curiosidad:  return ["ls -a /", "ls /buzon"]
+        case .curiosidad:  return ["ls -a /", "ls /buzon", "http -b GET 'localhost/memorias?_sort=id&_order=desc&_limit=3'"]
         case .abstraccion: return ["sort /Documentos/palabras.txt | uniq -c | sort -rn | head -n 3"]
         case .empatia:     return ["ls /buzon", "digo se ko \(w)"]
         }

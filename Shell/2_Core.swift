@@ -548,7 +548,9 @@ enum Parser {
                     continue
                 }
                 if cmd.argv.isEmpty, w == "!", !q { cmd.negate = true; continue }
-                if cmd.argv.isEmpty, !q, let (n, v) = esAsignacion(w) {
+                // VAR='con espacios' también es asignación (como en bash): el
+                // nombre va sin comillas y solo el valor las lleva.
+                if cmd.argv.isEmpty, let (n, v) = esAsignacion(w) {
                     cmd.assigns.append((n, v)); continue
                 }
                 cmd.argv.append(contentsOf: q ? [w] : expandir(w, env))

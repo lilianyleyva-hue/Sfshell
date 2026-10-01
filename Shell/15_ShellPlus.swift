@@ -116,9 +116,22 @@ extension Shell {
 
     /// Se ejecuta al abrir la terminal: alias y variables que quieras fijos.
     func runProfile() async -> String {
-        guard let u = try? env.resolve(Shell.profileFile),
-              FileManager.default.fileExists(atPath: u.path) else { return "" }
-        return await execute("sh \(Shell.profileFile)")
+        env.vars["PREFIX"] = env.vars["PREFIX"] ?? "/usr"
+        var out = ""
+        if let u = try? env.resolve(Shell.profileFile), FileManager.default.fileExists(atPath: u.path) {
+            out += await execute("sh \(Shell.profileFile)")
+        }
+        // ~/.bashrc, como en Termux. Con 'source' para que alias, PS1 y
+        // export se queden en esta shell.
+        if let u = try? env.resolve("/.bashrc"), FileManager.default.fileExists(atPath: u.path),
+           let t = try? String(contentsOf: u, encoding: .utf8) {
+            for l in t.components(separatedBy: "\n") {
+                let x = l.trimmingCharacters(in: .whitespaces)
+                guard !x.isEmpty, !x.hasPrefix("#") else { continue }
+                out += await execute(x)
+            }
+        }
+        return out
     }
 
     // --- comandos que acompañan a estas mejoras ------------------
