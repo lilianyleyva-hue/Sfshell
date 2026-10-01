@@ -35,17 +35,38 @@ import Foundation
 
 /// Cerrojo asíncrono: una shell no puede correr dos órdenes a la vez
 /// (la IA actuando sola y tú mandándole algo al mismo tiempo).
-actor CerrojoIA {
+/// Hecho con NSLock y no con un actor: así compila igual en Swift 5.9,
+/// 5.10 y 6 (en 5.x un actor no puede tocar su estado desde dentro de
+/// withCheckedContinuation).
+final class CerrojoIA: @unchecked Sendable {
+    private let l = NSLock()
     private var ocupado = false
     private var cola: [CheckedContinuation<Void, Never>] = []
 
     func tomar() async {
-        if !ocupado { ocupado = true; return }
-        await withCheckedContinuation { cola.append($0) }
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+            l.lock()
+            if !ocupado {
+                ocupado = true
+                l.unlock()
+                c.resume()
+            } else {
+                cola.append(c)
+                l.unlock()
+            }
+        }
     }
 
     func soltar() {
-        if cola.isEmpty { ocupado = false } else { cola.removeFirst().resume() }
+        l.lock()
+        if cola.isEmpty {
+            ocupado = false
+            l.unlock()
+        } else {
+            let c = cola.removeFirst()
+            l.unlock()
+            c.resume()
+        }
     }
 }
 
@@ -63,22 +84,22 @@ final class EspacioIA: @unchecked Sendable {
     private var _acciones = 0
     private var _fallos = 0
 
-    var bitacora: [String] { candado.withLock { _bitacora } }
-    var pendientes: Int { candado.withLock { _tareas.count } }
-    var acciones: Int { candado.withLock { _acciones } }
-    var fallos: Int { candado.withLock { _fallos } }
+    var bitacora: [String] { candado.conCandado { _bitacora } }
+    var pendientes: Int { candado.conCandado { _tareas.count } }
+    var acciones: Int { candado.conCandado { _acciones } }
+    var fallos: Int { candado.conCandado { _fallos } }
 
     /// Encarga una orden para su próximo turno; devuelve cuántas hay.
     func encargar(_ linea: String) -> Int {
-        candado.withLock { _tareas.append(linea); return _tareas.count }
+        candado.conCandado { _tareas.append(linea); return _tareas.count }
     }
 
     func sacarTarea() -> String? {
-        candado.withLock { _tareas.isEmpty ? nil : _tareas.removeFirst() }
+        candado.conCandado { _tareas.isEmpty ? nil : _tareas.removeFirst() }
     }
 
     func registrar(ok: Bool, _ s: String) {
-        candado.withLock {
+        candado.conCandado {
             _acciones += 1
             if !ok { _fallos += 1 }
             _bitacora.append(s)
@@ -139,17 +160,17 @@ final class SistemaIAs: @unchecked Sendable {
     private var libres: Task<Void, Never>?
     private(set) var pausaLibres: Double = 3
 
-    var estanLibres: Bool { lock.withLock { libres != nil } }
+    var estanLibres: Bool { lock.conCandado { libres != nil } }
 
     /// Carpeta real donde viven las IAs: /ias dentro de la shell del humano.
     func preparar(base raizHumano: URL) {
-        lock.withLock {
+        lock.conCandado {
             if base == nil { base = raizHumano.appendingPathComponent("ias", isDirectory: true) }
         }
     }
 
     func espacio(_ rol: RolMental) -> EspacioIA {
-        lock.withLock {
+        lock.conCandado {
             if let e = espacios[rol] { return e }
             let b = base ?? ShellEnv.raizHumano.appendingPathComponent("ias", isDirectory: true)
             let e = EspacioIA(rol: rol, raiz: b.appendingPathComponent(rol.rawValue, isDirectory: true))
@@ -216,7 +237,7 @@ final class SistemaIAs: @unchecked Sendable {
     /// Carpeta real del buzón de una IA (o del humano).
     func buzon(de destino: String) -> URL? {
         if destino == "humano" || destino == "tú" || destino == "tu" {
-            return lock.withLock { base?.deletingLastPathComponent().appendingPathComponent("buzon", isDirectory: true) }
+            return lock.conCandado { base?.deletingLastPathComponent().appendingPathComponent("buzon", isDirectory: true) }
         }
         guard let r = RolMental(rawValue: destino) else { return nil }
         return espacio(r).shell.env.root.appendingPathComponent("buzon", isDirectory: true)
@@ -229,7 +250,7 @@ final class SistemaIAs: @unchecked Sendable {
         await e.cerrojo.tomar()
         let out = await sh.execute(linea)
         e.reparar()
-        await e.cerrojo.soltar()
+        e.cerrojo.soltar()
         let ok = (sh.env.vars["?"] ?? "0") == "0"
         let hora = SistemaIAs.hora()
         let resumen = out.split(separator: "\n").first.map { String($0.prefix(60)) } ?? ""
@@ -340,7 +361,7 @@ final class SistemaIAs: @unchecked Sendable {
     }
 
     func soltar(cada segundos: Double) {
-        lock.withLock {
+        lock.conCandado {
             pausaLibres = max(0.5, segundos)
             guard libres == nil else { return }
             libres = Task.detached(priority: .background) { [weak self] in
@@ -350,7 +371,7 @@ final class SistemaIAs: @unchecked Sendable {
                     let roles = RolMental.allCases
                     await self.turno(roles[i % roles.count])
                     i += 1
-                    let pausa = self.lock.withLock { self.pausaLibres } / Double(roles.count)
+                    let pausa = self.lock.conCandado { self.pausaLibres } / Double(roles.count)
                     try? await Task.sleep(nanoseconds: UInt64(pausa * 1_000_000_000))
                 }
             }
@@ -358,7 +379,7 @@ final class SistemaIAs: @unchecked Sendable {
     }
 
     func aquietar() {
-        lock.withLock {
+        lock.conCandado {
             libres?.cancel()
             libres = nil
         }

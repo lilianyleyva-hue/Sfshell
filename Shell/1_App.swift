@@ -28,8 +28,16 @@ final class Terminal: ObservableObject {
 
     init() {
         escribe("SwiftShell — solo texto. 'help' comandos · 'ia ayuda' las 18 IAs · 'nano archivo' editor\n")
-        shell.uiClear = { [weak self] in Task { @MainActor in self?.lineas.removeAll() } }
-        shell.uiType = { [weak self] cmd in Task { @MainActor in self?.entrada = cmd } }
+        // (Se saca 'self' a una constante antes del Task: Swift 5.10 no deja
+        // usar la variable débil capturada dentro de código concurrente.)
+        shell.uiClear = { [weak self] in
+            guard let t = self else { return }
+            Task { @MainActor in t.lineas.removeAll() }
+        }
+        shell.uiType = { [weak self] cmd in
+            guard let t = self else { return }
+            Task { @MainActor in t.entrada = cmd }
+        }
         Task {
             let out = await shell.runProfile()
             escribe(out)
