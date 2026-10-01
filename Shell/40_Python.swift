@@ -2114,7 +2114,7 @@ final class PyInterprete: @unchecked Sendable {
             f("log") { a, _ in
                 let x = try numero(a, 0)
                 guard x > 0 else { throw PyError("ValueError", "math domain error") }
-                return .float(a.count > 1 ? Foundation.log(x) / Foundation.log(try numero(a, 1)) : Foundation.log(x))
+                return .float(a.count > 1 ? logNatural(x) / logNatural(try numero(a, 1)) : logNatural(x))
             }
             f("pow") { a, _ in .float(pow(try numero(a, 0), try numero(a, 1))) }
             f("atan2") { a, _ in .float(atan2(try numero(a, 0), try numero(a, 1))) }
@@ -2550,6 +2550,10 @@ final class PyInterprete: @unchecked Sendable {
         }
     }
 }
+
+/// Logaritmo natural, fuera de cualquier clase para que 'log' sea siempre
+/// la función matemática (sin depender de cómo cada plataforma la exporta).
+func logNatural(_ x: Double) -> Double { log(x) }
 
 // ---------- comandos ----------
 
