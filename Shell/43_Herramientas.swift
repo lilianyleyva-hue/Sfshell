@@ -143,6 +143,7 @@ extension Shell {
               pregunta <rol> <texto>       pregúntale a una IA
               guarda <clave> <valor> · saca [clave] · olvida <clave>   memoria propia
               chat <msg> · chat @rol <msg> · chat -a archivo · chat baja n   sala con todos
+              conversa <rol> [turnos] [tema] · chat crea <sala> @rol · chat en <sala> <msg>
               python · http · curl · api-local · pkg · nota · diario …  (y toda la shell)
 
             """

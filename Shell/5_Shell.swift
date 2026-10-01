@@ -261,9 +261,10 @@ final class Shell: @unchecked Sendable {
         }
 
         // --- chat: el mensaje va tal cual (sin que ? * o comillas lo cambien) ---
-        if trimmed.hasPrefix("chat "), let spec = commands["chat"] {
-            let args = trimmed.dropFirst(5).split(separator: " ").map(String.init)
-            do { let r = try await spec.run(Ctx(name: "chat", args: args, stdin: "", sh: self)); env.vars["?"] = "0"; return r }
+        for nombre in ["chat", "conversa"] where trimmed.hasPrefix(nombre + " ") {
+            guard let spec = commands[nombre] else { break }
+            let args = trimmed.dropFirst(nombre.count + 1).split(separator: " ").map(String.init)
+            do { let r = try await spec.run(Ctx(name: nombre, args: args, stdin: "", sh: self)); env.vars["?"] = "0"; return r }
             catch { env.vars["?"] = "1"; return Shell.errMark + errText(error) + "\n" }
         }
 

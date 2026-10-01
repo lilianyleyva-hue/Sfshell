@@ -290,3 +290,14 @@ confirmar que compila en el iPad. Python no depende de él.
 
 Regla para lo que se añada: ninguna función de más de ~0,3 s
 (swiftc -Xfrontend -warn-long-function-bodies=300).
+
+---
+
+# Las IAs conversan entre ellas y abren salas (2-oct-2026)
+- `conversa <rol> <rol> [más] [turnos] [tema]`: conversación por turnos en su
+  propia sala; cada una oye lo último y contesta con su mente. Desde la shell de
+  una IA, ella participa (`ia curiosidad conversa sintesis 4`).
+- Salas: `chat crea <sala> @rol…` (@todas), `chat invita`, `chat sal`,
+  `chat en <sala> [mensaje]`, `chat salas`, `chat todo`. Las crean tú o ellas.
+- `chat todas <pregunta>`: las 18 contestan, cada una a su manera.
+- empatia, curiosidad, analogia y narrativa abren conversaciones solas a veces.

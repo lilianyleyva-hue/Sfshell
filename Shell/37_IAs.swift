@@ -340,6 +340,10 @@ final class SistemaIAs: @unchecked Sendable {
         if rol == .analogia, Double.random(in: 0 ..< 1) < 0.3 { return ["pregunta \(otro) ye \(w)?"] }
         if rol == .memoria, Double.random(in: 0 ..< 1) < 0.3 { return ["guarda \(w) \(es)"] }
         if rol == .sintesis, Double.random(in: 0 ..< 1) < 0.2 { return ["test -s /Documentos/lecturas.txt && resume /Documentos/lecturas.txt 2 || echo sin lecturas todavía"] }
+        // conversaciones entre ellas (44_Chat.swift): abren una con otra IA
+        if [.empatia, .curiosidad, .analogia, .narrativa].contains(rol), Double.random(in: 0 ..< 1) < 0.07 {
+            return ["conversa \(otro) 4"]
+        }
         // la sala de chat (44_Chat.swift)
         if rol == .empatia, Double.random(in: 0 ..< 1) < 0.2 { return ["chat se ko \(w)"] }
         if rol == .narrativa, Double.random(in: 0 ..< 1) < 0.1 { return ["test -s /Escritorio/historia.txt && chat -a /Escritorio/historia.txt mi historia hasta ahora"] }
@@ -519,6 +523,7 @@ extension Shell {
                   escritorio envia buzon aprende actua (y todos los comandos)
                 herramientas: web (navegador) busca lee resume calcula pregunta guarda/saca
                 sala común: chat · chat @rol <msg> · chat -a <archivo> · chat baja <n>
+                entre ellas: conversa <rol> <rol> [turnos] [tema] · chat crea <sala> @rol… · chat en <sala>
                 roles: \(RolMental.allCases.map(\.rawValue).joined(separator: " "))
 
                 """
