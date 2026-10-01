@@ -131,7 +131,7 @@ struct ShellTexto {
         print(await sh.runProfile(), terminator: "")
         while true {
             print(sh.prompt, terminator: "")
-            fflush(stdout)
+            fflush(nil)
             guard let linea = readLine() else { break }
             if sh.editor == nil, sh.dentroDe == nil, ["exit", "quit"].contains(linea.trimmingCharacters(in: .whitespaces)) { break }
             let out = sh.editor == nil && sh.dentroDe == nil

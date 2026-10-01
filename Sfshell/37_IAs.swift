@@ -54,10 +54,37 @@ final class EspacioIA: @unchecked Sendable {
     let rol: RolMental
     let shell: Shell
     let cerrojo = CerrojoIA()
-    var bitacora: [String] = []
-    var tareas: [String] = []
-    var acciones = 0
-    var fallos = 0
+    // Bitácora, tareas y contadores se tocan desde el bucle autónomo y
+    // desde tus órdenes a la vez: todo pasa por este candado (sin él, dos
+    // escrituras simultáneas en un Array pueden cerrar la app).
+    private let candado = NSLock()
+    private var _bitacora: [String] = []
+    private var _tareas: [String] = []
+    private var _acciones = 0
+    private var _fallos = 0
+
+    var bitacora: [String] { candado.withLock { _bitacora } }
+    var pendientes: Int { candado.withLock { _tareas.count } }
+    var acciones: Int { candado.withLock { _acciones } }
+    var fallos: Int { candado.withLock { _fallos } }
+
+    /// Encarga una orden para su próximo turno; devuelve cuántas hay.
+    func encargar(_ linea: String) -> Int {
+        candado.withLock { _tareas.append(linea); return _tareas.count }
+    }
+
+    func sacarTarea() -> String? {
+        candado.withLock { _tareas.isEmpty ? nil : _tareas.removeFirst() }
+    }
+
+    func registrar(ok: Bool, _ s: String) {
+        candado.withLock {
+            _acciones += 1
+            if !ok { _fallos += 1 }
+            _bitacora.append(s)
+            if _bitacora.count > 300 { _bitacora.removeFirst(_bitacora.count - 300) }
+        }
+    }
 
     static let carpetas = ["Escritorio", "Documentos", "buzon", "scripts"]
 
@@ -101,10 +128,6 @@ final class EspacioIA: @unchecked Sendable {
         if !fm.fileExists(atPath: shell.env.cwd.path) { shell.env.cwd = raiz }
     }
 
-    func anotar(_ s: String) {
-        bitacora.append(s)
-        if bitacora.count > 300 { bitacora.removeFirst(bitacora.count - 300) }
-    }
 }
 
 final class SistemaIAs: @unchecked Sendable {
@@ -163,8 +186,8 @@ final class SistemaIAs: @unchecked Sendable {
             guard resto.count == 2, let r = RolMental(rawValue: resto[0].lowercased()) else { return nil }
             await prepararDesde(sh)
             let e = espacio(r)
-            e.tareas.append(resto[1])
-            return "\(r.rawValue) lo hará en su próximo turno (\(e.tareas.count) pendientes)\n"
+            let n = e.encargar(resto[1])
+            return "\(r.rawValue) lo hará en su próximo turno (\(n) pendientes)\n"
         }
         guard let r = RolMental(rawValue: quien) else { return nil }
         await prepararDesde(sh)
@@ -208,11 +231,9 @@ final class SistemaIAs: @unchecked Sendable {
         e.reparar()
         await e.cerrojo.soltar()
         let ok = (sh.env.vars["?"] ?? "0") == "0"
-        e.acciones += 1
-        if !ok { e.fallos += 1 }
         let hora = SistemaIAs.hora()
         let resumen = out.split(separator: "\n").first.map { String($0.prefix(60)) } ?? ""
-        e.anotar("\(hora) [\(autor)] \(ok ? "✓" : "✗") \(linea)" + (resumen.isEmpty ? "" : "  → \(resumen)"))
+        e.registrar(ok: ok, "\(hora) [\(autor)] \(ok ? "✓" : "✗") \(linea)" + (resumen.isEmpty ? "" : "  → \(resumen)"))
         // su bitácora en SU disco (sin pasar por su shell: no es una orden suya)
         if let u = try? sh.env.resolve("/Documentos/bitacora.log") {
             let l = "\(hora)\t\(autor)\t\(ok ? "ok" : "error")\t\(linea)\n"
@@ -234,8 +255,7 @@ final class SistemaIAs: @unchecked Sendable {
     func turno(_ rol: RolMental) async -> [String] {
         let e = espacio(rol)
         var hecho: [String] = []
-        if !e.tareas.isEmpty {
-            let t = e.tareas.removeFirst()
+        if let t = e.sacarTarea() {
             _ = await ejecutar(t, en: e.shell, por: "tarea")
             return ["tarea: \(t)"]
         }
@@ -471,8 +491,8 @@ extension Shell {
                 guard a.count >= 3 else { throw ShErr("uso: ia tarea <rol> <comando>") }
                 let e = sis.espacio(try rol(a[1]))
                 let linea = a.dropFirst(2).joined(separator: " ")
-                e.tareas.append(linea)
-                return "\(e.rol.rawValue) lo hará en su próximo turno (\(e.tareas.count) pendientes)\n"
+                let n = e.encargar(linea)
+                return "\(e.rol.rawValue) lo hará en su próximo turno (\(n) pendientes)\n"
 
             case "turno", "turnos":
                 let n = min(50, max(1, Int(a.dropFirst().first ?? "1") ?? 1))
@@ -500,7 +520,7 @@ extension Shell {
                 if a.count == 1 {
                     let t = SistemaIAs.tamaño(e.shell.env.root)
                     var out = "\(r.rawValue) — /ias/\(r.rawValue) · \(t.archivos) archivos · \(humanSize(t.bytes))\n"
-                    out += "acciones \(e.acciones) · fallos \(e.fallos) · tareas pendientes \(e.tareas.count)\n"
+                    out += "acciones \(e.acciones) · fallos \(e.fallos) · tareas pendientes \(e.pendientes)\n"
                     if let m = await NyxNucleo.uno.consejo.mente(r) {
                         let p = await m.precisionYTamaño()
                         out += "mente: precisión \(Int((p.precision * 100).rounded()))% · \(p.semiones) semiones · \(p.palabras) palabras\n"

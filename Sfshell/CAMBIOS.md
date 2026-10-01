@@ -130,7 +130,7 @@ estructuras de control, funciones y argumentos. `bash` es sinónimo de `sh`.
   32_Monitor y MenteView. `nyx ver` ya no existe.
 - **1_App.swift**: una sola pantalla de texto (salida + línea para escribir).
   En Linux/Debian el mismo proyecto compila como programa de terminal.
-- **16_Plantillas.swift**: queda `new` (plantillas por idioma); `files` se fue.
+- **16_Files.swift**: queda `new` (plantillas por idioma); `files` se fue.
 - **34_Editor.swift** (nuevo): `nano`/`vi`/`edit` editan en la propia terminal:
   texto suelto se añade · `:p` ver · `:3 texto` cambiar · `:i 3 texto` insertar ·
   `:d 3-5` borrar · `:s/a/b/` reemplazar · `:w` `:q` `:wq` · `:r` guardar y ejecutar.
