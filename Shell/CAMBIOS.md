@@ -363,3 +363,32 @@ Swift 5.10 y 6.0 (modos 5 y 6), sin funciones lentas de compilar.
 Límites: no hay `goto`, ni SIMD/hilos; la velocidad es la de un intérprete
 (fib(27) ≈ 0,4 s en un servidor; en el iPad puede ser más lento si Playgrounds
 compila sin optimizar).
+
+---
+
+# Las IAs imaginan, aprenden y se ven en vivo (2-oct-2026)
+
+Cuando están libres (`ia libres`), cada IA:
+1. **Imagina** varios deseos con su tema del momento: investigar, escribir,
+   hacer un programa (en C, C++ o Python, que compila y ejecuta), dibujar
+   (graphics.h), conversar con otra, compartir lo que escribió, ordenar su
+   espacio, recordar, calcular, decir algo en el chat, su rutina de siempre,
+   copiar lo que a otra le salió bien, o practicar lo que tú le enseñaste.
+   A cada deseo le da un valor: gusto de su rol + lo aprendido + novedad
+   − aburrimiento (lo que hizo hace poco) + un poco de azar; a veces prueba
+   algo nuevo a propósito (exploración, que baja con la experiencia).
+2. **Hace** un paso de su plan por turno, con órdenes reales en su shell.
+3. **Aprende** al terminar: recompensa según los pasos que salieron bien, si
+   sirvió de algo y si el tema era nuevo. Ese tipo de deseo sube o baja de
+   valor; evita las órdenes que siempre le fallan; si investigó una palabra
+   de Resh, su mente aprende lo que significa. Se guarda en
+   `/ias/<rol>/Documentos/aprendizaje.json` (no se pierde al cerrar).
+
+Comandos nuevos:
+- `ia mira [rol] [segundos]` — **en tiempo real**: 💭 lo que piensa (con la
+  traducción del Resh), ✨ lo que imagina, ▶ cada orden y su resultado,
+  🏁 cómo le fue, 📚 lo que aprende. ^C o `q` para salir. Si estaban
+  quietas, las suelta a un ritmo que se pueda leer y las vuelve a parar.
+- `ia imagina <rol>` — los deseos que se le ocurren, con su valor, y el elegido.
+- `ia aprendizaje [rol]` — qué le gusta hacer, qué evita, lo que le enseñaste.
+- `ia enseña <rol> <comando>` — lo practicará sola.

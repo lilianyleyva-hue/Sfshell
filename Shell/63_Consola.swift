@@ -51,6 +51,11 @@ final class Consola: @unchecked Sendable {
         senal.signal()
     }
 
+    /// La siguiente línea escrita, si hay alguna (sin esperar).
+    func tomaSiHay() -> String? {
+        lock.conCandado { lineas.isEmpty ? nil : lineas.removeFirst() }
+    }
+
     func cancela() {
         lock.conCandado { _cancelado = true }
         senal.signal()
