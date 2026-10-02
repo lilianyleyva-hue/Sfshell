@@ -553,3 +553,30 @@ extension Array where Element == UInt16 {
 // las constantes estáticas (CV.cero…) no tienen estado que cambie.
 extension CV: @unchecked Sendable {}
 extension CPtr: @unchecked Sendable {}
+
+// Funciones matemáticas con nombre propio: así no dependen de cómo cada
+// sistema (iOS o Linux) exporta las de C desde Foundation.
+func mFloor(_ x: Double) -> Double { x.rounded(.down) }
+func mCeil(_ x: Double) -> Double { x.rounded(.up) }
+func mRound(_ x: Double) -> Double { x.rounded(.toNearestOrAwayFromZero) }
+func mTrunc(_ x: Double) -> Double { x.rounded(.towardZero) }
+func mPow(_ a: Double, _ b: Double) -> Double { pow(a, b) }
+func mSin(_ x: Double) -> Double { sin(x) }
+func mCos(_ x: Double) -> Double { cos(x) }
+func mTan(_ x: Double) -> Double { tan(x) }
+func mAsin(_ x: Double) -> Double { asin(x) }
+func mAcos(_ x: Double) -> Double { acos(x) }
+func mAtan(_ x: Double) -> Double { atan(x) }
+func mAtan2(_ a: Double, _ b: Double) -> Double { atan2(a, b) }
+func mSinh(_ x: Double) -> Double { sinh(x) }
+func mCosh(_ x: Double) -> Double { cosh(x) }
+func mTanh(_ x: Double) -> Double { tanh(x) }
+func mExp(_ x: Double) -> Double { exp(x) }
+func mExp2(_ x: Double) -> Double { exp2(x) }
+func mLog10(_ x: Double) -> Double { log10(x) }
+func mLog2(_ x: Double) -> Double { log2(x) }
+func mLog1p(_ x: Double) -> Double { log1p(x) }
+func mExpm1(_ x: Double) -> Double { expm1(x) }
+func mFmod(_ a: Double, _ b: Double) -> Double { fmod(a, b) }
+func mHypot(_ a: Double, _ b: Double) -> Double { hypot(a, b) }
+func mCbrt(_ x: Double) -> Double { cbrt(x) }

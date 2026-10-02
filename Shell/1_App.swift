@@ -49,9 +49,7 @@ final class Terminal: ObservableObject {
         // salida en vivo de los programas (scanf, cin, Scanner…)
         let yo = self
         shell.consola = Consola(escribir: { texto in
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated { yo.escribeVivo(texto) }
-            }
+            Task { @MainActor in yo.escribeVivo(texto) }
         })
         Task {
             let out = await shell.runProfile()

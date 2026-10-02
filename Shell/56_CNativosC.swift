@@ -1042,33 +1042,33 @@ extension CMaq {
         }
         switch base {
         case "sqrt": return try r1 { $0.squareRoot() }
-        case "pow": return try r2 { Foundation.pow($0, $1) }
+        case "pow": return try r2 { mPow($0, $1) }
         case "fabs": return try r1 { Swift.abs($0) }
-        case "floor": return try r1 { Foundation.floor($0) }
-        case "ceil": return try r1 { Foundation.ceil($0) }
-        case "round": return try r1 { Foundation.round($0) }
-        case "trunc": return try r1 { Foundation.trunc($0) }
-        case "sin": return try r1 { Foundation.sin($0) }
-        case "cos": return try r1 { Foundation.cos($0) }
-        case "tan": return try r1 { Foundation.tan($0) }
-        case "asin": return try r1 { Foundation.asin($0) }
-        case "acos": return try r1 { Foundation.acos($0) }
-        case "atan": return try r1 { Foundation.atan($0) }
-        case "atan2": return try r2 { Foundation.atan2($0, $1) }
-        case "sinh": return try r1 { Foundation.sinh($0) }
-        case "cosh": return try r1 { Foundation.cosh($0) }
-        case "tanh": return try r1 { Foundation.tanh($0) }
-        case "exp": return try r1 { Foundation.exp($0) }
-        case "exp2": return try r1 { Foundation.exp2($0) }
+        case "floor": return try r1 { mFloor($0) }
+        case "ceil": return try r1 { mCeil($0) }
+        case "round": return try r1 { mRound($0) }
+        case "trunc": return try r1 { mTrunc($0) }
+        case "sin": return try r1 { mSin($0) }
+        case "cos": return try r1 { mCos($0) }
+        case "tan": return try r1 { mTan($0) }
+        case "asin": return try r1 { mAsin($0) }
+        case "acos": return try r1 { mAcos($0) }
+        case "atan": return try r1 { mAtan($0) }
+        case "atan2": return try r2 { mAtan2($0, $1) }
+        case "sinh": return try r1 { mSinh($0) }
+        case "cosh": return try r1 { mCosh($0) }
+        case "tanh": return try r1 { mTanh($0) }
+        case "exp": return try r1 { mExp($0) }
+        case "exp2": return try r1 { mExp2($0) }
         case "log": return try r1 { logNatural($0) }
-        case "log10": return try r1 { Foundation.log10($0) }
-        case "log2": return try r1 { Foundation.log2($0) }
-        case "fmod": return try r2 { Foundation.fmod($0, $1) }
-        case "hypot": return try r2 { Foundation.hypot($0, $1) }
-        case "cbrt": return try r1 { Foundation.cbrt($0) }
+        case "log10": return try r1 { mLog10($0) }
+        case "log2": return try r1 { mLog2($0) }
+        case "fmod": return try r2 { mFmod($0, $1) }
+        case "hypot": return try r2 { mHypot($0, $1) }
+        case "cbrt": return try r1 { mCbrt($0) }
         case "fmax": return try r2 { Swift.max($0, $1) }
         case "fmin": return try r2 { Swift.min($0, $1) }
-        case "lround", "llround": return .n(Int64(Foundation.round(try argReal(a, 0, n, linea))), .long)
+        case "lround", "llround": return .n(Int64(mRound(try argReal(a, 0, n, linea))), .long)
         case "isnan": return .n(try argReal(a, 0, n, linea).isNaN ? 1 : 0, .int)
         case "isinf": return .n(try argReal(a, 0, n, linea).isInfinite ? 1 : 0, .int)
         default: return nil

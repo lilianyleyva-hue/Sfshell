@@ -142,35 +142,35 @@ extension CMaq {
             let q = try real(y, linea)
             if p.isNaN || q.isNaN { return .d(Double.nan, false) }
             return .d(n == "max" ? Swift.max(p, q) : Swift.min(p, q), false)
-        case "pow": return .d(Foundation.pow(try d(0), try d(1)), false)
+        case "pow": return .d(mPow(try d(0), try d(1)), false)
         case "sqrt": return .d(try d(0).squareRoot(), false)
-        case "cbrt": return .d(Foundation.cbrt(try d(0)), false)
-        case "floor": return .d(Foundation.floor(try d(0)), false)
-        case "ceil": return .d(Foundation.ceil(try d(0)), false)
+        case "cbrt": return .d(mCbrt(try d(0)), false)
+        case "floor": return .d(mFloor(try d(0)), false)
+        case "ceil": return .d(mCeil(try d(0)), false)
         case "rint": return .d((try d(0)).rounded(.toNearestOrEven), false)
         case "round":
             let v = try arg(a, 0, n, linea)
-            if case .d(let x, true) = v { return .n(cAjusta(Int64(Foundation.floor(x + 0.5)), .int), .int) }
+            if case .d(let x, true) = v { return .n(cAjusta(Int64(mFloor(x + 0.5)), .int), .int) }
             let x = try real(v, linea)
             if x.isNaN { return .n(0, .long) }
-            return .n(CV.truncaD(Foundation.floor(x + 0.5)), .long)
+            return .n(CV.truncaD(mFloor(x + 0.5)), .long)
         case "random": return .d(siguienteRealJava(&javaRandom), false)
-        case "sin": return .d(Foundation.sin(try d(0)), false)
-        case "cos": return .d(Foundation.cos(try d(0)), false)
-        case "tan": return .d(Foundation.tan(try d(0)), false)
-        case "asin": return .d(Foundation.asin(try d(0)), false)
-        case "acos": return .d(Foundation.acos(try d(0)), false)
-        case "atan": return .d(Foundation.atan(try d(0)), false)
-        case "atan2": return .d(Foundation.atan2(try d(0), try d(1)), false)
-        case "sinh": return .d(Foundation.sinh(try d(0)), false)
-        case "cosh": return .d(Foundation.cosh(try d(0)), false)
-        case "tanh": return .d(Foundation.tanh(try d(0)), false)
+        case "sin": return .d(mSin(try d(0)), false)
+        case "cos": return .d(mCos(try d(0)), false)
+        case "tan": return .d(mTan(try d(0)), false)
+        case "asin": return .d(mAsin(try d(0)), false)
+        case "acos": return .d(mAcos(try d(0)), false)
+        case "atan": return .d(mAtan(try d(0)), false)
+        case "atan2": return .d(mAtan2(try d(0), try d(1)), false)
+        case "sinh": return .d(mSinh(try d(0)), false)
+        case "cosh": return .d(mCosh(try d(0)), false)
+        case "tanh": return .d(mTanh(try d(0)), false)
         case "log": return .d(logNatural(try d(0)), false)
-        case "log10": return .d(Foundation.log10(try d(0)), false)
-        case "log1p": return .d(Foundation.log1p(try d(0)), false)
-        case "exp": return .d(Foundation.exp(try d(0)), false)
-        case "expm1": return .d(Foundation.expm1(try d(0)), false)
-        case "hypot": return .d(Foundation.hypot(try d(0), try d(1)), false)
+        case "log10": return .d(mLog10(try d(0)), false)
+        case "log1p": return .d(mLog1p(try d(0)), false)
+        case "exp": return .d(mExp(try d(0)), false)
+        case "expm1": return .d(mExpm1(try d(0)), false)
+        case "hypot": return .d(mHypot(try d(0), try d(1)), false)
         case "signum": let x = try d(0); return .d(x > 0 ? 1 : (x < 0 ? -1 : x), false)
         case "toRadians": return .d(try d(0) * Double.pi / 180, false)
         case "toDegrees": return .d(try d(0) * 180 / Double.pi, false)
@@ -495,11 +495,11 @@ extension CMaq {
     /// Java redondea "hacia arriba" en los empates (2.5 → 3 con %.0f).
     static func redondeoJava(_ x: Double, _ spec: String) -> Double {
         guard let p = spec.split(separator: ".").last, spec.contains("."), let dec = Int(p), dec < 15 else { return x }
-        let m = Foundation.pow(10.0, Double(dec))
+        let m = mPow(10.0, Double(dec))
         let y = x * m
-        let r = (y >= 0 ? Foundation.floor(y + 0.5) : Foundation.ceil(y - 0.5)) / m
+        let r = (y >= 0 ? mFloor(y + 0.5) : mCeil(y - 0.5)) / m
         // solo si el binario quedó justo en el medio
-        if Swift.abs(y - Foundation.trunc(y)) == 0.5 || Swift.abs(Swift.abs(y - Foundation.trunc(y)) - 0.5) < 1e-9 { return r }
+        if Swift.abs(y - mTrunc(y)) == 0.5 || Swift.abs(Swift.abs(y - mTrunc(y)) - 0.5) < 1e-9 { return r }
         return x
     }
 
