@@ -945,6 +945,10 @@ final class PyInterprete: @unchecked Sendable {
     var salida = ""
     weak var env: ShellEnv?
     var argv: [String] = []
+    /// input(): primero lo que llegó por tubería, después el teclado (consola)
+    var lineasEntrada: [String] = []
+    var pideLinea: (() -> String?)?
+    var volcar: ((String) -> Void)?
     private var pasos = 0
     private var profundidad = 0
     static let maxPasos = 5_000_000
@@ -2512,7 +2516,12 @@ final class PyInterprete: @unchecked Sendable {
         }
         b("input") { a, _ in
             if let p = a.first { self.salida += self.str(p) }
-            throw PyError("EOFError", "input() no está disponible: pasa los datos como argumentos (sys.argv)")
+            if !self.lineasEntrada.isEmpty { return .str(self.lineasEntrada.removeFirst()) }
+            if let v = self.volcar, !self.salida.isEmpty { v(self.salida); self.salida = "" }
+            guard let pide = self.pideLinea, let l = pide() else {
+                throw PyError("EOFError", "EOF when reading a line")
+            }
+            return .str(l)
         }
         b("open") { a, kw in
             guard let p = a.first.map({ self.str($0) }) else { throw PyError("TypeError", "open() necesita el nombre del archivo") }
@@ -2589,6 +2598,13 @@ extension Shell {
                 codigo = try ctx.input([p])
                 archivo = p
                 py.argv = a
+                var l = ctx.stdin.components(separatedBy: "\n")
+                if l.last == "" { l.removeLast() }
+                py.lineasEntrada = l
+                if let c = ctx.consola {
+                    py.volcar = { c.escribir($0) }
+                    if ctx.tecladoVivo { py.pideLinea = { c.leeLinea() } }
+                }
             } else if !ctx.stdin.isEmpty {
                 codigo = ctx.stdin
             } else {
@@ -2599,7 +2615,9 @@ extension Shell {
                 return "Python 3 (SwiftShell) — escribe código; un bloque termina con una línea vacía.\nexit() o salir para volver.\n"
             }
             if codigo.hasPrefix("#!") { codigo = codigo.components(separatedBy: "\n").dropFirst().joined(separator: "\n") }
+            ctx.consola?.empieza()
             let (salida, error) = await Shell.enHiloPython(py, codigo, archivo: archivo, interactivo: false)
+            ctx.consola?.termina()
             if let e = error {
                 if e.hasSuffix("SystemExit: 0") { return salida }
                 throw ShErr(salida + e)

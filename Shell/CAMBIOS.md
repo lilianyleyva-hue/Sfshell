@@ -301,3 +301,65 @@ Regla para lo que se añada: ninguna función de más de ~0,3 s
   `chat en <sala> [mensaje]`, `chat salas`, `chat todo`. Las crean tú o ellas.
 - `chat todas <pregunta>`: las 18 contestan, cada una a su manera.
 - empatia, curiosidad, analogia y narrativa abren conversaciones solas a veces.
+
+---
+
+# C, C++, Java y WebAssembly (2-oct-2026)
+
+Nuevos lenguajes, todo dentro de la app (sin internet):
+
+| Lenguaje | Compilar | Ejecutar |
+|---|---|---|
+| C | `gcc hola.c -o hola` (también `cc`, `clang`, `tcc -run hola.c`) | `./hola` |
+| C++ | `g++ hola.cpp -o hola` (también `c++`, `clang++`) | `./hola` |
+| Java | `javac Main.java` | `java Main` (o `java Main.java`) |
+| WebAssembly | `wat2wasm hola.wat` | `wasm hola.wasm`, `wasm hola.wat` |
+
+`run hola.c` / `run Main.java` compila y ejecuta de una vez. `lenguajes` muestra la ayuda.
+
+**No es código nativo**: iOS no permite que una app genere y ejecute código
+máquina nuevo. Los compiladores revisan el programa entero (errores con
+archivo:línea, como gcc/javac) y un intérprete lo ejecuta con las reglas de
+cada lenguaje: desbordamiento de `int`, división entera, punteros, `char`,
+`printf`/`scanf` reales, `rand()` igual que glibc, `new Random(42)` igual que Java.
+
+Qué incluye:
+- **C**: preprocesador (`#include "x.h"`, `#define` con parámetros, `#if`),
+  structs, unions, enums, typedef, punteros (y a punteros, y a funciones),
+  `malloc/calloc/realloc/free`, arreglos de varias dimensiones, `string.h`,
+  `math.h`, `ctype.h`, `stdlib.h` (qsort, strtol…), archivos (`fopen`,
+  `fprintf`, `fscanf`, `fgets`). Salirse de un arreglo da un error claro.
+- **C++**: clases, herencia, `virtual`, constructores/destructores (también al
+  salir de un bloque) y de copia, sobrecarga de operadores, plantillas,
+  referencias, lambdas, excepciones (`std::runtime_error`, `out_of_range`…),
+  `iostream` con `setw/setprecision/fixed`, `string`, `vector`, `map`, `set`,
+  `unordered_map`, `stack`, `queue`, `priority_queue`, `pair`, `sstream`,
+  `fstream` y `<algorithm>` (sort, find, lower_bound, next_permutation…).
+- **Java**: clases, interfaces (con `default`), abstractas, enums con
+  constructores, records, genéricos, clases anónimas, lambdas, referencias a
+  métodos, excepciones (las de `java.lang`/`java.util`), `switch` con `->`,
+  `instanceof` con variable, `Scanner`, `String`/`StringBuilder`,
+  `ArrayList`, `HashMap`, `TreeMap`, `HashSet`, `ArrayDeque`,
+  `PriorityQueue`, `Arrays`, `Collections`, `Math`, `Random` y streams básicos.
+- **WebAssembly**: intérprete MVP + WASI (stdin/stdout, archivos, args) y
+  ensamblador `.wat` → `.wasm` (idéntico a wabt en las pruebas).
+
+**Programas interactivos**: la salida aparece mientras el programa corre, y
+si pide datos (`scanf`, `cin`, `Scanner`, `input()` de Python, stdin de wasm)
+lo que escribes es para él. El botón **^C** (o Ctrl-C) lo detiene.
+
+**Interfaz en texto**:
+- C/C++ `#include <graphics.h>` (como Turbo C): `initgraph`, `line`, `circle`,
+  `rectangle`, `bar`, `outtextxy`, `floodfill`, `delay`… dibujado con bloques.
+- C/C++ `#include "ui.h"`: `ui_ventana`, `ui_texto`, `ui_campo`, `ui_boton`,
+  `ui_mostrar`, `ui_valor`, `ui_mensaje`, `ui_pregunta`, `ui_menu`.
+- Java: `JOptionPane.showMessageDialog/showInputDialog/showConfirmDialog`.
+
+Archivos nuevos: 45–49 y 52–64 (`*_C*.swift`, `63_Consola.swift`),
+`50_Wasm.swift`, `51_Wat.swift`. Probado contra gcc 13, g++ 13 y Java 21
+reales: 16 programas de prueba dan la misma salida. Compila sin errores con
+Swift 5.10 y 6.0 (modos 5 y 6), sin funciones lentas de compilar.
+
+Límites: no hay `goto`, ni SIMD/hilos; la velocidad es la de un intérprete
+(fib(27) ≈ 0,4 s en un servidor; en el iPad puede ser más lento si Playgrounds
+compila sin optimizar).

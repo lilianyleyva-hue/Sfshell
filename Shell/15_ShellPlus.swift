@@ -66,7 +66,9 @@ extension Shell {
                     j = line.index(after: j)
                 }
                 guard depth == 0 else { throw ShErr("sustitución: falta cerrar $(") }
+                capturas += 1
                 out += limpia(await execute(inner))
+                capturas -= 1
                 i = line.index(after: j)
                 continue
             }
@@ -79,7 +81,9 @@ extension Shell {
                 var j = line.index(after: i)
                 while j < line.endIndex, line[j] != "`" { inner.append(line[j]); j = line.index(after: j) }
                 guard j < line.endIndex else { throw ShErr("sustitución: falta cerrar `") }
+                capturas += 1
                 out += limpia(await execute(inner))
+                capturas -= 1
                 i = line.index(after: j)
                 continue
             }

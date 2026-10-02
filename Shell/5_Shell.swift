@@ -11,6 +11,10 @@ struct Ctx {
     let args: [String]
     let stdin: String
     let sh: Shell
+    /// La salida va en vivo a la pantalla (último comando de la tubería).
+    var consola: Consola? = nil
+    /// El programa puede pedir datos por teclado (nada entra por tubería).
+    var tecladoVivo = false
     var env: ShellEnv { sh.env }
 
     func input(_ paths: [String]) throws -> String {
@@ -99,6 +103,11 @@ final class Shell: @unchecked Sendable {
     /// no lo tienen: ellas escriben con echo, cat > y sed.
     var uiEdit: (@Sendable (URL) -> Void)?
 
+    /// Consola de la terminal: salida en vivo y entrada para programas.
+    var consola: Consola?
+    /// >0 mientras la salida se recoge ($(…), bloques, segundo plano): sin salida en vivo.
+    var capturas = 0
+
     /// Editor de texto abierto (nano/vi/edit): las líneas van a él.
     var editor: EdicionTexto?
     /// Lo que el editor quiere mostrar al abrirse.
@@ -148,9 +157,11 @@ final class Shell: @unchecked Sendable {
             Shell.esc(), Shell.objetos(), Shell.mixCommands(), Shell.git(),
             Shell.macos(), Shell.logicGame(), Shell.unixMas(), Shell.bash(),
             Shell.huella(), Shell.nyx(), Shell.ias(), Shell.comandosIA(),
-            Shell.apiLocal(), Shell.termux(), Shell.python(), Shell.ipa(), Shell.web(), Shell.herramientas(), Shell.chat()
+            Shell.apiLocal(), Shell.termux(), Shell.python(), Shell.ipa(), Shell.web(), Shell.herramientas(), Shell.chat(),
+            Shell.compiladores(), Shell.wasm()
         ]
         for m in modulos { cmds.merge(m) { _, b in b } }
+        cmds["run"] = Shell.envuelveRun(cmds["run"])
         commands = cmds
         js.envRef = env
         loadHistory()
@@ -416,7 +427,7 @@ final class Shell: @unchecked Sendable {
         var errAll = ""
         var status = 0
 
-        for cmd in cmds {
+        for (posicion, cmd) in cmds.enumerated() {
             var argv = cmd.argv
 
             // VAR=valor sin comando detrás: se queda en el entorno
@@ -435,6 +446,10 @@ final class Shell: @unchecked Sendable {
                 argv = expanded + Array(argv.dropFirst())
             }
             guard !argv.isEmpty else { continue }
+            // ./programa dentro de una tubería o con && también se ejecuta
+            if argv[0].hasPrefix("./") && argv[0].count > 2 {
+                argv = ["run", String(argv[0].dropFirst(2))] + Array(argv.dropFirst())
+            }
             let name = argv[0]
 
             // VAR=valor delante del comando: solo mientras dura el comando
@@ -476,7 +491,11 @@ final class Shell: @unchecked Sendable {
                 env.vars["0"] = guardado0
                 if (env.vars["?"] ?? "0") != "0" { fallo = "" }
             } else if let spec = commands[name] ?? installedSpec(name) {
-                let ctx = Ctx(name: name, args: Array(argv.dropFirst()), stdin: stdin, sh: self)
+                var ctx = Ctx(name: name, args: Array(argv.dropFirst()), stdin: stdin, sh: self)
+                if let c = consola, capturas == 0 {
+                    if posicion == cmds.count - 1 && cmd.outFile == nil && !cmd.outToErr { ctx.consola = c }
+                    if posicion == 0 && cmd.here == nil && cmd.hereDelim == nil && cmd.inFile == nil { ctx.tecladoVivo = ctx.consola != nil }
+                }
                 do { salida = try await spec.run(ctx) }
                 catch { fallo = errText(error) }
                 if let a = avisoEditor { salida += a; avisoEditor = nil }
@@ -523,6 +542,8 @@ final class Shell: @unchecked Sendable {
         let linea = cmds.map { $0.argv.joined(separator: " ") }.joined(separator: " | ")
         let t = Task<String, Never> { [weak self] in
             guard let self else { return "" }
+            self.capturas += 1
+            defer { self.capturas -= 1 }
             let r = await self.runPipeline(cmds)
             return r.out + r.err
         }

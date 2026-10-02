@@ -164,6 +164,8 @@ enum Bash {
     // --------------------------------------------------------
 
     static func correr(_ lineas: [String], _ sh: Shell) async -> String {
+        sh.capturas += 1
+        defer { sh.capturas -= 1 }
         let (texto, _) = await ejecutar(partir(lineas), sh)
         return texto
     }

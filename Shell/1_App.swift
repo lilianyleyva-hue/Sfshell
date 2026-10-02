@@ -25,6 +25,8 @@ final class Terminal: ObservableObject {
     @Published var entrada = ""
     @Published var ocupada = false
     let shell = Shell()
+    /// La última línea quedó a medias (un programa escribió sin '\n').
+    var abierta = false
 
     init() {
         escribe(shell.motd())
@@ -44,13 +46,46 @@ final class Terminal: ObservableObject {
             guard let t = self else { return }
             Task { @MainActor in t.entrada = cmd }
         }
+        // salida en vivo de los programas (scanf, cin, Scanner…)
+        let yo = self
+        shell.consola = Consola(escribir: { texto in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { yo.escribeVivo(texto) }
+            }
+        })
         Task {
             let out = await shell.runProfile()
             escribe(out)
         }
     }
 
+    /// Texto que llega mientras el programa corre: puede ser media línea.
+    func escribeVivo(_ texto: String) {
+        guard !texto.isEmpty else { return }
+        var partes = texto.components(separatedBy: "\n")
+        let terminaEnSalto = texto.hasSuffix("\n")
+        if terminaEnSalto { partes.removeLast() }
+        for (k, p) in partes.enumerated() {
+            if k == 0 && abierta, let ultima = lineas.last {
+                lineas[lineas.count - 1] = Linea(tipo: ultima.tipo, texto: ultima.texto + p)
+            } else {
+                lineas.append(Linea(tipo: .salida, texto: p))
+            }
+        }
+        abierta = !terminaEnSalto
+        if lineas.count > 2000 { lineas.removeFirst(lineas.count - 2000) }
+    }
+
+    /// ^C: detiene el programa que esté corriendo.
+    func interrumpe() {
+        shell.consola?.cancela()
+    }
+
+    /// ¿La línea que se escribe es para un programa que corre?
+    var programaActivo: Bool { shell.consola?.activa ?? false }
+
     func escribe(_ out: String) {
+        abierta = false
         guard !out.isEmpty else { return }
         var t = out
         if t.hasSuffix("\n") { t.removeLast() }
@@ -67,6 +102,12 @@ final class Terminal: ObservableObject {
     func enviar() {
         let linea = entrada
         entrada = ""
+        if let c = shell.consola, c.activa {
+            // entrada para el programa en marcha (se ve junto a su pregunta)
+            escribeVivo(linea + "\n")
+            c.entrega(linea)
+            return
+        }
         lineas.append(Linea(tipo: .orden, texto: shell.prompt + linea))
         if shell.editor == nil, shell.dentroDe == nil, !linea.trimmingCharacters(in: .whitespaces).isEmpty {
             shell.env.history.append(linea)
@@ -114,12 +155,17 @@ struct ContentView: View {
                 .onChange(of: t.lineas.count) { _ in proxy.scrollTo("fin") }
             }
             HStack(spacing: 0) {
-                Text(t.shell.prompt).foregroundColor(.green)
+                Text(t.ocupada && t.programaActivo ? "› " : t.shell.prompt).foregroundColor(.green)
                 TextField("", text: $t.entrada)
                     .foregroundColor(.white)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .onSubmit { t.enviar() }
+                if t.ocupada {
+                    Button("^C") { t.interrumpe() }
+                        .foregroundColor(.red)
+                        .keyboardShortcut("c", modifiers: .control)
+                }
             }
             .padding(8)
         }
@@ -141,6 +187,10 @@ struct ContentView: View {
 struct ShellTexto {
     static func main() async {
         let sh = Shell()
+        sh.consola = Consola(escribir: { texto in
+            print(texto, terminator: "")
+            fflush(nil)
+        }, lector: { readLine() })
         print(sh.motd(), terminator: "")
         print(await sh.runProfile(), terminator: "")
         while true {
