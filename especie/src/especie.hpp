@@ -19,7 +19,7 @@
 // Con hilos (Linux, Termux, iSH): piensan en segundo plano, sin pausa.
 // Sin hilos (Code App en iPad, WebAssembly): piensan entre cada comando,
 // poniéndose al día con todo el tiempo que pasó mientras escribías.
-#if defined(__wasi__) || defined(__EMSCRIPTEN__) || defined(ABLA_SIN_HILOS)
+#if defined(__wasm__) || defined(__wasi__) || defined(__EMSCRIPTEN__) || defined(ABLA_SIN_HILOS)
 #define ABLA_HILOS 0
 #else
 #define ABLA_HILOS 1
@@ -84,8 +84,11 @@ class Especie {
   };
 
   Especie(const std::string& mundo, uint64_t contexto, int ritmoMs)
-      : mundo_(mundo), ritmo_(ritmoMs), rng_(std::random_device{}()) {
-    for (auto d : {"seres", "conocimiento", "memoria", "abla"}) archivos::crearDirectorios(en(d));
+      : mundo_(mundo), ritmo_(ritmoMs), rng_(static_cast<uint32_t>(std::chrono::steady_clock::now().time_since_epoch().count() ^
+                                   std::chrono::system_clock::now().time_since_epoch().count())) {
+    for (auto d : {"seres", "conocimiento", "memoria", "abla"})
+      if (!archivos::crearDirectorios(en(d)))
+        std::fprintf(stderr, "Aviso: no puedo crear la carpeta %s (¿permisos?). No podré guardar nada.\n", en(d).c_str());
     idioma.cargarCompuestas(en("abla/nuevas.txt"));
     archivos::escribir(en("conocimiento/hecho.hpp"), HECHO_HPP);
     {

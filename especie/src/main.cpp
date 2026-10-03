@@ -141,8 +141,11 @@ int main(int argc, char** argv) {
     }
   }
 
-  std::cout << c("1;32", "Despertando a la especie…") << "\n";
+  std::cout << std::unitbuf;  // sin búfer: si algo falla, se ve hasta dónde llegó
+  std::cout << c("1;32", "Despertando a la especie…") << " (" << (Especie::conHilos ? "con hilos" : "sin hilos")
+            << ", carpeta " << mundo << ")\n";
   Especie e(mundo, contexto, ritmo);
+  std::cout << "Los 27 están despiertos.\n";
   e.despertar();
   Shell yo(e.mundo(), "/");
 
