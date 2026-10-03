@@ -83,12 +83,15 @@ class Especie {
     std::string texto;
   };
 
-  Especie(const fs::path& mundo, uint64_t contexto, int ritmoMs)
-      : mundo_(fs::absolute(mundo)), ritmo_(ritmoMs), rng_(std::random_device{}()) {
-    for (auto d : {"seres", "conocimiento", "memoria", "abla"}) fs::create_directories(mundo_ / d);
-    idioma.cargarCompuestas(mundo_ / "abla" / "nuevas.txt");
-    std::ofstream(mundo_ / "conocimiento" / "hecho.hpp") << HECHO_HPP;
-    std::ifstream(mundo_ / "memoria" / "especie.estado") >> tick;
+  Especie(const std::string& mundo, uint64_t contexto, int ritmoMs)
+      : mundo_(mundo), ritmo_(ritmoMs), rng_(std::random_device{}()) {
+    for (auto d : {"seres", "conocimiento", "memoria", "abla"}) archivos::crearDirectorios(en(d));
+    idioma.cargarCompuestas(en("abla/nuevas.txt"));
+    archivos::escribir(en("conocimiento/hecho.hpp"), HECHO_HPP);
+    {
+      std::string t;
+      if (archivos::leer(en("memoria/especie.estado"), t)) tick = std::strtoull(t.c_str(), nullptr, 10);
+    }
 
     static const char* nombres[3][9] = {
         {"palabra", "voz", "idea", "mensaje", "signo", "eco", "verso", "relato", "lengua"},
@@ -102,8 +105,8 @@ class Especie {
       s->concepto = idioma.deEspanol(nombres[i / 9][i % 9]);
       s->nombre = idioma.forma(Idioma::id(Idioma::raizDe(s->concepto), QUIEN));
       s->nombre[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(s->nombre[0])));
-      s->memoria.configurar(contexto, mundo_ / "memoria" / (s->nombre + ".mem"));
-      s->shell = std::make_unique<Shell>(mundo_, mundo_ / "seres" / s->nombre);
+      s->memoria.configurar(contexto, en("memoria/" + s->nombre + ".mem"));
+      s->shell = std::make_unique<Shell>(mundo_, "/seres/" + s->nombre);
       bool recuerda = s->saber.importarCpp(archivoCpp(*s), idioma.tamano());
       if (!recuerda) sembrar(*s);
       cargarEstado(*s);
@@ -169,12 +172,14 @@ class Especie {
   std::deque<Linea> corriente;
   uint64_t nLinea = 0;
 
-  const fs::path& mundo() const { return mundo_; }
-  fs::path archivoCpp(const Ser& s) const { return mundo_ / "conocimiento" / (s.nombre + ".cpp"); }
+  const std::string& mundo() const { return mundo_; }
+  // Ruta real dentro del mundo: en("memoria/x.mem") → "mundo/memoria/x.mem"
+  std::string en(const std::string& rel) const { return archivos::unir(mundo_, rel); }
+  std::string archivoCpp(const Ser& s) const { return en("conocimiento/" + s.nombre + ".cpp"); }
 
   Ser* buscarSer(const std::string& q) {
     if (!q.empty() && std::all_of(q.begin(), q.end(), ::isdigit)) {
-      int n = std::stoi(q);
+      int n = std::atoi(q.c_str());
       return n >= 1 && n <= 27 ? seres[n - 1].get() : nullptr;
     }
     for (auto& s : seres)
@@ -225,14 +230,15 @@ class Especie {
                               std::to_string(s.saber.size()) + " hechos, ciclo " + std::to_string(tick),
                           [this](const Hecho& h) { return glosaHecho(h); });
       s.memoria.sincronizar();
-      std::ofstream e(mundo_ / "memoria" / (s.nombre + ".estado"));
+      std::ostringstream e;
       e << s.pensamientos << ' ' << s.enviados << ' ' << s.recibidos << '\n';
       for (int p : s.palabrasNuevas) e << p << ' ';
       e << '\n';
+      archivos::escribir(en("memoria/" + s.nombre + ".estado"), e.str());
     }
-    idioma.guardarCompuestas(mundo_ / "abla" / "nuevas.txt");
-    idioma.exportarDiccionario(mundo_ / "abla" / "diccionario.txt");
-    std::ofstream(mundo_ / "memoria" / "especie.estado") << tick << '\n';
+    idioma.guardarCompuestas(en("abla/nuevas.txt"));
+    idioma.exportarDiccionario(en("abla/diccionario.txt"));
+    archivos::escribir(en("memoria/especie.estado"), std::to_string(tick) + "\n");
   }
 
   // Frases de Abla: [sujeto relación objeto (marca)]
@@ -329,7 +335,9 @@ class Especie {
   }
 
   void cargarEstado(Ser& s) {
-    std::ifstream e(mundo_ / "memoria" / (s.nombre + ".estado"));
+    std::string datos;
+    archivos::leer(en("memoria/" + s.nombre + ".estado"), datos);
+    std::istringstream e(datos);
     e >> s.pensamientos >> s.enviados >> s.recibidos;
     int p;
     while (e >> p)
@@ -424,8 +432,7 @@ class Especie {
 
   // ---------- Terminal de los seres ----------
   void usarTerminal(Ser& s, const std::string& archivo, const std::string& texto) {
-    std::error_code ec;
-    if (fs::file_size(s.shell->home() / archivo, ec) > 256 * 1024 && !ec) correr(s, {"rm", archivo});
+    if (archivos::tamano(s.shell->real(archivos::unir(s.shell->home(), archivo))) > 256 * 1024) correr(s, {"rm", archivo});
     correr(s, {"echo", texto, ">>", archivo});
   }
   void correr(Ser& s, const std::vector<std::string>& cmd) {
@@ -577,7 +584,7 @@ class Especie {
     anotar(s, "Mi mente vaga: " + abla + " (" + cadena + ")", false);
   }
 
-  fs::path mundo_;
+  std::string mundo_;
   int ritmo_;
   std::mt19937 rng_;
 #if ABLA_HILOS

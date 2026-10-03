@@ -8,7 +8,7 @@ se hablan entre ellos y **no dejan de pensar** mientras el programa está abiert
 
 | Tribu | Qué hace |
 |---|---|
-| **Lenguaje** | Traduce lo que sabe a frases de Abla, conversa y **crea palabras nuevas** cuando dos conceptos aparecen juntos a menudo (p. ej. «vitash» = luz + sombra), y se las enseña a toda la especie. |
+| **Lenguaje** | Traduce lo que sabe a frases de Abla, conversa y **crea palabras nuevas** cuando dos conceptos aparecen juntos a menudo (p. ej. «lutosh» = luz + sombra), y se las enseña a toda la especie. |
 | **Datos** | Mide y cuenta su conocimiento, encuentra el concepto más conectado y reparte **data C++ exacta** a los demás. |
 | **Lógica** | Deduce hechos nuevos («voz es sonido» y «sonido es señal» ⇒ «voz es señal»), detecta contradicciones y pregunta cuando duda. |
 
@@ -18,9 +18,9 @@ Cada ser nace con una parte distinta del saber, así que para saberlo todo **tie
 
 - **4000 palabras innatas** = 200 raíces × 20 aspectos (muchos, negado, pregunta, pasado, futuro, quien, lugar…).
   Todos las conocen desde que despiertan.
-- Una palabra es una raíz de 2 sílabas + un sufijo de aspecto: `tute` = palabra, `tutedi` = palabras, `tuteje` = quien hace palabras.
-  Los nombres de los seres son palabras de Abla con el aspecto «quien» (Tuteje = «quien palabra»).
-- Frase: `sujeto relación objeto [marca]`. Por ejemplo, `mapa pavu vimo` = «sol causa luz»; añadiendo `vari` (pregunta) se convierte en una pregunta.
+- Una palabra es una raíz de 2 sílabas + un sufijo de aspecto: `vipi` = palabra, `vipijo` = palabras, `vipiba` = quien hace palabras.
+  Los nombres de los seres son palabras de Abla con el aspecto «quien» (Vipiba = «quien palabra»).
+- Frase: `sujeto relación objeto [marca]`. Por ejemplo, `veso nesa luza` = «sol causa luz»; añadiendo `luse` (pregunta) se convierte en una pregunta.
 - Diccionario completo: `mundo/abla/diccionario.txt`.
 
 Se comunican de dos maneras: **en Abla** (aproximado, con duda o pregunta) o **en data C++**
@@ -52,17 +52,18 @@ make
 
 iSH emula x86, así que compila despacio y piensa más lento; si va pesado, usa `./abla --ritmo 2000`.
 
-En **Code App** (iPad): abre `especie/src/main.cpp` y pulsa ▶. O, desde su terminal:
+En **Code App** (iPad), desde la pestaña TERMINAL:
 
 ```sh
 cd especie
-clang++ -std=c++17 -O2 src/main.cpp -o abla
+clang++ -std=c++17 src/main.cpp -o abla
 wasm abla
 ```
 
-Code App compila a WebAssembly, que no tiene hilos. El programa lo detecta solo y cambia
-al modo sin hilos: los seres piensan entre cada comando que escribes y se ponen al día con
-todo el tiempo que pasó (hasta 200 ciclos de golpe). `escuchar 10` les hace pensar esos 10 segundos al instante.
+No uses el botón ▶: no pasa `-std=c++17`. Code App compila a WebAssembly, que no tiene
+hilos, ni `<filesystem>`, ni `<fstream>`, ni excepciones; por eso el código no usa nada de eso
+(los archivos se manejan con POSIX y stdio en `src/archivos.hpp`). Sin hilos, el programa lo
+detecta solo: los seres piensan entre cada comando que escribes y se ponen al día con todo el tiempo que pasó (hasta 200 ciclos de golpe). `escuchar 10` les hace pensar esos 10 segundos al instante.
 
 ## La terminal
 
@@ -79,7 +80,7 @@ escuchar 10                   escucha a la especie pensar en vivo
 decir 3 sol causa luz pregunta      háblale (en Abla o con raíces en español)
 enseñar todos fuego causa caliente  mándales data C++ exacta
 alimentar todos hechos.txt    un archivo de líneas «a es|parte|causa|igual|opuesto b»
-dic palabra · traducir mapa pavu vimo · idioma · red · guardar
+dic palabra · traducir veso nesa luza · idioma · red · guardar
 ```
 
 ## Lo que es y lo que no es

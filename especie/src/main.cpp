@@ -5,7 +5,7 @@
 // Usar:      ./abla [--mundo DIR] [--contexto TOKENS] [--ritmo MS]
 
 #if __cplusplus < 201703L
-#error "Abla necesita C++17. En Code App no uses el boton de play: en la TERMINAL escribe  cd especie  y luego  clang++ -std=c++17 -O2 src/main.cpp -o abla  y despues  wasm abla"
+#error "Abla necesita C++17. En Code App no uses el boton de play: en la TERMINAL escribe  cd especie  y luego  clang++ -std=c++17 src/main.cpp -o abla  y despues  wasm abla"
 #endif
 
 #include <cstdlib>
@@ -85,9 +85,9 @@ void cmdSer(Especie& e, Ser& s) {
             << "  contexto:         " << m.usados() << " / " << m.capacidad() << " tokens (" << m.contexto().size()
             << " recuerdos presentes)\n"
             << "  largo plazo:      " << m.largoPlazo() << " recuerdos, " << m.bytesEnDisco() / 1024 << " KB en "
-            << fs::relative(m.archivo(), e.mundo()).generic_string() << "\n"
+            << "/memoria/" << s.nombre << ".mem\n"
             << "  conocimiento:     " << s.saber.size() << " hechos en "
-            << fs::relative(e.archivoCpp(s), e.mundo()).generic_string() << "\n"
+            << "/conocimiento/" << s.nombre << ".cpp\n"
             << "  idioma:           " << Idioma::BASE << " innatas + " << s.palabrasNuevas.size() << " nuevas\n"
             << "  mensajes:         " << s.enviados << " enviados, " << s.recibidos << " recibidos, " << s.buzon.size()
             << " en el buzón\n"
@@ -133,7 +133,7 @@ int main(int argc, char** argv) {
   for (int i = 1; i < argc; i++) {
     std::string a = argv[i];
     if (a == "--mundo" && i + 1 < argc) mundo = argv[++i];
-    else if (a == "--contexto" && i + 1 < argc) contexto = std::stoull(argv[++i]);
+    else if (a == "--contexto" && i + 1 < argc) contexto = std::strtoull(argv[++i], nullptr, 10);
     else if (a == "--ritmo" && i + 1 < argc) ritmo = std::max(50, std::atoi(argv[++i]));
     else {
       std::cout << "uso: " << argv[0] << " [--mundo DIR] [--contexto TOKENS] [--ritmo MS]\n";
@@ -144,7 +144,7 @@ int main(int argc, char** argv) {
   std::cout << c("1;32", "Despertando a la especie…") << "\n";
   Especie e(mundo, contexto, ritmo);
   e.despertar();
-  Shell yo(e.mundo(), e.mundo());
+  Shell yo(e.mundo(), "/");
 
   {
     Guardia l(e.mtx);
@@ -194,7 +194,7 @@ int main(int argc, char** argv) {
       if (!s) { std::cout << cmd << ": ¿qué ser? (1-27 o nombre)\n"; continue; }
       if (cmd == "ser") cmdSer(e, *s);
       else if (cmd == "mente") {
-        size_t n = a.size() > 2 ? std::stoul(a[2]) : 15;
+        size_t n = a.size() > 2 ? std::strtoul(a[2].c_str(), nullptr, 10) : 15;
         auto& ctx = s->memoria.contexto();
         for (size_t i = ctx.size() > n ? ctx.size() - n : 0; i < ctx.size(); i++)
           std::cout << c("2", "[t=" + std::to_string(ctx[i].tick) + "] ") << ctx[i].texto << "\n";
@@ -222,12 +222,14 @@ int main(int argc, char** argv) {
       } else {
         std::vector<std::vector<std::string>> lineas;
         if (cmd == "alimentar") {
-          try {
-            std::ifstream in(yo.resolver(a.size() > 2 ? a[2] : ""));
-            if (!in) throw std::runtime_error("no se puede leer el archivo");
-            std::string x;
-            while (std::getline(in, x)) lineas.push_back(trocear(x));
-          } catch (const std::exception& ex) { std::cout << "alimentar: " << ex.what() << "\n"; continue; }
+          std::string v, datos;
+          if (a.size() < 3 || !yo.resolver(a[2], v) || !archivos::leer(yo.real(v), datos)) {
+            std::cout << "alimentar: no se puede leer el archivo\n";
+            continue;
+          }
+          std::istringstream in(datos);
+          std::string x;
+          while (std::getline(in, x)) lineas.push_back(trocear(x));
         } else {
           lineas.push_back(std::vector<std::string>(a.begin() + 2, a.end()));
         }

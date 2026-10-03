@@ -12,19 +12,18 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
-#include <filesystem>
-#include <fstream>
 #include <map>
 #include <random>
 #include <sstream>
-#include <stdexcept>
+#include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
-namespace abla {
+#include "archivos.hpp"
 
-namespace fs = std::filesystem;
+namespace abla {
 
 inline const std::vector<std::string>& raices() {
   static const std::vector<std::string> r = {
@@ -99,14 +98,24 @@ inline std::string minusculas(std::string s) {
   return s;
 }
 
+// Barajado determinista: mt19937 da la misma secuencia en todas partes, pero
+// std::shuffle no (libstdc++ y libc++ barajan distinto). Con este, Abla es el
+// mismo idioma en Linux, Termux, iSH y Code App.
+template <class T>
+void barajar(std::vector<T>& v, std::mt19937& g) {
+  for (size_t i = v.size(); i > 1; i--) std::swap(v[i - 1], v[g() % i]);
+}
+
 class Idioma {
  public:
   static constexpr int RAICES = 200, ASPECTOS = 20, BASE = RAICES * ASPECTOS;  // 4000
   static constexpr int MAX_PALABRAS = 60000;
 
   Idioma() {
-    if (static_cast<int>(raices().size()) != RAICES || static_cast<int>(aspectos().size()) != ASPECTOS)
-      throw std::logic_error("Abla: el léxico base debe tener 200 raíces y 20 aspectos");
+    if (static_cast<int>(raices().size()) != RAICES || static_cast<int>(aspectos().size()) != ASPECTOS) {
+      std::fprintf(stderr, "Abla: el léxico base debe tener 200 raíces y 20 aspectos\n");
+      std::abort();
+    }
     std::mt19937 g(0xAB1A);  // misma semilla siempre: todos nacen con el mismo idioma
     const std::string C = "ktsnmlrvzp", V = "aeiou";
     std::vector<std::string> silabas;
@@ -115,11 +124,11 @@ class Idioma {
     std::vector<std::string> pares;
     for (auto& a : silabas)
       for (auto& b : silabas) pares.push_back(a + b);
-    std::shuffle(pares.begin(), pares.end(), g);
+    barajar(pares, g);
     std::vector<std::string> sufijos;
     for (char c : std::string("dgbfjh"))
       for (char v : V) sufijos.push_back({c, v});
-    std::shuffle(sufijos.begin(), sufijos.end(), g);
+    barajar(sufijos, g);
 
     for (int r = 0; r < RAICES; r++) {
       porRaiz_[raices()[r]] = r;
@@ -215,20 +224,24 @@ class Idioma {
     return ids;
   }
 
-  void exportarDiccionario(const fs::path& archivo) const {
-    std::ofstream out(archivo);
+  void exportarDiccionario(const std::string& archivo) const {
+    std::ostringstream out;
     out << "# Diccionario de Abla: " << tamano() << " palabras (" << BASE << " innatas + "
         << compuestas() << " creadas por la especie)\n# id\tpalabra\tsignificado\n";
     for (int i = 0; i < tamano(); i++) out << i << '\t' << forma(i) << '\t' << glosa(i) << '\n';
+    archivos::escribir(archivo, out.str());
   }
-  void guardarCompuestas(const fs::path& archivo) const {
-    std::ofstream out(archivo);
+  void guardarCompuestas(const std::string& archivo) const {
+    std::ostringstream out;
     for (int i = 0; i < compuestas(); i++)
       out << BASE + i << ' ' << formas_[BASE + i] << ' ' << compuestos_[i].first << ' '
           << compuestos_[i].second << '\n';
+    archivos::escribir(archivo, out.str());
   }
-  void cargarCompuestas(const fs::path& archivo) {
-    std::ifstream in(archivo);
+  void cargarCompuestas(const std::string& archivo) {
+    std::string datos;
+    archivos::leer(archivo, datos);
+    std::istringstream in(datos);
     int id, a, b;
     std::string f;
     while (in >> id >> f >> a >> b) {

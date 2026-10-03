@@ -8,17 +8,18 @@
 //
 // Al despertar, el contexto se reconstruye leyendo la cola del archivo.
 
+#include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <deque>
-#include <filesystem>
-#include <fstream>
+#include <cstdlib>
+#include <sstream>
 #include <string>
 #include <vector>
 
-namespace abla {
+#include "archivos.hpp"
 
-namespace fs = std::filesystem;
+namespace abla {
 
 class Memoria {
  public:
@@ -28,11 +29,11 @@ class Memoria {
     uint32_t tokens;
   };
 
-  void configurar(uint64_t capacidadTokens, const fs::path& archivo) {
+  void configurar(uint64_t capacidadTokens, const std::string& archivo) {
     capacidad_ = capacidadTokens;
     archivo_ = archivo;
     cargar();
-    log_.open(archivo_, std::ios::app);
+    log_.abrir(archivo_);
   }
 
   static uint32_t tokens(const std::string& s) {
@@ -50,7 +51,7 @@ class Memoria {
     std::string limpio = texto;
     for (auto& c : limpio)
       if (c == '\n' || c == '\t') c = ' ';
-    log_ << tick << '\t' << limpio << '\n';
+    log_.escribir(std::to_string(tick) + '\t' + limpio + '\n');
     totalLargoPlazo_++;
     meter({tick, limpio, tokens(limpio)});
   }
@@ -59,13 +60,9 @@ class Memoria {
   uint64_t usados() const { return usados_; }
   uint64_t capacidad() const { return capacidad_; }
   uint64_t largoPlazo() const { return totalLargoPlazo_; }
-  uintmax_t bytesEnDisco() const {
-    std::error_code ec;
-    auto t = fs::file_size(archivo_, ec);
-    return ec ? 0 : t;
-  }
-  const fs::path& archivo() const { return archivo_; }
-  void sincronizar() { log_.flush(); }
+  long long bytesEnDisco() const { return std::max(0LL, archivos::tamano(archivo_)); }
+  const std::string& archivo() const { return archivo_; }
+  void sincronizar() { log_.vaciar(); }
 
   // Busca primero en el contexto y luego en todo el largo plazo.
   std::vector<std::string> buscar(const std::string& consulta, size_t max) {
@@ -79,11 +76,11 @@ class Memoria {
       if (bajo(it->texto).find(q) != std::string::npos)
         r.push_back("[t=" + std::to_string(it->tick) + "] " + it->texto);
     if (r.size() < max && totalLargoPlazo_ > ventana_.size()) {
-      log_.flush();
-      std::ifstream in(archivo_);
+      log_.vaciar();
+      archivos::Lector in(archivo_);
       std::string linea;
       uint64_t enDisco = 0, limite = totalLargoPlazo_ - ventana_.size();
-      while (std::getline(in, linea) && enDisco++ < limite && r.size() < max) {
+      while (in.linea(linea) && enDisco++ < limite && r.size() < max) {
         auto tab = linea.find('\t');
         if (tab != std::string::npos && bajo(linea).find(q, tab) != std::string::npos)
           r.push_back("[t=" + linea.substr(0, tab) + ", largo plazo] " + linea.substr(tab + 1));
@@ -103,21 +100,21 @@ class Memoria {
   }
 
   void cargar() {
-    std::ifstream in(archivo_);
+    archivos::Lector in(archivo_);
     std::string linea;
-    while (std::getline(in, linea)) {
+    while (in.linea(linea)) {
       auto tab = linea.find('\t');
       if (tab == std::string::npos) continue;
       totalLargoPlazo_++;
       std::string texto = linea.substr(tab + 1);
-      meter({std::stoull(linea.substr(0, tab)), texto, tokens(texto)});
+      meter({std::strtoull(linea.c_str(), nullptr, 10), texto, tokens(texto)});
     }
   }
 
   uint64_t capacidad_ = 1'000'000, usados_ = 0, totalLargoPlazo_ = 0;
   std::deque<Recuerdo> ventana_;
-  fs::path archivo_;
-  std::ofstream log_;
+  std::string archivo_;
+  archivos::Anexador log_;
 };
 
 }  // namespace abla

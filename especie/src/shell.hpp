@@ -1,19 +1,19 @@
 #pragma once
 // Terminal estilo bash/Termux, encerrada en la carpeta del mundo.
 // La usan tanto el humano como los 27 seres (cada uno con su $HOME).
+//
+// Trabaja con rutas "virtuales" que empiezan en "/" (la raíz del mundo);
+// nunca se puede salir de ahí. Sin <filesystem> ni excepciones.
 
-#include <algorithm>
-#include <filesystem>
-#include <fstream>
+#include <cstdlib>
 #include <optional>
 #include <sstream>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
-namespace abla {
+#include "archivos.hpp"
 
-namespace fs = std::filesystem;
+namespace abla {
 
 // Divide una línea respetando "comillas" y 'comillas'.
 inline std::vector<std::string> trocear(const std::string& linea) {
@@ -42,85 +42,99 @@ inline std::vector<std::string> trocear(const std::string& linea) {
 
 class Shell {
  public:
-  Shell(const fs::path& raiz, const fs::path& home)
-      : raiz_(fs::weakly_canonical(fs::absolute(raiz))), home_(fs::weakly_canonical(fs::absolute(home))), cwd_(home_) {
-    fs::create_directories(home_);
+  // raiz: carpeta real del mundo (p. ej. "mundo"); home: ruta virtual (p. ej. "/seres/Tuteje").
+  Shell(const std::string& raiz, const std::string& home) : raiz_(raiz), home_(home), cwd_(home) {
+    archivos::crearDirectorios(real(home_));
   }
 
-  const fs::path& cwd() const { return cwd_; }
-  const fs::path& home() const { return home_; }
+  const std::string& cwd() const { return cwd_; }
+  const std::string& home() const { return home_; }
+  std::string real(const std::string& virtual_) const { return virtual_ == "/" ? raiz_ : archivos::unir(raiz_, virtual_); }
+  std::string mostrar(const std::string& v) const { return v == home_ && home_ != "/" ? "~" : v; }
 
-  std::string mostrar(const fs::path& p) const {
-    if (p == home_ && home_ != raiz_) return "~";
-    auto rel = p.lexically_relative(raiz_);
-    std::string s = rel.generic_string();
-    return (s == "." || s.empty()) ? "/" : "/" + s;
-  }
-
-  // Ruta del usuario → ruta real; falla si intenta salir del mundo.
-  fs::path resolver(const std::string& arg) const {
-    fs::path p;
-    if (arg.empty() || arg == "~") p = home_;
-    else if (arg.rfind("~/", 0) == 0) p = home_ / arg.substr(2);
-    else if (arg[0] == '/') p = raiz_ / arg.substr(1);
-    else p = cwd_ / arg;
-    p = p.lexically_normal();
-    if (!p.has_filename() && p != raiz_) p = p.parent_path();
-    auto rel = p.lexically_relative(raiz_);
-    if (rel.empty() || *rel.begin() == "..") throw std::runtime_error(arg + ": fuera del mundo");
-    return p;
+  // Ruta escrita por el usuario → ruta virtual normalizada. false si intenta salir del mundo.
+  bool resolver(const std::string& arg, std::string& out) const {
+    std::string base, resto = arg;
+    if (arg.empty() || arg == "~") resto = home_;
+    else if (arg.rfind("~/", 0) == 0) resto = home_ + arg.substr(1);
+    else if (arg[0] != '/') base = cwd_;
+    std::vector<std::string> partes;
+    for (const std::string* s : {&base, &resto}) {
+      std::stringstream ss(*s);
+      std::string p;
+      while (std::getline(ss, p, '/')) {
+        if (p.empty() || p == ".") continue;
+        if (p == "..") {
+          if (partes.empty()) return false;
+          partes.pop_back();
+        } else {
+          partes.push_back(p);
+        }
+      }
+    }
+    out.clear();
+    for (auto& p : partes) out += "/" + p;
+    if (out.empty()) out = "/";
+    return true;
   }
 
   // nullopt = no es un comando de la terminal.
   std::optional<std::string> ejecutar(const std::vector<std::string>& a) {
     if (a.empty()) return std::string();
-    try {
-      const std::string& c = a[0];
-      if (c == "pwd") return mostrar(cwd_) == "~" ? mostrar(home_) + "\n" : mostrar(cwd_) + "\n";
-      if (c == "cd") return cd(a);
-      if (c == "ls") return ls(a);
-      if (c == "cat") return cat(a);
-      if (c == "head" || c == "tail") return cabeza(a, c == "tail");
-      if (c == "mkdir") return mkdir(a);
-      if (c == "touch") return touch(a);
-      if (c == "rm") return rm(a);
-      if (c == "mv" || c == "cp") return mover(a, c == "cp");
-      if (c == "echo") return echo(a);
-      if (c == "tree") return tree(a);
-      if (c == "wc") return wc(a);
-      if (c == "grep") return grep(a);
-      return std::nullopt;
-    } catch (const std::exception& e) {
-      return a[0] + ": " + e.what() + "\n";
-    }
+    const std::string& c = a[0];
+    if (c == "pwd") return cwd_ + "\n";
+    if (c == "cd") return cd(a);
+    if (c == "ls") return ls(a);
+    if (c == "cat") return cat(a);
+    if (c == "head" || c == "tail") return cabeza(a, c == "tail");
+    if (c == "mkdir") return mkdir(a);
+    if (c == "touch") return touch(a);
+    if (c == "rm") return rm(a);
+    if (c == "mv" || c == "cp") return mover(a, c == "cp");
+    if (c == "echo") return echo(a);
+    if (c == "tree") return tree(a);
+    if (c == "wc") return wc(a);
+    if (c == "grep") return grep(a);
+    return std::nullopt;
   }
 
  private:
+  // Resuelve y deja la ruta real en `r`; si falla, deja el error en `err`.
+  bool ruta(const std::string& cmd, const std::string& arg, std::string& r, std::string& err, std::string* v = nullptr) const {
+    std::string virt;
+    if (!resolver(arg, virt)) {
+      err += cmd + ": " + arg + ": fuera del mundo\n";
+      return false;
+    }
+    if (v) *v = virt;
+    r = real(virt);
+    return true;
+  }
+
   std::string cd(const std::vector<std::string>& a) {
-    fs::path p = resolver(a.size() > 1 ? a[1] : "~");
-    if (!fs::is_directory(p)) return "cd: " + (a.size() > 1 ? a[1] : "~") + ": no es un directorio\n";
-    cwd_ = p;
+    std::string arg = a.size() > 1 ? a[1] : "~", r, err, v;
+    if (!ruta("cd", arg, r, err, &v)) return err;
+    if (!archivos::esDirectorio(r)) return "cd: " + arg + ": no es un directorio\n";
+    cwd_ = v;
     return "";
   }
 
   std::string ls(const std::vector<std::string>& a) {
     bool largo = false;
-    std::string ruta = ".";
+    std::string arg = ".", r, err;
     for (size_t i = 1; i < a.size(); i++) {
       if (a[i] == "-l" || a[i] == "-la" || a[i] == "-al") largo = true;
-      else if (a[i][0] != '-') ruta = a[i];
+      else if (a[i][0] != '-') arg = a[i];
     }
-    fs::path p = resolver(ruta);
-    if (!fs::exists(p)) return "ls: " + ruta + ": no existe\n";
-    if (!fs::is_directory(p)) return p.filename().string() + "\n";
-    std::vector<fs::directory_entry> e(fs::directory_iterator(p), {});
-    std::sort(e.begin(), e.end(), [](auto& x, auto& y) { return x.path().filename() < y.path().filename(); });
+    if (!ruta("ls", arg, r, err)) return err;
+    if (!archivos::existe(r)) return "ls: " + arg + ": no existe\n";
+    if (!archivos::esDirectorio(r)) return archivos::nombre(r) + "\n";
     std::ostringstream out;
-    for (auto& d : e) {
-      std::string n = d.path().filename().string() + (d.is_directory() ? "/" : "");
+    for (auto& e : archivos::listar(r)) {
+      std::string n = e.nombre + (e.directorio ? "/" : "");
       if (largo) {
-        std::string t = d.is_directory() ? "-" : std::to_string(d.file_size());
-        out << (d.is_directory() ? "d " : "- ") << std::string(t.size() < 10 ? 10 - t.size() : 0, ' ') << t << "  " << n << "\n";
+        std::string t = e.directorio ? "-" : std::to_string(e.tamano);
+        out << (e.directorio ? "d " : "- ") << std::string(t.size() < 10 ? 10 - t.size() : 0, ' ') << t << "  " << n << "\n";
       } else {
         out << n << "  ";
       }
@@ -133,29 +147,29 @@ class Shell {
   std::string cat(const std::vector<std::string>& a) {
     std::string s;
     for (size_t i = 1; i < a.size(); i++) {
-      fs::path p = resolver(a[i]);
-      if (!fs::is_regular_file(p)) { s += "cat: " + a[i] + ": no es un archivo\n"; continue; }
-      std::ifstream in(p);
-      std::stringstream b;
-      b << in.rdbuf();
-      s += b.str();
+      std::string r;
+      if (!ruta("cat", a[i], r, s)) continue;
+      if (!archivos::esArchivo(r)) { s += "cat: " + a[i] + ": no es un archivo\n"; continue; }
+      std::string b;
+      archivos::leer(r, b);
+      s += b;
     }
     return s;
   }
 
   std::string cabeza(const std::vector<std::string>& a, bool cola) {
     size_t n = 10;
-    std::string ruta;
+    std::string arg, r, err;
     for (size_t i = 1; i < a.size(); i++) {
-      if (a[i] == "-n" && i + 1 < a.size()) n = std::stoul(a[++i]);
-      else ruta = a[i];
+      if (a[i] == "-n" && i + 1 < a.size()) n = std::strtoul(a[++i].c_str(), nullptr, 10);
+      else arg = a[i];
     }
-    fs::path p = resolver(ruta);
-    if (!fs::is_regular_file(p)) return a[0] + ": " + ruta + ": no es un archivo\n";
-    std::ifstream in(p);
+    if (!ruta(a[0], arg, r, err)) return err;
+    if (!archivos::esArchivo(r)) return a[0] + ": " + arg + ": no es un archivo\n";
+    archivos::Lector in(r);
     std::vector<std::string> lineas;
     std::string l;
-    while (std::getline(in, l)) {
+    while (in.linea(l)) {
       lineas.push_back(l);
       if (!cola && lineas.size() >= n) break;
       if (cola && lineas.size() > n) lineas.erase(lineas.begin());
@@ -166,37 +180,47 @@ class Shell {
   }
 
   std::string mkdir(const std::vector<std::string>& a) {
-    for (size_t i = 1; i < a.size(); i++)
-      if (a[i] != "-p") fs::create_directories(resolver(a[i]));
-    return "";
+    std::string err;
+    for (size_t i = 1; i < a.size(); i++) {
+      std::string r;
+      if (a[i] != "-p" && ruta("mkdir", a[i], r, err) && !archivos::crearDirectorios(r))
+        err += "mkdir: " + a[i] + ": no se pudo crear\n";
+    }
+    return err;
   }
 
   std::string touch(const std::vector<std::string>& a) {
-    for (size_t i = 1; i < a.size(); i++) std::ofstream(resolver(a[i]), std::ios::app);
-    return "";
+    std::string err;
+    for (size_t i = 1; i < a.size(); i++) {
+      std::string r;
+      if (ruta("touch", a[i], r, err)) archivos::escribir(r, "", true);
+    }
+    return err;
   }
 
   std::string rm(const std::vector<std::string>& a) {
-    bool r = false;
+    bool recursivo = false;
     std::string s;
     for (size_t i = 1; i < a.size(); i++) {
-      if (a[i] == "-r" || a[i] == "-rf" || a[i] == "-f") { r = true; continue; }
-      fs::path p = resolver(a[i]);
-      if (p == raiz_ || p == home_) { s += "rm: no se puede borrar " + a[i] + "\n"; continue; }
-      if (!fs::exists(p)) { s += "rm: " + a[i] + ": no existe\n"; continue; }
-      if (fs::is_directory(p) && !r) { s += "rm: " + a[i] + ": es un directorio (usa -r)\n"; continue; }
-      fs::remove_all(p);
+      if (a[i] == "-r" || a[i] == "-rf" || a[i] == "-f") { recursivo = true; continue; }
+      std::string r, v;
+      if (!ruta("rm", a[i], r, s, &v)) continue;
+      if (v == "/" || v == home_) { s += "rm: no se puede borrar " + a[i] + "\n"; continue; }
+      if (!archivos::existe(r)) { s += "rm: " + a[i] + ": no existe\n"; continue; }
+      if (archivos::esDirectorio(r) && !recursivo) { s += "rm: " + a[i] + ": es un directorio (usa -r)\n"; continue; }
+      archivos::borrarTodo(r);
     }
     return s;
   }
 
   std::string mover(const std::vector<std::string>& a, bool copiar) {
     if (a.size() != 3) return a[0] + ": uso: " + a[0] + " origen destino\n";
-    fs::path o = resolver(a[1]), d = resolver(a[2]);
-    if (fs::is_directory(d)) d /= o.filename();
-    if (copiar) fs::copy(o, d, fs::copy_options::recursive | fs::copy_options::overwrite_existing);
-    else fs::rename(o, d);
-    return "";
+    std::string o, d, err;
+    if (!ruta(a[0], a[1], o, err) || !ruta(a[0], a[2], d, err)) return err;
+    if (!archivos::existe(o)) return a[0] + ": " + a[1] + ": no existe\n";
+    if (archivos::esDirectorio(d)) d = archivos::unir(d, archivos::nombre(o));
+    bool ok = copiar ? archivos::copiar(o, d) : archivos::renombrar(o, d);
+    return ok ? "" : a[0] + ": no se pudo\n";
   }
 
   std::string echo(const std::vector<std::string>& a) {
@@ -211,36 +235,40 @@ class Shell {
       texto += (texto.empty() ? "" : " ") + a[i];
     }
     if (destino.empty()) return texto + "\n";
-    std::ofstream(resolver(destino), anexar ? std::ios::app : std::ios::trunc) << texto << "\n";
+    std::string r, err;
+    if (!ruta("echo", destino, r, err)) return err;
+    archivos::escribir(r, texto + "\n", anexar);
     return "";
   }
 
   std::string tree(const std::vector<std::string>& a) {
-    fs::path p = resolver(a.size() > 1 ? a[1] : ".");
-    std::string s = mostrar(p) + "\n";
+    std::string r, err, v;
+    if (!ruta("tree", a.size() > 1 ? a[1] : ".", r, err, &v)) return err;
+    std::string s = v + "\n";
     int cuenta = 0;
-    arbol(p, "", 0, s, cuenta);
+    arbol(r, "", 0, s, cuenta);
     return s;
   }
-  void arbol(const fs::path& p, const std::string& pre, int nivel, std::string& s, int& cuenta) {
+  void arbol(const std::string& p, const std::string& pre, int nivel, std::string& s, int& cuenta) {
     if (nivel > 3) return;
-    std::vector<fs::directory_entry> e(fs::directory_iterator(p), {});
-    std::sort(e.begin(), e.end(), [](auto& x, auto& y) { return x.path().filename() < y.path().filename(); });
+    auto e = archivos::listar(p);
     for (size_t i = 0; i < e.size(); i++) {
       if (++cuenta > 400) { s += pre + "…\n"; return; }
       bool ultimo = i + 1 == e.size();
-      s += pre + (ultimo ? "└── " : "├── ") + e[i].path().filename().string() + (e[i].is_directory() ? "/" : "") + "\n";
-      if (e[i].is_directory()) arbol(e[i].path(), pre + (ultimo ? "    " : "│   "), nivel + 1, s, cuenta);
+      s += pre + (ultimo ? "└── " : "├── ") + e[i].nombre + (e[i].directorio ? "/" : "") + "\n";
+      if (e[i].directorio) arbol(archivos::unir(p, e[i].nombre), pre + (ultimo ? "    " : "│   "), nivel + 1, s, cuenta);
     }
   }
 
   std::string wc(const std::vector<std::string>& a) {
     std::string s;
     for (size_t i = 1; i < a.size(); i++) {
-      std::ifstream in(resolver(a[i]));
+      std::string r;
+      if (!ruta("wc", a[i], r, s)) continue;
+      archivos::Lector in(r);
       size_t l = 0, w = 0, b = 0;
       std::string x;
-      while (std::getline(in, x)) {
+      while (in.linea(x)) {
         l++;
         b += x.size() + 1;
         std::istringstream ws(x);
@@ -256,15 +284,17 @@ class Shell {
     if (a.size() < 3) return "grep: uso: grep patrón archivo...\n";
     std::string s;
     for (size_t i = 2; i < a.size(); i++) {
-      std::ifstream in(resolver(a[i]));
+      std::string r;
+      if (!ruta("grep", a[i], r, s)) continue;
+      archivos::Lector in(r);
       std::string x;
-      while (std::getline(in, x))
+      while (in.linea(x))
         if (x.find(a[1]) != std::string::npos) s += (a.size() > 3 ? a[i] + ":" : "") + x + "\n";
     }
     return s;
   }
 
-  fs::path raiz_, home_, cwd_;
+  std::string raiz_, home_, cwd_;
 };
 
 }  // namespace abla

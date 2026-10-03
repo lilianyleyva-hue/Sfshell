@@ -7,18 +7,16 @@
 
 #include <cstdint>
 #include <cstdio>
-#include <filesystem>
-#include <fstream>
+#include <sstream>
 #include <functional>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "archivos.hpp"
 #include "hecho.hpp"
 
 namespace abla {
-
-namespace fs = std::filesystem;
 
 constexpr uint32_t FUENTE_SEMILLA = 100;  // innato: nació sabiéndolo
 constexpr uint32_t FUENTE_HUMANO = 200;   // se lo enseñó un humano
@@ -78,12 +76,11 @@ class Conocimiento {
   size_t size() const { return hechos_.size(); }
   bool lleno() const { return hechos_.size() >= MAX_HECHOS; }
 
-  void exportarCpp(const fs::path& archivo, const std::string& nombre, const std::string& encabezado,
+  void exportarCpp(const std::string& archivo, const std::string& nombre, const std::string& encabezado,
                    const std::function<std::string(const Hecho&)>& comentario) const {
-    fs::path tmp = archivo;
-    tmp += ".tmp";
+    std::string tmp = archivo + ".tmp";
     {
-      std::ofstream out(tmp);
+      std::ostringstream out;
       out << "// " << encabezado << "\n"
           << "// Este archivo es C++ válido y es, a la vez, la memoria de este ser:\n"
           << "// al despertar vuelve a leer de aquí todo lo que sabe.\n"
@@ -97,15 +94,16 @@ class Conocimiento {
       }
       out << "};\n\nconst unsigned " << nombre << "_n = sizeof(" << nombre << ") / sizeof(" << nombre
           << "[0]);\n\n}  // namespace conocimiento\n";
+      if (!archivos::escribir(tmp, out.str())) return;
     }
-    fs::rename(tmp, archivo);
+    std::rename(tmp.c_str(), archivo.c_str());
   }
 
-  bool importarCpp(const fs::path& archivo, int maxPalabra) {
-    std::ifstream in(archivo);
+  bool importarCpp(const std::string& archivo, int maxPalabra) {
+    archivos::Lector in(archivo);
     if (!in) return false;
     std::string linea;
-    while (std::getline(in, linea)) {
+    while (in.linea(linea)) {
       unsigned s, r, o, f;
       float c;
       auto p = linea.find('{');
