@@ -15,6 +15,7 @@ web/abla.wasm: $(SRC) src/*.h
 	clang --target=wasm32-wasi $(WASI_FLAGS) -std=c11 -O2 -Wall -mexec-model=reactor -Wl,--strip-all \
 	  $(filter-out src/main.c,$(SRC)) -o web/abla.wasm
 	node web/empaquetar.mjs
+	node herramientas/unir.mjs
 
 web: web/abla.wasm
 
