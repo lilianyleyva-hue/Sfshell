@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Cerebro IA">
+  <meta name="theme-color" content="#07080d">
+  <title>Nuevo Cerebro IA</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <h1>Nuevo Cerebro IA</h1>
+    <p class="lema">No ve como tú. No escucha como tú.</p>
+  </header>
+
+  <main>
+    <section class="cerebro">
+      <canvas id="red" aria-label="Red neuronal del cerebro"></canvas>
+      <div class="leyenda">
+        <span class="reg vista">Corteza visual</span>
+        <span class="reg oido">Corteza auditiva</span>
+        <span class="reg mente">Asociación</span>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <div class="controles">
+        <button id="btnVer" data-activo="false">👁 Ver</button>
+        <button id="btnEscuchar" data-activo="false">👂 Escuchar</button>
+        <button id="btnSonar" data-activo="false">✦ Soñar</button>
+      </div>
+
+      <div class="sentidos">
+        <figure>
+          <canvas id="ojo" width="160" height="120"></canvas>
+          <figcaption>Lo que ve: movimiento, luz y color — no objetos</figcaption>
+        </figure>
+        <figure>
+          <canvas id="oreja" width="160" height="120"></canvas>
+          <figcaption>Lo que oye: ritmo, tono e intensidad — antes que palabras</figcaption>
+        </figure>
+      </div>
+
+      <div class="estado">
+        <div><span>Luz</span><meter id="mLuz" min="0" max="1"></meter></div>
+        <div><span>Movimiento</span><meter id="mMov" min="0" max="1"></meter></div>
+        <div><span>Volumen</span><meter id="mVol" min="0" max="1"></meter></div>
+        <div><span>Tono</span><meter id="mTono" min="0" max="1"></meter></div>
+      </div>
+
+      <h2>Pensamientos</h2>
+      <ol id="pensamientos" reversed></ol>
+    </aside>
+  </main>
+
+  <script src="cerebro.js"></script>
+</body>
+</html>

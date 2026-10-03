@@ -1,0 +1,113 @@
+:root {
+  --fondo: #07080d;
+  --panel: #10131c;
+  --borde: #232838;
+  --texto: #e6e8f0;
+  --tenue: #8a90a6;
+  --vista: #4fd1ff;
+  --oido: #ff6ad5;
+  --mente: #b8ff6a;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--fondo);
+  color: var(--texto);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  min-height: 100vh;
+  min-height: 100dvh;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  /* Respeta la barra de estado y los bordes redondeados del iPad. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+header { padding: 16px 20px 0; }
+h1 { margin: 0; font-size: 1.5rem; letter-spacing: .02em; }
+.lema { margin: 4px 0 0; color: var(--tenue); }
+
+main {
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: 16px;
+  padding: 16px 20px 20px;
+}
+
+.cerebro {
+  position: relative;
+  background: radial-gradient(circle at 50% 45%, #121628, var(--fondo) 70%);
+  border: 1px solid var(--borde);
+  border-radius: 14px;
+  min-height: 70vh;
+  overflow: hidden;
+}
+
+#red { width: 100%; height: 100%; display: block; position: absolute; inset: 0; }
+
+.leyenda {
+  position: absolute; left: 12px; bottom: 10px;
+  display: flex; gap: 12px; font-size: .8rem; color: var(--tenue);
+}
+.reg::before {
+  content: ""; display: inline-block; width: 8px; height: 8px;
+  border-radius: 50%; margin-right: 6px;
+}
+.reg.vista::before { background: var(--vista); }
+.reg.oido::before { background: var(--oido); }
+.reg.mente::before { background: var(--mente); }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  border-radius: 14px;
+  padding: 14px;
+  display: flex; flex-direction: column; gap: 14px;
+  max-height: calc(100dvh - 100px);
+}
+
+.controles { display: flex; gap: 8px; }
+button {
+  flex: 1;
+  background: #191d2b; color: var(--texto);
+  border: 1px solid var(--borde); border-radius: 10px;
+  min-height: 44px; /* objetivo táctil recomendado por Apple */
+  padding: 10px 8px; font-size: 1rem; cursor: pointer;
+  touch-action: manipulation;
+  white-space: nowrap;
+}
+button[data-activo="true"] { border-color: var(--mente); box-shadow: 0 0 12px #b8ff6a44; }
+
+.sentidos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+figure { margin: 0; }
+figure canvas {
+  width: 100%; aspect-ratio: 4 / 3; display: block;
+  background: #000; border-radius: 8px; border: 1px solid var(--borde);
+  image-rendering: pixelated;
+}
+figcaption { font-size: .72rem; color: var(--tenue); margin-top: 4px; }
+
+.estado { display: grid; gap: 6px; font-size: .8rem; }
+.estado div { display: grid; grid-template-columns: 90px 1fr; align-items: center; }
+meter { width: 100%; height: 10px; }
+
+h2 { margin: 0; font-size: 1rem; }
+#pensamientos {
+  margin: 0; padding-left: 22px;
+  overflow-y: auto; -webkit-overflow-scrolling: touch; flex: 1; min-height: 120px;
+  font-size: .88rem; line-height: 1.4;
+}
+#pensamientos li { margin-bottom: 6px; }
+#pensamientos li.vista { color: var(--vista); }
+#pensamientos li.oido { color: var(--oido); }
+#pensamientos li.mente { color: var(--mente); }
+
+button:hover { border-color: var(--borde); }
+@media (hover: hover) { button:hover { border-color: var(--tenue); } }
+
+@media (max-width: 860px) {
+  main { grid-template-columns: 1fr; padding: 12px 16px; }
+  .cerebro { min-height: 50vh; }
+  .panel { max-height: none; }
+}
