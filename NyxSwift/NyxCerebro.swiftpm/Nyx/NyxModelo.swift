@@ -25,6 +25,15 @@ struct FilaTransferencia: Identifiable {
     let recogieron: Int
 }
 
+struct MensajeUno: Identifiable {
+    let id: Int
+    let deHumano: Bool
+    let es: String
+    let resh: String
+    let detalle: String
+    let pasos: String
+}
+
 struct LineaLogica: Identifiable {
     let id: Int
     let agente: Int
@@ -87,6 +96,12 @@ final class NyxModelo: ObservableObject {
     @Published var lineasPuente: [LineaPuente] = []
     @Published var puenteOcupado = false
     @Published var respuestaAntiguo = ""
+    // Nyx Uno: una sola mente con lo mejor de todos
+    var uno: NyxUno!
+    @Published var chatUno: [MensajeUno] = []
+    @Published var estadoUno = ""
+    @Published var avisoUno = ""
+    private var contadorUno = 0
     // los tres consejos juntos
     let asamblea = Asamblea()
     @Published var lineasAsamblea: [LineaAsamblea] = []
@@ -139,6 +154,12 @@ final class NyxModelo: ObservableObject {
         }
         if let ctx = contexto, let t = AlmacenSwiftData.cargaTexto(rol: 400, de: ctx), !t.isEmpty {
             asamblea.saber = SaberMisiones.desde(t)
+        }
+        #endif
+        uno = NyxUno(consejo: consejo, logica: logico, saber: asamblea.saber)
+        #if canImport(SwiftData)
+        if let ctx = contexto, let t = AlmacenSwiftData.cargaTexto(rol: 500, de: ctx), !t.isEmpty {
+            uno.importa(t)
         }
         #endif
         conecta()
@@ -279,6 +300,87 @@ final class NyxModelo: ObservableObject {
             await self.guardaAntiguo()
             self.guarda()
         }
+    }
+
+    // MARK: Nyx Uno
+
+    /// Le hablas a Nyx Uno: pregunta, enseñanza o corrección («no, es …»).
+    func hablaUno(_ texto: String) {
+        let t = texto.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.isEmpty { return }
+        contadorUno += 1
+        chatUno.append(MensajeUno(id: contadorUno, deHumano: true, es: t, resh: "", detalle: "", pasos: ""))
+        let p = uno.escucha(t)
+        var detalle = ""
+        var pasos: [String] = []
+        if p.aprendio.isEmpty && !p.candidatos.isEmpty {
+            let quien = p.elegido.map { $0.sistema.icono + " " + $0.sistema.nombre } ?? "nadie"
+            detalle = "\(p.clase.nombre) · respondió \(quien) · confianza \(Int(p.confianza * 100))% · pensó \(p.rondas) ronda(s)"
+            for c in p.candidatos {
+                let nota = c.nota.isEmpty ? "" : " · " + c.nota
+                pasos.append("\(c.sistema.icono) \(c.sistema.nombre): \(c.frase) (\(Int(c.puntos * 100)))\(nota)")
+            }
+            if let e = p.elegido { pasos.append(contentsOf: e.pasos.prefix(4).map { "   " + $0 }) }
+        }
+        contadorUno += 1
+        chatUno.append(MensajeUno(id: contadorUno, deHumano: false, es: p.es, resh: p.resh, detalle: detalle, pasos: pasos.joined(separator: "\n")))
+        if chatUno.count > 200 { chatUno.removeFirst(chatUno.count - 200) }
+        refrescaUno()
+        guardaUno()
+    }
+
+    func opinaUno(_ bueno: Bool) {
+        uno.opina(bueno)
+        avisoUno = bueno ? "👍 anotado: se fía más de quien contestó" : "👎 anotado. Dile la correcta con «no, es …»"
+        guardaUno()
+    }
+
+    /// Se entrena sola con retos (y las 18 mentes afinan sus estrategias).
+    func entrenaUno(_ n: Int) {
+        let r = uno.entrena(n)
+        avisoUno = "🎓 se entrenó con \(r.total) retos: acertó \(r.bien)"
+        refrescaUno()
+        guardaUno()
+    }
+
+    /// Consolida lo que sabe (como dormir).
+    func consolidaUno() {
+        let r = uno.consolida()
+        avisoUno = "💤 consolidó: \(r.hechos) hechos nuevos deducidos, \(r.pasadas) pasaron a la asociación"
+        refrescaUno()
+        guardaUno()
+    }
+
+    /// Lo que Nyx quiere saber.
+    func curiosidadUno() {
+        guard let q = uno.curiosidad() else { avisoUno = "no se le ocurre nada que preguntar"; return }
+        contadorUno += 1
+        chatUno.append(MensajeUno(id: contadorUno, deHumano: false, es: "quiero saber: " + q, resh: Resh.traduceTexto(q) + "?", detalle: "curiosidad", pasos: ""))
+    }
+
+    func refrescaUno() {
+        let pct = uno.entrenadas == 0 ? 0 : uno.entrenadasBien * 100 / uno.entrenadas
+        estadoUno = "entrenó \(uno.entrenadas) retos (\(pct)% bien) · \(uno.recuerdos.count) recuerdos · \(logico.hechos.count) hechos · \(consejo.frases.frases.count) frases"
+        version += 1
+    }
+
+    /// Cuánto se fía de cada forma de pensar en cada clase de pregunta.
+    func fiabilidadesUno() -> [String] {
+        return Clase.allCases.map { c -> String in
+            let fs = Sistema.allCases.map { "\($0.icono)\(Int(uno.fiabilidad(c, $0) * 100))" }.joined(separator: " ")
+            return c.nombre + ": " + fs
+        }
+    }
+
+    private func guardaUno() {
+        #if canImport(SwiftData)
+        if let ctx = contexto {
+            AlmacenSwiftData.guardaTexto(uno.exporta(), rol: 500, en: ctx)
+            AlmacenSwiftData.guardaTexto(asamblea.saber.exporta(), rol: 400, en: ctx)
+        }
+        #endif
+        guardaLogica()
+        guarda()
     }
 
     // MARK: la asamblea de los tres consejos
@@ -467,6 +569,8 @@ final class NyxModelo: ObservableObject {
         asambleaViva = false
         asamblea.olvida()
         lineasAsamblea = []
+        uno = NyxUno(consejo: consejo, logica: logico, saber: asamblea.saber)
+        chatUno = []
         #if canImport(SwiftData)
         if let ctx = contexto {
             try? ctx.delete(model: Transferencia.self)

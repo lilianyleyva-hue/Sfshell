@@ -9,6 +9,8 @@ struct VistaPrincipal: View {
 
     var body: some View {
         TabView {
+            PantallaUno(nyx: nyx)
+                .tabItem { Label("Nyx", systemImage: "sparkles") }
             PantallaHablar(nyx: nyx)
                 .tabItem { Label("Hablar", systemImage: "bubble.left.and.bubble.right") }
             PantallaVivo(nyx: nyx)

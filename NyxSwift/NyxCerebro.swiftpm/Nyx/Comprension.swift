@@ -32,10 +32,36 @@ extension Resh {
         return Palabras.tokens(es, max: 60).map { deEspanol($0) ?? $0 }.joined(separator: " ")
     }
 
+    /// Palabras españolas que también son formas Resh: si las escribes tú, son español.
+    static let espanolProtegido: Set<String> = ["son", "soy", "van", "ven", "mas"]
+
+    /// Igual, pero sin tocar los números ni la puntuación ("3, 6, 12, ?", "x = 4").
+    static func traduceConservando(_ texto: String) -> String {
+        var out: [String] = []
+        var inicio = true
+        for trozo in texto.split(separator: " ") {
+            let w = String(trozo)
+            let letras = w.lowercased().filter { $0.isLetter }
+            // un nombre con mayúscula a mitad de frase ("Mo") se queda como está
+            let nombre = !inicio && (w.first(where: { $0.isLetter })?.isUppercase ?? false)
+            inicio = w.hasSuffix(".") || w.hasSuffix("?") || w.hasSuffix("!")
+            guard !letras.isEmpty, !nombre, !espanolProtegido.contains(letras), esForma(letras), let es = inverso[letras] else {
+                out.append(w)
+                continue
+            }
+            if formasParticula.contains(letras) { continue }      // gramática Resh
+            let antes = String(w.prefix { !$0.isLetter })
+            let despues = String(w.reversed().prefix { !$0.isLetter }.reversed())
+            out.append(antes + es + despues)
+        }
+        return out.joined(separator: " ")
+    }
+
     /// Lo que escribe el humano: sus palabras Resh se traducen (el humano las sabe todas).
     static func traduceHumano(_ texto: String) -> String {
         var out: [String] = []
         for t in Palabras.tokens(texto, max: 40) {
+            if espanolProtegido.contains(t) { out.append(t); continue }
             if formasParticula.contains(t) && esForma(t) { continue }
             if esForma(t), let es = inverso[t] { out.append(es) } else { out.append(t) }
         }
