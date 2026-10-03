@@ -104,6 +104,7 @@ enum AlmacenSwiftData {
         for m in c.mentes {
             pon(c.textoMente(m), rol: m.rol, en: contexto, porRol: porRol)
         }
+        // (el consejo antiguo se guarda aparte: guardaAntiguo)
         pon(c.textoFrases(), rol: 100, en: contexto, porRol: porRol)
         try? contexto.save()
     }
@@ -115,6 +116,25 @@ enum AlmacenSwiftData {
         } else {
             contexto.insert(SaberMente(rol: rol, texto: texto))
         }
+    }
+
+    /// La memoria del consejo antiguo (rol 200).
+    static func guardaAntiguo(_ datos: Data, en contexto: ModelContext) {
+        let texto = String(decoding: datos, as: UTF8.self)
+        let filas = (try? contexto.fetch(FetchDescriptor<SaberMente>())) ?? []
+        if let f = filas.first(where: { $0.rol == 200 }) {
+            f.texto = texto
+            f.actualizado = Date()
+        } else {
+            contexto.insert(SaberMente(rol: 200, texto: texto))
+        }
+        try? contexto.save()
+    }
+
+    static func cargaAntiguo(de contexto: ModelContext) -> Data? {
+        let filas = (try? contexto.fetch(FetchDescriptor<SaberMente>())) ?? []
+        guard let f = filas.first(where: { $0.rol == 200 }) else { return nil }
+        return Data(f.texto.utf8)
     }
 
     static func carga(de contexto: ModelContext) -> Consejo? {

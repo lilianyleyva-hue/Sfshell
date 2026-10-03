@@ -405,13 +405,60 @@ final class Mente {
         let cristal: Int?
     }
 
+    /// Peso de una palabra como pista: las raras dicen más que las comunes
+    /// ("lluvia" pesa más que "hace").
+    func pesoPista(_ id: Int) -> Float {
+        let base: Float = 1 / (1 + 0.35 * log(1 + Float(s[id].usos)))
+        return Palabras.ligeras.contains(s[id].et) ? base * 0.3 : base
+    }
+
+    /// Activación que se propaga desde el estímulo, hasta 3 saltos. Cada
+    /// palabra empieza con su peso de pista; un acople inhibido (θ≈π) resta.
+    /// Así la pregunta evoca también lo que está a 2 o 3 pasos.
+    func activa(_ est: [Int: Float], saltos: Int = 3) -> [Int: Float] {
+        var act: [Int: Float] = est
+        var frente: [Int: Float] = est
+        for _ in 0 ..< saltos {
+            var sig: [Int: Float] = [:]
+            for (i, a) in frente {
+                let v = s[i].v
+                if v.isEmpty { continue }
+                let reparto: Float = 0.6 / Float(v.count).squareRoot()
+                for ac in v {
+                    sig[ac.j, default: 0] += a * reparto * ac.w * cos(ac.th)
+                }
+            }
+            let mejores = sig.sorted { abs($0.value) > abs($1.value) }.prefix(150)
+            frente = [:]
+            for (k, v) in mejores {
+                frente[k] = v
+                act[k, default: 0] += v
+            }
+        }
+        return act
+    }
+
+    /// Activación desde una lista de ids (cada uno con su peso de pista).
+    func activaDesde(_ ids: [Int], previo: [Int] = []) -> [Int: Float] {
+        var est: [Int: Float] = [:]
+        for id in previo where !Palabras.vacia(s[id].et) { est[id, default: 0] += 0.4 * pesoPista(id) }
+        for id in ids where !Palabras.vacia(s[id].et) { est[id, default: 0] += pesoPista(id) }
+        return activa(est)
+    }
+
     /// El estímulo despierta una región, se relaja con recocido y gana lo
     /// que la pregunta EVOCA (no su eco). Solo cuentan sus palabras con contenido.
-    func veredicto(_ est0: [Int]) -> Veredicto? {
+    /// previo: lo que se venía hablando (da contexto a la pregunta).
+    func veredicto(_ est0: [Int], previo: [Int] = []) -> Veredicto? {
         var est = est0.filter { !Palabras.vacia(s[$0].et) }
         if est.isEmpty { est = est0 }
         if est.isEmpty { return nil }
-        let reg = region(est, tope: 200)
+        let act = activaDesde(est, previo: previo)
+        var reg = region(est, tope: 200)
+        let marcados = Set(reg)
+        for (k, v) in act.sorted(by: { $0.value > $1.value }).prefix(60) where v > 0 && !marcados.contains(k) {
+            reg.append(k)
+        }
         for it in 0 ..< 30 {
             let r: Float = ruido * (3 - 2 * Float(it) / 30)
             for i in reg { decae(i, ruido: r) }
@@ -421,7 +468,7 @@ final class Mente {
         var mejor: Float = -1e9
         for id in reg {
             if est.contains(id) && reg.count > est.count { continue }
-            let rel = relevancia(id, est)
+            let rel = relevancia(id, est, act[id] ?? 0)
             if rel > mejor { mejor = rel; gan = id }
         }
         if gan == nil {
@@ -438,15 +485,16 @@ final class Mente {
 
     /// Manda lo que la pregunta evoca (enlace); la coherencia desempata.
     /// Un acople inhibido (θ≈π) resta: así 'mal' cambia la respuesta.
-    private func relevancia(_ id: Int, _ est: [Int]) -> Float {
+    private func relevancia(_ id: Int, _ est: [Int], _ activacion: Float) -> Float {
         let x = s[id]
         if x.fusion || Palabras.vacia(x.et) { return -1e9 }
         var enlace: Float = 0
         for e in est {
-            if let k = posAcople(e, id) { enlace += s[e].v[k].w * cos(s[e].v[k].th) }
-            if let k = posAcople(id, e) { enlace += x.v[k].w * cos(x.v[k].th) }
+            let p = pesoPista(e)
+            if let k = posAcople(e, id) { enlace += p * s[e].v[k].w * cos(s[e].v[k].th) }
+            if let k = posAcople(id, e) { enlace += p * x.v[k].w * cos(x.v[k].th) }
         }
-        var rel: Float = enlace + 0.35 * tanh(coherencia(id)) + (esObjetivo(id) ? 0.1 : 0)
+        var rel: Float = enlace + 1.5 * activacion + 0.35 * tanh(coherencia(id)) + (esObjetivo(id) ? 0.1 : 0)
         rel /= 1 + log(1 + Float(x.usos)) * 0.3
         if recientes.contains(id) { rel -= abs(rel) + 0.2 }   // fatiga
         return rel

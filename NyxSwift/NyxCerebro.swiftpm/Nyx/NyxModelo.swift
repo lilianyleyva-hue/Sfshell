@@ -1,4 +1,5 @@
 #if canImport(SwiftUI)
+import Foundation
 import SwiftUI
 #if canImport(SwiftData)
 import SwiftData
@@ -61,6 +62,12 @@ final class NyxModelo: ObservableObject {
     @Published var ultimaRespuesta = ""
     @Published var ultimaCamara = ""
     @Published var ultimoVideo = ""
+    @Published var lineasVideo: [String] = []
+    // el consejo antiguo y el puente
+    let puente = Puente()
+    @Published var lineasPuente: [LineaPuente] = []
+    @Published var puenteOcupado = false
+    @Published var respuestaAntiguo = ""
     /// Mostrar la traducción al español debajo del Resh.
     @Published var traducir = true
     private var cosasCamara: Set<String> = []
@@ -155,6 +162,64 @@ final class NyxModelo: ObservableObject {
         } else if p.origen == "la foto" {
             ultimaVista = d
         }
+        version += 1
+        guarda()
+    }
+
+    // MARK: consejo antiguo
+
+    private func memoriaAntigua() -> Data? {
+        #if canImport(SwiftData)
+        if let ctx = contexto { return AlmacenSwiftData.cargaAntiguo(de: ctx) }
+        #endif
+        return nil
+    }
+
+    private func guardaAntiguo() async {
+        guard let d = await puente.exporta() else { return }
+        #if canImport(SwiftData)
+        if let ctx = contexto { AlmacenSwiftData.guardaAntiguo(d, en: ctx) }
+        #endif
+    }
+
+    /// Los dos consejos hablan 'n' turnos.
+    func turnosPuente(_ n: Int) {
+        if puenteOcupado { return }
+        puenteOcupado = true
+        Task { @MainActor in
+            await self.puente.prepara(memoria: self.memoriaAntigua())
+            for _ in 0 ..< n {
+                let nuevas = await self.puente.turno(self.consejo)
+                self.lineasPuente.append(contentsOf: nuevas)
+                if self.lineasPuente.count > 300 { self.lineasPuente.removeFirst(self.lineasPuente.count - 300) }
+                self.version += 1
+            }
+            self.puenteOcupado = false
+            await self.guardaAntiguo()
+            self.guarda()
+        }
+    }
+
+    /// Le preguntas al consejo antiguo (deliberan y votan, a su manera).
+    func preguntaAntiguo(_ texto: String) {
+        let t = texto.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.isEmpty || puenteOcupado { return }
+        puenteOcupado = true
+        respuestaAntiguo = "pensando…"
+        Task { @MainActor in
+            await self.puente.prepara(memoria: self.memoriaAntigua())
+            let r = await self.puente.preguntaAlViejo(t)
+            self.respuestaAntiguo = "🏛 " + r.veredicto + "   (" + r.votos.joined(separator: " · ") + ")"
+            self.puenteOcupado = false
+        }
+    }
+
+    /// Un video visto entero: el resumen lo perciben; cada escena la recuerdan.
+    func veVideo(_ resumen: Percepcion, escenas: [String], fotogramas: Int, duracion: Double) {
+        percibe(resumen)
+        consejo.recuerdaEscenas(escenas)
+        lineasVideo = escenas
+        ultimoVideo = "Lo vieron entero: \(fotogramas) fotogramas, \(escenas.count) escenas. " + resumen.descripcion
         version += 1
         guarda()
     }

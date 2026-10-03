@@ -121,6 +121,15 @@ enum Etiquetas {
 // MARK: - Las mentes perciben
 
 extension Consejo {
+    /// Recuerdan un video escena por escena (con su momento), para poder
+    /// hablar de cualquier parte: "¿qué había al principio?", "¿qué se oye?".
+    func recuerdaEscenas(_ recuerdos: [String]) {
+        for r in recuerdos {
+            for m in mentes { m.ingesta(r, dialogo: false) }
+            frases.pon(r)
+        }
+    }
+
     /// Las 18 perciben lo mismo, pero cada una se fija en cosas distintas.
     @discardableResult
     func percibe(_ p: Percepcion) -> [LoQueNoto] {

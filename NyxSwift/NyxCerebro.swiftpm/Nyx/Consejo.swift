@@ -53,6 +53,8 @@ final class Consejo {
     let frases = MemoriaFrases()
     var tick = 0
     var ultimo = -1
+    /// Lo que se venía hablando con el humano (contexto de la conversación).
+    private var temaHumano: [String] = []
     /// Por donde se pasan conocimiento (en la app: SwiftData).
     var buzon: Buzon = BuzonMemoria()
     private var ecos: [String] = []
@@ -127,10 +129,10 @@ final class Consejo {
 
     /// Una frase recordada (si encaja) o una propia. No crea semiones: los
     /// índices de quien llama siguen valiendo.
-    private func compone(_ m: Mente, centro: Int, ctx: [Int], probRecuerdo: Float)
+    private func compone(_ m: Mente, centro: Int, ctx: [Int], probRecuerdo: Float, tema: [String] = [])
         -> (ids: [Int], es: String, resh: String, fr: Int?) {
         if Azar.f01() < probRecuerdo,
-           let (k, p) = frases.elige(mente: m, centro: centro, ctx: ctx, esEco: esEco), p > -0.5 {
+           let (k, p) = frases.elige(mente: m, centro: centro, ctx: ctx, tema: tema, esEco: esEco), p > -0.5 {
             var ids: [Int] = []
             for t in frases.frases[k].toks {
                 if let id = m.busca(t) { ids.append(id) }
@@ -414,12 +416,16 @@ final class Consejo {
         fbGan = [:]
         fbEst = [:]
         fbFr = nil
+        let sigue = siguiendoTema(pregunta)
+        if !sigue { temaHumano = [] }      // tema nuevo: el anterior no se mezcla
+        let temaAnterior = temaHumano
         var gan: [Int: Mente.Veredicto] = [:]
         var peso: [Int: Float] = [:]
         for m in mentes {
             let ids = m.recibe(Resh.traduceHumano(pregunta), de: "humano")
             fbEst[m.rol] = ids
-            guard !ids.isEmpty, let v = m.veredicto(ids) else { continue }
+            let previo = temaHumano.compactMap { m.busca($0) }
+            guard !ids.isEmpty, let v = m.veredicto(ids, previo: previo) else { continue }
             gan[m.rol] = v
             fbGan[m.rol] = v.ganador
             peso[m.rol] = (0.3 + m.precision) * (0.3 + max(0, v.C)) * (0.5 + v.E)
@@ -433,6 +439,7 @@ final class Consejo {
             return out
         }
         out.ganador = ganadora
+        recuerdaTema(pregunta, ganadora)
         var mejor: Float = -1
         var acuerdo = 0
         for m in mentes {
@@ -455,7 +462,8 @@ final class Consejo {
         out.votos.sort { $0.peso > $1.peso }
         guard out.vocero >= 0, let gv = gan[out.vocero] else { return out }
         let v = mentes[out.vocero]
-        let c = compone(v, centro: gv.ganador, ctx: fbEst[out.vocero] ?? [], probRecuerdo: 0.9)
+        let c = compone(v, centro: gv.ganador, ctx: fbEst[out.vocero] ?? [], probRecuerdo: 0.9,
+                        tema: sigue ? temaAnterior : [])
         fbFrase = c.ids
         fbFr = c.fr
         fbVocero = out.vocero
@@ -470,6 +478,23 @@ final class Consejo {
         }
         difunde(out.vocero, c.ids, resh: c.resh)
         return out
+    }
+
+    /// ¿La pregunta continúa lo anterior? ("y de qué color es", "¿y cómo crece?")
+    private func siguiendoTema(_ pregunta: String) -> Bool {
+        let toks = Palabras.tokens(Resh.traduceHumano(pregunta))
+        guard let primera = toks.first else { return false }
+        if ["y", "e", "entonces", "pero", "también", "además"].contains(primera) { return true }
+        // sin ninguna palabra con contenido ("¿y eso?", "¿por qué?") también sigue el tema
+        return toks.allSatisfy { Palabras.vacia($0) || Palabras.ligeras.contains($0) }
+    }
+
+    /// Guarda de qué se está hablando (las palabras con contenido de las
+    /// dos últimas preguntas y lo que ganó), para entender "¿y de qué color es?".
+    private func recuerdaTema(_ pregunta: String, _ ganadora: String) {
+        var nuevas = Palabras.tokens(Resh.traduceHumano(pregunta)).filter { !Palabras.vacia($0) && !Palabras.ligeras.contains($0) }
+        nuevas.append(ganadora)
+        temaHumano = Array((nuevas + temaHumano).prefix(8))
     }
 
     /// Hablar con una sola mente.

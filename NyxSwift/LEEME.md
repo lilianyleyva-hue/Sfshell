@@ -16,7 +16,8 @@ En Archivos, toca `NyxCerebro.swiftpm`. Se abre en Swift Playgrounds. ▶
 ## Pestañas
 - **Hablar:** pregúntales (a las 18 o a una), en español o en Resh. Contestan en Resh; el interruptor "Traducir al español" muestra u oculta la traducción. 👍/👎 cambia lo que aprendieron.
 - **En vivo:** ▶ Empezar y míralas imaginar, hablar, enseñarse Resh y pasarse conocimiento.
-- **Sentidos:** 📷 enciende la cámara y miran el mundo cada pocos segundos (tú eliges cada cuánto); 🎬 mándales un video (miran 5 momentos y escuchan lo que se dice); enséñales una foto (la ven con Vision: qué hay, texto, caras, colores) o háblales con el micrófono (te entienden con el reconocimiento de voz de Apple y notan si suena fuerte/suave, agudo/grave). Cada una se fija en algo distinto.
+- **Sentidos:** 📷 enciende la cámara y miran el mundo cada pocos segundos (tú eliges cada cuánto); 🎬 mándales un video y lo ven ENTERO (un fotograma por segundo, cada escena con su momento, y escuchan todo el audio en el iPad); enséñales una foto (la ven con Vision: qué hay, texto, caras, colores) o háblales con el micrófono (te entienden con el reconocimiento de voz de Apple y notan si suena fuerte/suave, agudo/grave). Cada una se fija en algo distinto.
+- **Consejo antiguo:** el consejo original que hablaba Resh (tal cual, sin terminal). Pregúntale, o pulsa "Que hablen" y los dos consejos conversan en Resh y se enseñan palabras.
 - **Mentes:** las 18, y cada una por dentro (qué aprendió a preferir, su foco, sus recuerdos).
 - **Transferencias:** los registros de SwiftData que se pasan entre ellas.
 - **Enseñar:** pega frases y las 18 las aprenden.
@@ -40,5 +41,15 @@ En Archivos, toca `NyxCerebro.swiftpm`. Se abre en Swift Playgrounds. ▶
 | Video.swift | ver y oír videos |
 | Comprension.swift | hablar entre ellas en Resh |
 | VistaSentidos.swift | la pestaña Sentidos |
+| Puente.swift | el puente entre el consejo antiguo y el nuevo |
+| VistaAntiguo.swift | la pestaña Consejo antiguo |
+| Antiguo/ | el consejo original (CerebroResonante, ConsejoResonante, LenguaResh) |
 | Base.swift | azar, las 18, su infancia |
 | ReshDatos.swift | las 3144 palabras Resh |
+
+## Cómo piensan (mejoras del cerebro)
+- **Activación que se propaga:** la pregunta activa sus palabras y la activación viaja 3 pasos por las conexiones; un acople inhibido resta.
+- **Las pistas raras pesan más:** "lluvia" dice más que "hace"; los verbos que van con todo (hace, tiene, da…) cuentan poco.
+- **La frase se elige por toda la pregunta**, con raíces ("brilla" = "brillan").
+- **Contexto de la conversación:** "háblame del árbol" → "¿y cómo crece?" sigue en el árbol.
+- Examen de 160 preguntas con respuesta conocida: del 63 % al ~90 % de aciertos.

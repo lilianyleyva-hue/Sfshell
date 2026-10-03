@@ -117,6 +117,8 @@ struct SeccionVideo: View {
     @ObservedObject var nyx: NyxModelo
     @State private var item: PhotosPickerItem? = nil
     @State private var viendo = false
+    @State private var avance: Double = 0
+    @State private var estado = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -125,9 +127,13 @@ struct SeccionVideo: View {
                 Label("Mándales un video", systemImage: "film")
             }
             .buttonStyle(.borderedProminent)
-            Text(viendo ? "viendo el video… (miran 5 momentos y escuchan lo que se dice)" : nyx.ultimoVideo)
+            ProgressView(value: avance)
+            Text(viendo ? estado : nyx.ultimoVideo)
                 .font(.callout)
                 .foregroundColor(.gray)
+            ForEach(nyx.lineasVideo, id: \.self) { (l: String) in
+                Text(l).font(.caption)
+            }
         }
         .onChange(of: item) { (nuevo: PhotosPickerItem?) in carga(nuevo) }
     }
@@ -144,11 +150,14 @@ struct SeccionVideo: View {
                 }
                 return
             }
-            let per = await Video.mira(p.url)
+            let visto = await Video.mira(p.url) { (a: Double, e: String) in
+                avance = a
+                estado = e
+            }
             await MainActor.run {
                 viendo = false
-                nyx.percibe(per)
-                nyx.ultimoVideo = per.descripcion
+                nyx.veVideo(visto.percepcion, escenas: visto.escenas.map { $0.recuerdo },
+                            fotogramas: visto.fotogramas, duracion: visto.duracion)
             }
         }
     }

@@ -179,6 +179,13 @@ enum Palabras {
         "sin", "como", "se", "es", "son",
     ]
 
+    /// Verbos "ligeros": van con casi todo, así que dicen poco del tema.
+    static let ligeras: Set<String> = [
+        "hace", "hacer", "hacen", "tiene", "tienen", "tener", "da", "dan", "dar", "va", "van", "ir",
+        "puede", "pueden", "poder", "sirve", "sirven", "viene", "vienen", "dice", "pasa", "queda",
+        "háblame", "hablame", "dime", "cuéntame", "cuentame", "sabes", "sabe", "explica", "explícame",
+    ]
+
     static func vacia(_ w: String) -> Bool { vacias.contains(w) }
     static func conector(_ w: String) -> Bool { conectores.contains(w) }
 

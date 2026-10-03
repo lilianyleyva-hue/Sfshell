@@ -15,6 +15,8 @@ struct VistaPrincipal: View {
                 .tabItem { Label("En vivo", systemImage: "waveform") }
             PantallaSentidos(nyx: nyx)
                 .tabItem { Label("Sentidos", systemImage: "eye") }
+            PantallaAntiguo(nyx: nyx)
+                .tabItem { Label("Consejo antiguo", systemImage: "building.columns") }
             PantallaMentes(nyx: nyx)
                 .tabItem { Label("Mentes", systemImage: "brain") }
             PantallaTransferencias(nyx: nyx)
