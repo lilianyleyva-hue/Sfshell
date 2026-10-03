@@ -59,6 +59,11 @@ final class NyxModelo: ObservableObject {
     @Published var ultimaVista = ""
     @Published var ultimoOido = ""
     @Published var ultimaRespuesta = ""
+    @Published var ultimaCamara = ""
+    @Published var ultimoVideo = ""
+    /// Mostrar la traducción al español debajo del Resh.
+    @Published var traducir = true
+    private var cosasCamara: Set<String> = []
     var conSwiftData = false
     var consejo: Consejo
     var puedeOpinar = false
@@ -129,7 +134,7 @@ final class NyxModelo: ObservableObject {
             let quien = r.vocero >= 0 ? consejo.mentes[r.vocero].nombre : "nadie"
             let det = "ganó «\(r.ganador)» · acuerdo \(acuerdo)% · habló \(quien) · " + (r.recordada ? "lo recordó" : "frase propia")
             chat.append(MensajeChat(id: contador, deHumano: false, rol: r.vocero, texto: r.frase, resh: r.resh, detalle: det))
-            ultimaRespuesta = "nyx: " + r.frase
+            ultimaRespuesta = "nyx: " + r.resh + (traducir ? "   «" + r.frase + "»" : "")
         } else {
             let r = consejo.hablaCon(destino, t)
             let det = "C=\(fmt(r.C)) · " + (r.recordada ? "lo recordó" : "frase propia")
@@ -145,9 +150,29 @@ final class NyxModelo: ObservableObject {
     func percibe(_ p: Percepcion) {
         notasSentidos = consejo.percibe(p)
         let d = p.descripcion
-        if p.sentido == .vista { ultimaVista = d } else { ultimoOido = d }
+        if p.sentido == .oido {
+            ultimoOido = d
+        } else if p.origen == "la foto" {
+            ultimaVista = d
+        }
         version += 1
         guarda()
+    }
+
+    /// Lo que ve la cámara: solo lo perciben de verdad cuando cambia algo.
+    func veCamara(_ p: Percepcion) {
+        ultimaCamara = p.descripcion
+        let cosas = Set(p.cosas)
+        if cosas.isEmpty || cosas == cosasCamara { return }
+        cosasCamara = cosas
+        percibe(p)
+    }
+
+    /// Quita la traducción «…» de un texto si no se quiere ver.
+    func soloResh(_ t: String) -> String {
+        if traducir { return t }
+        guard let r = t.range(of: "   «") else { return t }
+        return String(t[..<r.lowerBound])
     }
 
     func opina(_ bueno: Bool) {

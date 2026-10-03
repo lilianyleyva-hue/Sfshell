@@ -152,31 +152,23 @@ final class Consejo {
         }
     }
 
-    /// Las demás oyen lo que dijo el emisor; pueden aprender sus palabras Resh.
+    /// Las demás oyen lo que dijo el emisor EN RESH: cada una entiende solo
+    /// las palabras que sabe; las demás se le quedan como dudas.
     @discardableResult
-    private func difunde(_ emisor: Int, _ ids: [Int], texto es: String) -> Float {
+    private func difunde(_ emisor: Int, _ ids: [Int], resh: String) -> Float {
         let e = mentes[emisor]
         var suma: Float = 0
-        var aprendieron = 0
-        var palabra = ""
-        let sabeEmisor: Set<String> = Set(ids.filter { e.s[$0].sabe }.map { e.s[$0].et })
+        var sinEntender = 0
         for o in mentes where o.rol != emisor {
-            let oidos = o.recibe(es, de: e.nombre)
+            let (entendido, no) = o.comprende(resh)
+            if !no.isEmpty { sinEntender += 1 }
+            let oidos = entendido.isEmpty ? [] : o.recibe(entendido, de: e.nombre)
             var res: Float = 0
-            for id in oidos {
-                res += o.coherencia(id)
-                let et = o.s[id].et
-                if !o.s[id].sabe && sabeEmisor.contains(et) && Resh.deEspanol(et) != nil && Azar.f01() < 0.35 {
-                    o.s[id].sabe = true
-                    o.reshAprendidas += 1
-                    if !Palabras.vacia(et) { aprendieron += 1; palabra = et }
-                }
-            }
+            for id in oidos { res += o.coherencia(id) }
             if !oidos.isEmpty { suma += res / Float(oidos.count) }
         }
-        if aprendieron > 0, let r = Resh.deEspanol(palabra) {
-            let n = aprendieron == 1 ? "1 mente aprendió" : "\(aprendieron) mentes aprendieron"
-            evento(emisor, .resh, "\(n) a decir «\(palabra)» = \(r)")
+        if sinEntender > 0 {
+            evento(emisor, .nota, "\(sinEntender) no entendieron todo (les falta Resh)")
         }
         return suma / Float(max(1, numRoles - 1))
     }
@@ -190,7 +182,7 @@ final class Consejo {
         evento(rol, .dice, "\(prefijo)\(c.resh)   «\(c.es)»")
         m.anota("dije: " + c.es)
         m.dichos += 1
-        let res = difunde(rol, c.ids, texto: c.es)
+        let res = difunde(rol, c.ids, resh: c.resh)
         m.cansa(c.ids)
         return 1.5 * tanh(res)
     }
@@ -223,7 +215,8 @@ final class Consejo {
         recogeCorreo(rol)
         for _ in 0 ..< 3 { m.piensa() }
         let tema = m.tema()
-        let duda = m.duda()
+        let dudaResh = m.reshOido.last
+        let duda = dudaResh == nil ? m.duda() : nil
         var posibles: [Int] = Array(0 ..< numAcciones)
         if tema == nil { posibles.removeAll { $0 == Accion.hablar.rawValue } }
         if m.epis.count < 2 { posibles.removeAll { $0 == Accion.recordar.rawValue } }
@@ -234,11 +227,11 @@ final class Consejo {
         let explora = max(0.08, 0.35 - 0.01 * Float(total))
         if Azar.f01() < explora { a = posibles[Azar.ent(posibles.count)] }
         if a == m.ultima { m.racha += 1 } else { m.ultima = a; m.racha = 1 }
-        anunciaDeseo(rol, a, tema: tema, duda: duda, orden: orden)
+        anunciaDeseo(rol, a, tema: tema, duda: duda, dudaResh: dudaResh, orden: orden)
         let rec: Float
         switch Accion(rawValue: a) ?? .escuchar {
         case .hablar: rec = actHablar(rol, tema)
-        case .preguntar: rec = actPreguntar(rol, duda: duda, tema: tema)
+        case .preguntar: rec = actPreguntar(rol, dudaResh: dudaResh, duda: duda, tema: tema)
         case .imaginar: rec = actImaginar(rol)
         case .sonar: rec = actSonar(rol)
         case .recordar: rec = actRecordar(rol)
@@ -247,7 +240,7 @@ final class Consejo {
         aprende(rol, a, rec)
     }
 
-    private func anunciaDeseo(_ rol: Int, _ a: Int, tema: Int?, duda: Int?, orden: [(Int, Float)]) {
+    private func anunciaDeseo(_ rol: Int, _ a: Int, tema: Int?, duda: Int?, dudaResh: String?, orden: [(Int, Float)]) {
         let m = mentes[rol]
         let tt = tema.map { m.s[$0].et } ?? "algo"
         let otras = orden.filter { $0.0 != a }.prefix(2).map { "\(Accion(rawValue: $0.0)?.nombre ?? "") \(fmt($0.1))" }
@@ -255,7 +248,12 @@ final class Consejo {
         let deseo: String
         switch Accion(rawValue: a) ?? .escuchar {
         case .hablar: deseo = "quiero hablar de «\(tt)»"
-        case .preguntar: deseo = duda.map { "quiero preguntar cómo se dice «\(m.s[$0].et)»" } ?? "quiero preguntar algo"
+        case .preguntar:
+            if let r = dudaResh {
+                deseo = "quiero preguntar qué significa «\(r)»"
+            } else {
+                deseo = duda.map { "quiero preguntar cómo se dice «\(m.s[$0].et)»" } ?? "quiero preguntar algo"
+            }
         case .imaginar: deseo = "quiero imaginar algo nuevo"
         case .sonar: deseo = "quiero soñar y ordenar lo que viví"
         case .recordar: deseo = "quiero contar lo que recuerdo"
@@ -272,8 +270,11 @@ final class Consejo {
         return habla(rol, centro: t, prefijo: pre)
     }
 
-    private func actPreguntar(_ rol: Int, duda: Int?, tema: Int?) -> Float {
+    private func actPreguntar(_ rol: Int, dudaResh: String?, duda: Int?, tema: Int?) -> Float {
         let m = mentes[rol]
+        if let r = dudaResh {
+            return preguntaResh(rol, r)
+        }
         if let d = duda {
             let et = m.s[d].et
             evento(rol, .dice, "ye \(et)?   «¿cómo se dice \(et)?»")
@@ -305,6 +306,34 @@ final class Consejo {
         guard !ids.isEmpty, let v = mentes[r].veredicto(ids) else { return 0.1 }
         let res = habla(r, centro: v.ganador, prefijo: "")
         return res > 0 ? 1.0 : 0.1
+    }
+
+    /// "ye kivr?" — qué significa una palabra Resh que oyó y no entendió.
+    private func preguntaResh(_ rol: Int, _ r: String) -> Float {
+        let m = mentes[rol]
+        evento(rol, .dice, "ye \(r)?   «¿qué significa \(r)?»")
+        guard let es = Resh.aEspanol(r) else {
+            m.reshOido.removeAll { $0 == r }
+            return -0.2
+        }
+        var quien: Int? = nil
+        var mejorP: Float = -1
+        for o in mentes where o.rol != rol {
+            if let id = o.busca(es), o.s[id].sabe {
+                let p = o.precision + Azar.rango(0, 0.3)
+                if p > mejorP { mejorP = p; quien = o.rol }
+            }
+        }
+        guard let q = quien else {
+            evento(rol, .nota, "nadie supo qué significa «\(r)»")
+            m.reshOido.removeAll { $0 == r }
+            return -0.3
+        }
+        evento(q, .dice, "\(r) ka \(es)   «\(r) significa \(es)»")
+        m.aprendeResh(r, significa: es)
+        evento(rol, .resh, "aprendió que «\(r)» significa «\(es)»")
+        comparte(rol, .palabra, "\(es)=\(r)")      // y se lo pasa a las demás
+        return 1.5
     }
 
     private func actImaginar(_ rol: Int) -> Float {
@@ -358,7 +387,7 @@ final class Consejo {
         ids.reverse()
         let t = m.texto(ids)
         evento(rol, .dice, "mi sor ra: \(t.resh)   «recuerdo: \(t.es)»")
-        let res = difunde(rol, ids, texto: t.es)
+        let res = difunde(rol, ids, resh: t.resh)
         return 1.2 * tanh(res)
     }
 
@@ -388,7 +417,7 @@ final class Consejo {
         var gan: [Int: Mente.Veredicto] = [:]
         var peso: [Int: Float] = [:]
         for m in mentes {
-            let ids = m.recibe(pregunta, de: "humano")
+            let ids = m.recibe(Resh.traduceHumano(pregunta), de: "humano")
             fbEst[m.rol] = ids
             guard !ids.isEmpty, let v = m.veredicto(ids) else { continue }
             gan[m.rol] = v
@@ -439,16 +468,29 @@ final class Consejo {
             out.frase = c.es
             out.resh = "se ko \(c.resh)"
         }
-        difunde(out.vocero, c.ids, texto: c.es)
+        difunde(out.vocero, c.ids, resh: c.resh)
         return out
     }
 
     /// Hablar con una sola mente.
-    func hablaCon(_ rol: Int, _ texto: String) -> (es: String, resh: String, C: Float, recordada: Bool) {
+    /// deMente: si habla otra mente (en Resh), solo entiende lo que sabe.
+    func hablaCon(_ rol: Int, _ texto: String, deMente: Int? = nil) -> (es: String, resh: String, C: Float, recordada: Bool) {
         let m = mentes[rol]
         fbValido = false
         fbFr = nil
-        let ids = m.recibe(texto, de: "humano")
+        let entendido: String
+        if let otra = deMente {
+            let (e, no) = m.comprende(texto)
+            if e.isEmpty, let r = no.first {
+                return ("no entiendo «\(r)»", "ye \(r)?", 0, false)
+            }
+            entendido = e
+            _ = otra
+        } else {
+            entendido = Resh.traduceHumano(texto)
+        }
+        let quien = deMente.map { mentes[$0].nombre } ?? "humano"
+        let ids = m.recibe(entendido, de: quien)
         if ids.isEmpty { return ("(no entendí)", "", 0, false) }
         var ultimo: (ids: [Int], es: String, resh: String, fr: Int?)? = nil
         var vUlt: Mente.Veredicto? = nil
@@ -474,17 +516,24 @@ final class Consejo {
     }
 
     /// Dos mentes conversan: cada una responde a lo último que dijo la otra.
+    /// Dos mentes conversan EN RESH: cada una responde a lo que entendió de la otra.
     func conversa(_ a: Int, _ b: Int, turnos: Int) {
-        var ultimoDicho: String = mentes[a].tema().map { mentes[a].s[$0].et } ?? mentes[a].info.objetivo
-        evento(a, .nota, "\(mentes[a].nombre) y \(mentes[b].nombre) conversan sobre «\(ultimoDicho)»")
+        let tema: String = mentes[a].tema().map { mentes[a].s[$0].et } ?? mentes[a].info.objetivo
+        evento(a, .nota, "\(mentes[a].nombre) y \(mentes[b].nombre) conversan sobre «\(tema)»")
+        var ultimoResh = tema
         for i in 0 ..< turnos {
             let quien = i % 2 == 0 ? a : b
+            let otra = quien == a ? b : a
             tick += 1
-            let r = hablaCon(quien, ultimoDicho)
-            let pre = i == 0 ? "" : (r.C < 0.2 ? "ye " : "se ko ")
+            let r = hablaCon(quien, ultimoResh, deMente: i == 0 ? nil : otra)
+            let pre = i == 0 || r.resh.hasPrefix("ye ") ? "" : (r.C < 0.2 ? "ye " : "se ko ")
             evento(quien, .dice, "\(pre)\(r.resh)   «\(r.es)»")
-            if !fbFrase.isEmpty { difunde(quien, fbFrase, texto: r.es) }
-            ultimoDicho = r.es
+            if r.resh.hasPrefix("ye "), let duda = mentes[quien].reshOido.last {
+                _ = preguntaResh(quien, duda)          // pregunta lo que no entendió
+                continue
+            }
+            if !fbFrase.isEmpty { difunde(quien, fbFrase, resh: r.resh) }
+            ultimoResh = r.resh
         }
         fbValido = false
     }

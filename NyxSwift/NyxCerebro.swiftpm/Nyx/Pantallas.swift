@@ -35,7 +35,13 @@ struct PantallaHablar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text(nyx.aviso).font(.caption).foregroundColor(.gray).padding(6)
+            HStack {
+                Text(nyx.aviso).font(.caption).foregroundColor(.gray)
+                Spacer()
+                Toggle("Traducir al español", isOn: $nyx.traducir)
+                    .frame(maxWidth: 230)
+            }
+            .padding(.horizontal)
             ListaChat(nyx: nyx)
             BarraOpinion(nyx: nyx)
             BarraEscribir(nyx: nyx, texto: $texto, destino: $destino)
@@ -51,7 +57,7 @@ struct ListaChat: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     ForEach(nyx.chat) { (m: MensajeChat) in
-                        Burbuja(m: m)
+                        Burbuja(m: m, traducir: nyx.traducir)
                     }
                     Color.clear.frame(height: 1).id("fin")
                 }
@@ -64,6 +70,13 @@ struct ListaChat: View {
 
 struct Burbuja: View {
     let m: MensajeChat
+    let traducir: Bool
+
+    /// Las mentes hablan en Resh: eso va grande.
+    var principal: String {
+        if m.deHumano || m.resh.isEmpty { return m.texto }
+        return m.resh
+    }
 
     var nombre: String {
         if m.deHumano { return "tú" }
@@ -71,10 +84,10 @@ struct Burbuja: View {
         return "nyx"
     }
 
-    /// Resh y detalles (vacío en tus mensajes).
+    /// Traducción y detalles (vacío en tus mensajes).
     var extra: String {
         var partes: [String] = []
-        if !m.resh.isEmpty { partes.append("resh: " + m.resh) }
+        if traducir && !m.resh.isEmpty { partes.append("«" + m.texto + "»") }
         if !m.detalle.isEmpty { partes.append(m.detalle) }
         return partes.joined(separator: "\n")
     }
@@ -82,7 +95,7 @@ struct Burbuja: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Text(nombre).font(.caption.bold()).foregroundColor(colorDe(m.rol))
-            Text(m.texto).font(.body)
+            Text(principal).font(.body)
             Text(extra).font(.caption).foregroundColor(.gray)
         }
         .padding(10)
@@ -120,7 +133,7 @@ struct BarraEscribir: View {
     var body: some View {
         HStack(spacing: 8) {
             MenuDestino(destino: $destino, titulo: titulo)
-            TextField("Pregunta algo…", text: $texto)
+            TextField("Pregunta algo (en español o en Resh)…", text: $texto)
                 .textFieldStyle(.roundedBorder)
                 .autocorrectionDisabled()
                 .onSubmit { envia() }
@@ -215,7 +228,7 @@ struct ListaEventos: View {
     var body: some View {
         List {
             ForEach(nyx.eventos.reversed()) { (e: Evento) in
-                FilaEvento(e: e)
+                FilaEvento(e: e, texto: nyx.soloResh(e.texto))
             }
         }
         .listStyle(.plain)
@@ -224,6 +237,7 @@ struct ListaEventos: View {
 
 struct FilaEvento: View {
     let e: Evento
+    let texto: String
 
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
@@ -232,7 +246,7 @@ struct FilaEvento: View {
                 .foregroundColor(colorDe(e.rol))
                 .frame(width: 90, alignment: .leading)
             Text(e.tipo.icono)
-            Text(e.texto)
+            Text(texto)
                 .font(.callout)
                 .foregroundColor(e.tipo == .aprende || e.tipo == .nota ? .gray : .primary)
         }

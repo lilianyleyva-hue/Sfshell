@@ -10,6 +10,7 @@ import PhotosUI
 struct PantallaSentidos: View {
     @ObservedObject var nyx: NyxModelo
     @StateObject private var oido = Oido()
+    @StateObject private var camara = Camara()
     @State private var item: PhotosPickerItem? = nil
     @State private var foto: UIImage? = nil
     @State private var mirando = false
@@ -17,13 +18,21 @@ struct PantallaSentidos: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
+                SeccionCamara(nyx: nyx, camara: camara)
                 SeccionVer(nyx: nyx, item: $item, foto: foto, mirando: mirando)
+                SeccionVideo(nyx: nyx)
                 SeccionOir(nyx: nyx, oido: oido)
                 SeccionNotas(nyx: nyx)
             }
             .padding()
         }
         .onChange(of: item) { (nuevo: PhotosPickerItem?) in carga(nuevo) }
+        .onAppear { conectaCamara() }
+    }
+
+    private func conectaCamara() {
+        let n = nyx
+        camara.alVer = { (p: Percepcion) in n.veCamara(p) }
     }
 
     private func carga(_ nuevo: PhotosPickerItem?) {
@@ -64,6 +73,83 @@ struct SeccionVer: View {
                 .frame(maxHeight: 260)
                 .cornerRadius(10)
             Text(mirando ? "mirando…" : nyx.ultimaVista).font(.callout).foregroundColor(.gray)
+        }
+    }
+}
+
+struct SeccionCamara: View {
+    @ObservedObject var nyx: NyxModelo
+    @ObservedObject var camara: Camara
+    @State private var cada: Double = 3
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("📷 Cámara en vivo").font(.title2.bold())
+            HStack {
+                Button(camara.activa ? "■ Apagar cámara" : "📷 Encender cámara") { alterna() }
+                    .buttonStyle(.borderedProminent)
+                Button("↺ Cambiar de cámara") { camara.cambia() }
+                    .buttonStyle(.bordered)
+                Spacer()
+                Text("miran cada \(Int(cada)) s").font(.caption).foregroundColor(.gray)
+                Slider(value: $cada, in: 1 ... 10)
+                    .frame(maxWidth: 140)
+            }
+            VistaPrevia(sesion: camara.sesion)
+                .frame(height: 280)
+                .cornerRadius(10)
+            Text(camara.problema).font(.caption).foregroundColor(.red)
+            Text(nyx.ultimaCamara).font(.callout).foregroundColor(.gray)
+        }
+        .onChange(of: cada) { (v: Double) in camara.cada = v }
+    }
+
+    func alterna() {
+        if camara.activa {
+            camara.apaga()
+        } else {
+            camara.enciende()
+        }
+    }
+}
+
+struct SeccionVideo: View {
+    @ObservedObject var nyx: NyxModelo
+    @State private var item: PhotosPickerItem? = nil
+    @State private var viendo = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("🎬 Videos").font(.title2.bold())
+            PhotosPicker(selection: $item, matching: .videos) {
+                Label("Mándales un video", systemImage: "film")
+            }
+            .buttonStyle(.borderedProminent)
+            Text(viendo ? "viendo el video… (miran 5 momentos y escuchan lo que se dice)" : nyx.ultimoVideo)
+                .font(.callout)
+                .foregroundColor(.gray)
+        }
+        .onChange(of: item) { (nuevo: PhotosPickerItem?) in carga(nuevo) }
+    }
+
+    private func carga(_ nuevo: PhotosPickerItem?) {
+        guard let it = nuevo else { return }
+        viendo = true
+        Task {
+            let peli = try? await it.loadTransferable(type: Pelicula.self)
+            guard let p = peli else {
+                await MainActor.run {
+                    viendo = false
+                    nyx.ultimoVideo = "No pude abrir ese video."
+                }
+                return
+            }
+            let per = await Video.mira(p.url)
+            await MainActor.run {
+                viendo = false
+                nyx.percibe(per)
+                nyx.ultimoVideo = per.descripcion
+            }
         }
     }
 }

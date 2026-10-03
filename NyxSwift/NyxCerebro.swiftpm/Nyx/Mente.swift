@@ -53,6 +53,7 @@ final class Mente {
     var epis: [Int] = []
     var caminos: [Camino] = []
     var recientes: [Int] = []
+    var reshOido: [String] = []      // palabras Resh que oyó y no entendió
     var aciertos = 0
     var intentos = 0
     var valor: [Float] = [0, 0, 0, 0, 0, 0]

@@ -10,8 +10,13 @@ enum Ojos {
     /// Mira una foto y la convierte en una Percepcion.
     /// Es trabajo pesado: llamarla fuera del hilo principal.
     static func mira(_ imagen: UIImage) -> Percepcion {
+        guard let cg = imagen.cgImage else { return Percepcion(sentido: .vista) }
+        return mira(cg: cg)
+    }
+
+    /// Lo mismo con una imagen ya en CGImage (cámara, fotogramas de video).
+    static func mira(cg: CGImage) -> Percepcion {
         var p = Percepcion(sentido: .vista)
-        guard let cg = imagen.cgImage else { return p }
         let clasifica = VNClassifyImageRequest()
         let lee = VNRecognizeTextRequest()
         lee.recognitionLevel = .accurate

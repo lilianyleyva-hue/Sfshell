@@ -33,6 +33,7 @@ let package = Package(
                 .portraitUpsideDown(.when(deviceFamilies: [.pad]))
             ],
             capabilities: [
+                .camera(purposeString: "Para que las mentes vean el mundo por tu cámara."),
                 .microphone(purposeString: "Para que las mentes puedan oírte."),
                 .speechRecognition(purposeString: "Para que las mentes entiendan lo que dices.")
             ]

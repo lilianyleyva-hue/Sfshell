@@ -20,6 +20,8 @@ struct Percepcion {
     var texto: String = ""          // texto leído en la foto o palabras oídas
     var personas: Int = 0           // caras en la foto
     var rasgos: [String] = []       // "clara", "oscura", "fuerte", "suave", "agudo", "grave"
+    var origen = "la foto"          // "la foto", "la cámara", "el video"
+    var secuencia: [String] = []    // en un video: lo que aparece primero, luego…
 
     /// Una frase que describe todo.
     var descripcion: String {
@@ -29,12 +31,13 @@ struct Percepcion {
             return o
         }
         var partes: [String] = []
-        let que = sentido == .vista ? "en la foto hay" : "oí"
+        let que = "en " + origen + " hay"
         if !cosas.isEmpty { partes.append("\(que) " + cosas.prefix(5).joined(separator: " ")) }
         if !colores.isEmpty { partes.append("colores " + colores.joined(separator: " ")) }
         if personas > 0 { partes.append(personas == 1 ? "una persona" : "\(personas) personas") }
+        if secuencia.count >= 2 { partes.append("primero " + secuencia.joined(separator: " luego ")) }
         if !rasgos.isEmpty { partes.append(rasgos.joined(separator: " ")) }
-        if !texto.isEmpty { partes.append((sentido == .vista ? "dice " : "") + texto) }
+        if !texto.isEmpty { partes.append((origen == "el video" ? "se oye " : "dice ") + texto) }
         return partes.joined(separator: " · ")
     }
 }
