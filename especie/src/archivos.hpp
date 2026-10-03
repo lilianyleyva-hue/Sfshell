@@ -1,14 +1,13 @@
 #pragma once
 // Archivos y carpetas sin <filesystem>, <fstream> ni excepciones: solo POSIX
-// (stat, mkdir, opendir…) y stdio de C. Así compila también en Code App
+// (stat, mkdir, opendir…) y stdio de C. Sin <sys/types.h> ni <unistd.h>: en Code App
+// sys/types.h pide endian.h, que no existe. Así compila también en Code App
 // (WebAssembly), cuya libc++ no trae <filesystem> ni <fstream> ni permite `throw`.
 //
 // Las rutas son std::string con '/' y pueden ser relativas (p. ej. "mundo").
 
 #include <dirent.h>
 #include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -158,7 +157,7 @@ inline std::vector<Entrada> listar(const std::string& p) {
 inline bool borrarTodo(const std::string& p) {
   if (esDirectorio(p)) {
     for (auto& e : listar(p)) borrarTodo(unir(p, e.nombre));
-    return ::rmdir(p.c_str()) == 0;
+    return std::remove(p.c_str()) == 0;  // remove() también borra carpetas vacías
   }
   return std::remove(p.c_str()) == 0;
 }
