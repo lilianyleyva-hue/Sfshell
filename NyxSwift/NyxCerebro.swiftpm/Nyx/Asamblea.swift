@@ -503,7 +503,7 @@ final class Asamblea {
         for clave in ["cuánto es", "cuanto es", "calcula", "cuánto da", "cuanto da"] {
             guard let r = bajo.range(of: clave) else { continue }
             let resto = String(bajo[r.upperBound...])
-            if let v = Aritmetica.calcula(resto) { return (Aritmetica.expresion(resto), Aritmetica.bonito(v)) }
+            if Aritmetica.opera(resto), let v = Aritmetica.resultado(resto) { return (Aritmetica.expresion(resto), v) }
         }
         return nil
     }

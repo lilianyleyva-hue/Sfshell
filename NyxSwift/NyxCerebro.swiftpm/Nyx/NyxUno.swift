@@ -212,13 +212,10 @@ final class NyxUno {
         for clave in ["cuánto es", "cuanto es", "calcula", "cuánto da", "cuanto da"] {
             if let r = bajo.range(of: clave) {
                 let resto = String(bajo[r.upperBound...])
-                let opera = Aritmetica.expresion(resto).contains { "+-*/".contains($0) }
-                if opera, Aritmetica.calcula(resto) != nil { return resto }
+                if Aritmetica.opera(resto), Aritmetica.resultado(resto) != nil { return resto }
             }
         }
-        let e = Aritmetica.expresion(bajo)
-        let opera = e.contains { "+-*/".contains($0) }
-        if opera, !bajo.contains(","), Aritmetica.calcula(bajo) != nil { return bajo }
+        if Aritmetica.opera(bajo), !bajo.contains(","), Aritmetica.resultado(bajo) != nil { return bajo }
         return nil
     }
 
@@ -240,6 +237,18 @@ final class NyxUno {
             break
         }
         if let c = correccion(bajo) { return corrige(c) }
+        // solo un número ("67"): no es algo que aprender ni una cuenta
+        if !t.contains(where: { $0.isLetter }), !Aritmetica.opera(t), clasifica(t) == .abierta {
+            var p = Pensamiento()
+            p.pregunta = t
+            p.es = "\(t.trimmingCharacters(in: .whitespaces)) es un número. ¿Qué hago con él? Por ejemplo: «\(t) por 3», «\(t) al cuadrado» o «misión: \(t), \(t) más 3…»"
+            if let n = Grande(t.trimmingCharacters(in: .whitespaces)), n.cifras < 40 {
+                p.es = "\(n.texto) es un número. ¿Qué hago con él? Por ejemplo: «\(n.texto) por 3» o «\(n.texto) al cuadrado»"
+            }
+            p.resh = Resh.traduceTexto(p.es)
+            p.confianza = 1
+            return p
+        }
         let retos: [Clase] = [.cuenta, .serie, .ecuacion, .problema, .intruso, .comparacion]
         if !esPregunta(t) && !retos.contains(clasifica(t)), let p = aprende(t) { return p }
         let p = piensa(t)
@@ -414,7 +423,7 @@ final class NyxUno {
         case .serie:
             if let s = Resuelve.serie(m.numeros) { ok = abs(s.0 - v) < 1e-6 }
         case .cuenta:
-            if let e = NyxUno.cuentaDe(m.enunciado), let x = Aritmetica.calcula(e) { ok = abs(x - v) < 1e-6 }
+            if let e = NyxUno.cuentaDe(m.enunciado), let x = Aritmetica.resultado(e) { ok = Respuestas.igual(x, c.respuesta) }
         default: break
         }
         if ok == true { c.confianza = min(0.99, c.confianza + 0.1); c.nota = "verificado por otro camino" }
@@ -454,6 +463,7 @@ final class NyxUno {
     }
 
     private func clave(_ c: Candidato) -> String {
+        if let g = Grande(Respuestas.norma(c.respuesta)) { return g.texto }
         if let v = Double(c.respuesta) { return Aritmetica.bonito(v) }
         return ConsejoLogico.singular(Respuestas.norma(c.respuesta))
     }

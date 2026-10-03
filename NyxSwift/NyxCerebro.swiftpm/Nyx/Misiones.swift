@@ -72,7 +72,18 @@ enum Estrategia: Int, CaseIterable {
 enum Respuestas {
     static func norma(_ s: String) -> String {
         var t = s.lowercased()
-        for c in ["¿", "?", ".", ",", "¡", "!", "«", "»"] { t = t.replacingOccurrences(of: c, with: "") }
+        for c in ["¿", "?", ",", "¡", "!", "«", "»"] { t = t.replacingOccurrences(of: c, with: "") }
+        // el punto se quita, salvo el decimal ("3.5")
+        let cs = Array(t)
+        var sinPuntos = ""
+        for (i, ch) in cs.enumerated() {
+            if ch == "." {
+                let entreCifras = i > 0 && i + 1 < cs.count && cs[i - 1].isNumber && cs[i + 1].isNumber
+                if !entreCifras { continue }
+            }
+            sinPuntos.append(ch)
+        }
+        t = sinPuntos
         t = t.trimmingCharacters(in: .whitespaces)
         for p in ["la respuesta es ", "respuesta ", "es ", "creo que "] where t.hasPrefix(p) {
             t = String(t.dropFirst(p.count))
@@ -84,6 +95,10 @@ enum Respuestas {
     static func igual(_ a: String, _ b: String) -> Bool {
         let x = norma(a)
         let y = norma(b)
+        // enteros: cifra por cifra (los muy grandes no caben en un Double)
+        if let p = Grande(x), let q = Grande(y) { return p == q }
+        // un entero exacto no es igual a un número aproximado ("1e+21")
+        if (Grande(x) != nil && y.contains("e")) || (Grande(y) != nil && x.contains("e")) { return false }
         if let p = Double(x), let q = Double(y) { return abs(p - q) < 1e-6 * max(1, abs(q)) }
         return x == y || ConsejoLogico.singular(x) == ConsejoLogico.singular(y)
     }
@@ -265,7 +280,7 @@ enum Misiones {
             m.numeros = nums
             return m
         }
-        if Aritmetica.calcula(bajo) != nil { return Mision(tipo: .cuenta, enunciado: t, respuesta: nil) }
+        if Aritmetica.opera(bajo), Aritmetica.resultado(bajo) != nil { return Mision(tipo: .cuenta, enunciado: t, respuesta: nil) }
         let frases = t.components(separatedBy: ".").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         if bajo.contains("cuál no es"), let dos = bajo.range(of: ":") {
             var m = Mision(tipo: .intruso, enunciado: t, respuesta: nil)
@@ -494,8 +509,8 @@ enum Resuelve {
     static func logico(_ m: Mision, _ l: ConsejoLogico) -> (String, String)? {
         switch m.tipo {
         case .cuenta:
-            guard let v = Aritmetica.calcula(m.enunciado) else { return nil }
-            return (Aritmetica.bonito(v), Aritmetica.expresion(m.enunciado) + " = " + Aritmetica.bonito(v) + " (primero × y ÷, luego + y −)")
+            guard let v = Aritmetica.resultado(m.enunciado) else { return nil }
+            return (v, Aritmetica.expresion(m.enunciado) + " = " + v + " (primero potencias, luego × y ÷, luego + y −)")
         case .serie:
             return serie(m.numeros).map { (Aritmetica.bonito($0.0), $0.1) }
         case .ecuacion:

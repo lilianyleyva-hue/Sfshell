@@ -132,7 +132,7 @@ final class ConsejoLogico {
                 let uno = Hecho(a: h.a, rel: h.rel, b: b.trimmingCharacters(in: .whitespaces))
                 if pon(uno, Apoyo(confianza: 1, quien: quien, porque: [texto])) { nuevos.append(uno.texto) }
             }
-        } else if toks.count <= 3, !toks.isEmpty, !t.contains("?") {
+        } else if toks.count <= 3, !toks.isEmpty, !t.contains("?"), t.contains(where: { $0.isLetter }) {
             let p = ConsejoLogico.frase(toks)
             if !p.isEmpty && props[p] == nil {
                 props[p] = Apoyo(confianza: 1, quien: quien, porque: [texto])
@@ -284,8 +284,8 @@ final class ConsejoLogico {
         let t = texto.lowercased().trimmingCharacters(in: .whitespaces)
         let toks = Palabras.tokens(t, max: 30)
         var r = RespuestaLogica()
-        if let valor = Aritmetica.calcula(t) {
-            r.veredicto = Aritmetica.bonito(valor)
+        if Aritmetica.opera(t), let valor = Aritmetica.resultado(t) {
+            r.veredicto = valor
             r.aportes.append(("aritmética", "\(Aritmetica.expresion(t)) = \(r.veredicto)"))
             evento(13, "calculó \(Aritmetica.expresion(t)) = \(r.veredicto)")
             return r
@@ -836,7 +836,9 @@ enum Aritmetica {
     static func expresion(_ t: String) -> String {
         var s = t.lowercased()
         for (a, b) in [("cuánto es", ""), ("cuanto es", ""), ("calcula", ""), ("?", ""), ("¿", ""),
-                       (" más ", " + "), (" menos ", " - "), (" por ", " * "), (" entre ", " / "), ("x", "*")] {
+                       (" elevado a ", " ^ "), (" al cuadrado", " ^ 2"), (" al cubo", " ^ 3"),
+                       (" más ", " + "), (" menos ", " - "), (" por ", " * "), (" entre ", " / "),
+                       ("×", "*"), ("÷", "/"), ("·", "*"), ("x", "*")] {
             s = s.replacingOccurrences(of: a, with: b)
         }
         return s.trimmingCharacters(in: .whitespaces)

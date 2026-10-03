@@ -195,7 +195,7 @@ extension SaberMisiones {
 
     private func cuenta(_ e: Estrategia, _ m: Mision) -> String? {
         switch e {
-        case .calcula: return Respuestas.numero(Aritmetica.calcula(m.enunciado))
+        case .calcula: return Aritmetica.resultado(m.enunciado)
         case .rapido: return Respuestas.numero(Aritmetica.izquierdaDerecha(m.enunciado))
         case .estima:
             // redondea cada número a la decena y calcula

@@ -47,6 +47,7 @@ En Archivos, toca `NyxCerebro.swiftpm`. Se abre en Swift Playgrounds. ▶
 | VistaSentidos.swift | la pestaña Sentidos |
 | Logica.swift | el consejo lógico: hechos, reglas y los 18 agentes |
 | VistaLogica.swift | la pestaña Consejo lógico |
+| Grande.swift | enteros exactos de cualquier tamaño (sumas de 100 cifras, 2 elevado a 100…) |
 | NyxUno.swift | Nyx Uno: la mente unida (decide, critica, verifica, aprende de quién fiarse) |
 | VistaUno.swift | la pestaña Nyx |
 | Asamblea.swift | los tres consejos hablando entre sí (a su ritmo) y enfrentando misiones |
