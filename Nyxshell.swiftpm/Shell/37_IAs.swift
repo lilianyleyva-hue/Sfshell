@@ -267,6 +267,8 @@ final class SistemaIAs: @unchecked Sendable {
         let ok = (sh.env.vars["?"] ?? "0") == "0"
         let hora = SistemaIAs.hora()
         let resumen = out.split(separator: "\n").first.map { String($0.prefix(60)) } ?? ""
+        let limpio = resumen.replacingOccurrences(of: Shell.errMark, with: "")
+        ObservatorioIAs.uno.publica(e.rol, .hace, "\(autor == "sí misma" ? "" : "[\(autor)] ")$ \(linea.prefix(90)) \(ok ? "✓" : "✗")" + (limpio.isEmpty ? "" : " → \(limpio)"))
         e.registrar(ok: ok, "\(hora) [\(autor)] \(ok ? "✓" : "✗") \(linea)" + (resumen.isEmpty ? "" : "  → \(resumen)"))
         // su bitácora en SU disco (sin pasar por su shell: no es una orden suya)
         if let u = try? sh.env.resolve("/Documentos/bitacora.log") {
@@ -290,6 +292,7 @@ final class SistemaIAs: @unchecked Sendable {
         let e = espacio(rol)
         var hecho: [String] = []
         if let t = e.sacarTarea() {
+            ObservatorioIAs.uno.publica(rol, .tarea, "hago lo que me encargaste: \(t)")
             _ = await ejecutar(t, en: e.shell, por: "tarea")
             return ["tarea: \(t)"]
         }
@@ -312,18 +315,15 @@ final class SistemaIAs: @unchecked Sendable {
             if let r = raices.randomElement() { palabra = r }
         }
         if let f = frase, !f.isEmpty {
-            let l = "echo \"\(SistemaIAs.hora()) \(f)\" >> /Documentos/diario.txt"
-            _ = await ejecutar(l, en: e.shell, por: "sí misma")
-            hecho.append("diario: \(f)")
-            if Double.random(in: 0 ... 1) < 0.3 {
-                _ = await ejecutar("digo \(f)", en: e.shell, por: "sí misma")
-                hecho.append("dijo: \(f)")
+            ObservatorioIAs.uno.publica(rol, .piensa, f + (SistemaIAs.glosaFrase(f).map { "  («\($0)»)" } ?? ""))
+            // el diario se escribe directo (no es un paso de su plan)
+            if let u = try? e.shell.env.resolve("/Documentos/diario.txt") {
+                SistemaIAs.agregar("\(SistemaIAs.hora()) \(f)\n", a: u, maxLineas: 300)
             }
+            hecho.append("diario: \(f)")
         }
-        for l in accionesDeRol(rol, palabra: palabra, frase: frase ?? palabra) {
-            _ = await ejecutar(l, en: e.shell, por: "sí misma")
-            hecho.append(l)
-        }
+        // imagina qué quiere hacer y da un paso de su plan (65_Imaginacion.swift)
+        hecho += await turnoImaginado(rol, palabra: palabra, frase: frase ?? palabra)
         return hecho
     }
 
@@ -505,6 +505,7 @@ extension Shell {
             let sis = SistemaIAs.uno
             let a = ctx.args
             guard let primero = a.first else { return await ctx.sh.execute("ias") }
+            if let r = try await SistemaIAs.ordenImaginacion(ctx, a) { return r }
 
             switch primero.lowercased() {
             case "ayuda", "help", "-h":
@@ -519,6 +520,10 @@ extension Shell {
                   ia turno [n]                 n rondas: cada una actúa una vez
                   ia libres [segundos]         actúan solas · ia quietas  las para
                   ia bitacora <rol> [n]        lo último que hizo
+                  ia mira [rol] [segundos]     ver EN VIVO lo que piensan, imaginan, hacen y aprenden
+                  ia imagina <rol>             qué deseos se le ocurren y cuál elige
+                  ia aprendizaje [rol]         lo que aprendió (qué le gusta, qué evita)
+                  ia enseña <rol> <comando>    enséñale algo: lo practicará sola
                 dentro de su shell ellas tienen: yo pienso digo oigo nota diario
                   escritorio envia buzon aprende actua (y todos los comandos)
                 herramientas: web (navegador) busca lee resume calcula pregunta guarda/saca
