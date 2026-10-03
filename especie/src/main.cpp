@@ -4,6 +4,10 @@
 // Sin hilos (Code App en iPad): se detecta solo, o con -DABLA_SIN_HILOS
 // Usar:      ./abla [--mundo DIR] [--contexto TOKENS] [--ritmo MS]
 
+#if __cplusplus < 201703L
+#error "Abla necesita C++17. En Code App no uses el boton de play: en la TERMINAL escribe  cd especie  y luego  clang++ -std=c++17 -O2 src/main.cpp -o abla  y despues  wasm abla"
+#endif
+
 #include <cstdlib>
 #include <iostream>
 
