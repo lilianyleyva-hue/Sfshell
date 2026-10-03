@@ -2,6 +2,9 @@
  * la interfaz web) y unas funciones que devuelven el estado en JSON para la UI. */
 #include "especie.h"
 
+#include "misiones.h"
+#include "vision.h"
+
 static Texto salida;
 
 static const char* AYUDA =
@@ -26,6 +29,9 @@ static const char* AYUDA =
     "  idioma                        estado del idioma (4000 innatas + creadas)\n"
     "  red                           mensajes entre los seres\n"
     "  ritmo [ms]                    cada cuánto piensan (p. ej. ritmo 300: más rápido)\n"
+    "  mision                        su misión de matemáticas: nivel, problema, logros\n"
+    "  mision 37*12                  ponles tú un problema (+ - * x / ^)\n"
+    "  fotos                         qué están viendo y cuántas fotos quedan\n"
     "  guardar                       guarda ahora (también se guarda solo)\n";
 
 static void unir_desde(int argc, char** argv, int desde, Texto* t) {
@@ -283,6 +289,18 @@ EXPORTA("abla_ejecutar") const char* abla_ejecutar(const char* linea) {
   } else if (!strcmp(c, "red")) {
     tx_printf(&salida, "Ciclo %llu · mensajes en Abla: %llu · data C: %llu\n", (unsigned long long)E.tick,
               (unsigned long long)E.mensajes_abla, (unsigned long long)E.mensajes_c);
+  } else if (!strcmp(c, "mision") || !strcmp(c, "misión") || !strcmp(c, "misiones")) {
+    if (argc > 1) {
+      Texto e;
+      tx_iniciar(&e);
+      unir_desde(argc, argv, 1, &e);
+      misiones_problema_humano(e.p, &salida);
+      tx_liberar(&e);
+    } else {
+      misiones_describir(&salida);
+    }
+  } else if (!strcmp(c, "fotos") || !strcmp(c, "vision") || !strcmp(c, "visión")) {
+    vision_describir(&salida);
   } else if (!strcmp(c, "ritmo") || !strcmp(c, "velocidad")) {
     if (argc > 1) abla_fijar_ritmo(atoi(argv[1]));
     tx_printf(&salida, "Piensan un ciclo cada %d ms.%s\n", E.ritmo, argc > 1 ? "" : " (cámbialo con: ritmo 500)");

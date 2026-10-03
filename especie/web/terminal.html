@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Especie Abla">
+  <meta name="theme-color" content="#0b0d14">
+  <title>Especie Abla</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="terminal.css">
+</head>
+<body>
+  <!-- La interfaz la dibuja el cerebro en C (tui.c); aquí solo se muestra. -->
+  <pre id="pantalla" aria-label="Terminal de la Especie Abla">Despertando a la especie…</pre>
+  <textarea id="teclado" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" aria-label="Teclado"></textarea>
+  <nav class="barra" aria-label="Teclas">
+    <button data-t="&#9;">Tab</button>
+    <button data-t="&#27;[D" aria-label="Ser anterior">←</button>
+    <button data-t="&#27;[C" aria-label="Ser siguiente">→</button>
+    <button data-t="&#27;[A" aria-label="Historial atrás">↑</button>
+    <button data-t="&#27;[B" aria-label="Historial adelante">↓</button>
+    <button data-t="&#27;[5~" aria-label="Subir la salida">RePág</button>
+    <button data-t="&#27;[6~" aria-label="Bajar la salida">AvPág</button>
+    <button data-t="&#27;">Esc</button>
+    <span class="hueco"></span>
+    <button id="lento" aria-label="Pensar más despacio">⏪</button>
+    <span id="ritmo">0,3 s</span>
+    <button id="rapido" aria-label="Pensar más rápido">⏩</button>
+    <button id="abrirTeclado">⌨︎</button>
+    <a href="index.html">Volver a la app</a>
+  </nav>
+  <script src="wasi.js"></script>
+  <script src="abla.js"></script>
+  <script src="abla-wasm.js"></script>
+  <script src="terminal.js"></script>
+</body>
+</html>

@@ -10,7 +10,8 @@
   "use strict";
 
   // ---------- Parámetros ----------
-  const GRID_W = 16, GRID_H = 12;   // resolución con la que "ve"
+  const GRID_W = 16, GRID_H = 12;   // rejilla de movimiento que llega a las neuronas
+  const OJO_W = 96, OJO_H = 72;     // lo que ve el ojo: colores reales, 96×72 píxeles
   const BANDAS = 24;                // bandas de frecuencia con las que "oye"
   const N_NEURONAS = 200;
   const VECINOS = 4;
@@ -200,7 +201,7 @@
 
   function desactivarVista() {
     flujoCamara?.getTracks().forEach((t) => t.stop());
-    flujoCamara = null; video = null; cuadroPrevio = null;
+    flujoCamara = null; video = null; cuadroPrevio = null; imagenReal = null;
     percepcion.movimiento.fill(0);
   }
 
@@ -211,8 +212,15 @@
     return ((h * 60 + 360) % 360) / 360;
   }
 
+  const retina = document.createElement("canvas");
+  retina.width = OJO_W; retina.height = OJO_H;
+  const retinaCtx = retina.getContext("2d", { willReadFrequently: true });
+  let imagenReal = null; // los píxeles tal cual, con sus colores reales
+
   function percibirVista() {
     if (!video || video.readyState < 2) return;
+    retinaCtx.drawImage(video, 0, 0, OJO_W, OJO_H);
+    imagenReal = retinaCtx.getImageData(0, 0, OJO_W, OJO_H);
     muestraCtx.drawImage(video, 0, 0, GRID_W, GRID_H);
     const px = muestraCtx.getImageData(0, 0, GRID_W, GRID_H).data;
     const lum = new Float32Array(GRID_W * GRID_H);
@@ -240,7 +248,21 @@
   }
 
   function dibujarOjo() {
-    // No muestra la imagen: muestra lo que el cerebro siente de ella.
+    if (sentidos.ver && imagenReal) {
+      // Con cámara: la imagen en sus colores reales, a 96×72, y el movimiento como un brillo encima.
+      if (ojo.width !== OJO_W) { ojo.width = OJO_W; ojo.height = OJO_H; }
+      ojoCtx.putImageData(imagenReal, 0, 0);
+      const cw = OJO_W / GRID_W, ch = OJO_H / GRID_H;
+      for (let i = 0; i < GRID_W * GRID_H; i++) {
+        const m = percepcion.movimiento[i];
+        if (m < 0.15) continue;
+        ojoCtx.fillStyle = `rgba(255,255,255,${Math.min(0.45, m * 0.5)})`;
+        ojoCtx.fillRect((i % GRID_W) * cw, Math.floor(i / GRID_W) * ch, cw, ch);
+      }
+      return;
+    }
+    // Soñando (sin cámara): imagina formas y colores.
+    if (ojo.width !== 160) { ojo.width = 160; ojo.height = 120; }
     const cw = ojo.width / GRID_W, ch = ojo.height / GRID_H;
     ojoCtx.fillStyle = "rgba(0,0,0,0.35)";
     ojoCtx.fillRect(0, 0, ojo.width, ojo.height);

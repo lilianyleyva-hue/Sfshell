@@ -8,6 +8,9 @@
  *   - en data C: un `struct hecho` binario exacto, sin pasar por el idioma. */
 #include "especie.h"
 
+#include "misiones.h"
+#include "vision.h"
+
 #include <time.h>
 
 Especie E;
@@ -37,14 +40,14 @@ double ahora_ms(void) {
 }
 
 /* ---------- azar (xorshift64*) ---------- */
-static uint64_t azar64(void) {
+uint64_t azar64(void) {
   E.rng ^= E.rng >> 12;
   E.rng ^= E.rng << 25;
   E.rng ^= E.rng >> 27;
   return E.rng * 2685821657736338717ULL;
 }
-static int azar(int n) { return n <= 0 ? 0 : (int)(azar64() % (uint64_t)n); }
-static int probabilidad(double p) { return (double)(azar64() >> 11) / 9007199254740992.0 < p; }
+int azar(int n) { return n <= 0 ? 0 : (int)(azar64() % (uint64_t)n); }
+int probabilidad(double p) { return (double)(azar64() >> 11) / 9007199254740992.0 < p; }
 static int otro(const Ser* s) {
   int o = azar(NUM_SERES - 1);
   return o >= s->id ? o + 1 : o;
@@ -94,7 +97,7 @@ void anotar(Ser* s, const char* texto, int publico) {
   }
 }
 
-static void anotarf(Ser* s, int publico, const char* fmt, ...) {
+void anotarf(Ser* s, int publico, const char* fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
   char buf[2048];
@@ -173,6 +176,12 @@ static const char* glosa_frase_tmp(const int* f, int n) {
 }
 
 /* ---------- terminal de los seres ---------- */
+static void contar_par(Ser* s, const struct hecho* h);
+void notar_par(Ser* s, int a, int b) {
+  struct hecho h = {(uint16_t)a, ES, (uint16_t)b, 1.0f, 0};
+  contar_par(s, &h);
+}
+
 static void correr(Ser* s, int argc, char** argv) {
   Texto linea, salida;
   tx_iniciar(&linea);
@@ -614,6 +623,7 @@ EXPORTA("abla_guardar") void abla_guardar(void) {
   snprintf(tick, sizeof tick, "%llu\n", (unsigned long long)E.tick);
   ruta_mundo(r, "memoria/especie.estado");
   arch_escribir(r, tick, strlen(tick), 0);
+  if (M.nivel) misiones_guardar();
 }
 
 int abla_iniciar(const char* mundo, unsigned contexto, long max_mem_bytes) {
@@ -674,6 +684,8 @@ int abla_iniciar(const char* mundo, unsigned contexto, long max_mem_bytes) {
       anotarf(s, 1, "Vuelvo a despertar. Recuerdo %llu pensamientos y %zu hechos.", (unsigned long long)s->memoria.total,
               s->saber.n);
   }
+  misiones_iniciar();
+  vision_iniciar();
   abla_guardar();
   E.ultimo_ms = ahora_ms();
   E.iniciada = 1;
@@ -684,6 +696,8 @@ int abla_iniciar(const char* mundo, unsigned contexto, long max_mem_bytes) {
 EXPORTA("abla_ciclo") void abla_ciclo(void) {
   E.tick++;
   for (int i = 0; i < NUM_SERES; i++) pensar(&E.seres[i]);
+  misiones_paso(); /* una fase de la misión de matemáticas */
+  vision_paso();   /* un paso mirando la foto que toque */
   if (E.tick % 40 == 0) abla_guardar();
 }
 

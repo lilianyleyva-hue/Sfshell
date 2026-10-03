@@ -19,6 +19,8 @@
 #define _DEFAULT_SOURCE /* TIOCGWINSZ y struct winsize */
 #endif
 #include "especie.h"
+#include "misiones.h"
+#include "vision.h"
 
 #if defined(__wasm__) || defined(ABLA_SIN_TUI)
 #define TERMINAL_CRUDA 0
@@ -215,8 +217,8 @@ static void borrar_terminal(void) {
 }
 
 /* ---------- estado de la interfaz ---------- */
-enum { P_PENSAMIENTOS, P_SER, P_SALIDA, NPANELES };
-static const char* NOMBRE_PANEL[NPANELES] = {"Pensamientos", "Ser", "Salida"};
+enum { P_PENSAMIENTOS, P_SER, P_MISIONES, P_VISION, P_SALIDA, NPANELES };
+static const char* NOMBRE_PANEL[NPANELES] = {"Pensamientos", "Ser", "Misiones", "Visión", "Salida"};
 static int panel = P_PENSAMIENTOS, elegido = 18;
 static char entrada[1024];
 static size_t lentrada = 0;
@@ -482,6 +484,27 @@ static void dibujar_ser(int x0, int y0, int w, int h) {
   lineas_liberar(&L);
 }
 
+/* Misiones y Visión: el mismo texto que dan los comandos «mision» y «fotos». */
+static void dibujar_texto_panel(int x0, int y0, int w, int h, int cual) {
+  int iw = w - 4, ih = h - 2;
+  Texto t;
+  tx_iniciar(&t);
+  if (cual == P_MISIONES) misiones_describir(&t);
+  else vision_describir(&t);
+  Lineas L = {0};
+  for (char* p = t.p; p && *p;) {
+    char* fin = strchr(p, '\n');
+    if (fin) *fin = 0;
+    int color = strstr(p, "✓") ? C_LOGICA : strstr(p, "✗") ? C_ROJO : strstr(p, "★") ? C_DATAC : C_NORMAL;
+    if (p == t.p) color = C_BLANCO;
+    lineas_texto(&L, *p ? p : " ", iw, color);
+    p = fin ? fin + 1 : NULL;
+  }
+  for (int i = 0; i < L.n && i < ih; i++) texto(x0 + 2, y0 + 1 + i, iw, L.l[i], L.col[i], i == 0);
+  lineas_liberar(&L);
+  tx_liberar(&t);
+}
+
 static void dibujar_salida(int x0, int y0, int w, int h) {
   int iw = w - 4, ih = h - 2;
   Lineas L = {0};
@@ -560,6 +583,7 @@ static void dibujar_en(int w, int h) {
   texto(px + pw - 13 > px ? px + pw - 13 : px, 1, 11, " Tab: panel ", C_TENUE, 0);
   if (panel == P_PENSAMIENTOS) dibujar_pensamientos(px, 1, pw, alto);
   else if (panel == P_SER) dibujar_ser(px, 1, pw, alto);
+  else if (panel == P_MISIONES || panel == P_VISION) dibujar_texto_panel(px, 1, pw, alto, panel);
   else dibujar_salida(px, 1, pw, alto);
 
   if (alto_seres) dibujar_seres(0, 1 + alto, W, alto_seres);

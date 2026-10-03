@@ -76,5 +76,10 @@ int frase_de(const struct hecho* h, const char* marca, int* out);
 int conoce_palabra(const Ser* s, int palabra);
 double ahora_ms(void);
 int tui_ejecutar(int color); /* 0 si no hay terminal interactiva */
+uint64_t azar64(void);
+int azar(int n);
+int probabilidad(double p);
+void anotarf(Ser* s, int publico, const char* fmt, ...);
+void notar_par(Ser* s, int a, int b); /* la tribu del lenguaje cuenta qué aparece junto */
 
 #endif

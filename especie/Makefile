@@ -1,10 +1,12 @@
 CC ?= cc
 CFLAGS ?= -std=c11 -O2 -Wall -Wextra
 SRC := $(wildcard src/*.c)
+# la app gráfica (gui*.c y la letra) solo hace falta en la versión web
+SRC_TERMINAL := $(filter-out src/gui.c src/gui_dibujo.c src/fuente.c,$(SRC))
 
 # Versión de terminal (Linux, macOS, Termux, iSH)
-abla: $(SRC) src/*.h
-	$(CC) $(CFLAGS) $(SRC) -o abla -lpthread
+abla: $(SRC_TERMINAL) src/*.h
+	$(CC) $(CFLAGS) $(SRC_TERMINAL) -o abla -lpthread
 
 # Cerebro en WebAssembly para la interfaz web (necesita clang con wasm32-wasi)
 # (wasi-sdk: WASI_FLAGS=--sysroot=/ruta/wasi-sysroot · Ubuntu: apt install wasi-libc)

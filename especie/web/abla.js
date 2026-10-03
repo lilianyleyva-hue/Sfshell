@@ -64,6 +64,18 @@
     // la interfaz de terminal en C (tui.c)
     tuiHtml(columnas, filas) { return this.cadena(this.x.abla_tui_html(columnas, filas)); }
     tuiTeclas(s) { this.conCadena(s, (p) => this.x.abla_tui_teclas(p)); }
+    // la app dibujada en C (gui.c)
+    guiCuadro(w, h, escala, ahora) { return this.x.abla_gui_cuadro(w, h, escala, ahora); }
+    guiPuntero(tipo, x, y) { this.x.abla_gui_puntero(tipo, x, y); }
+    guiRueda(dy) { this.x.abla_gui_rueda(dy); }
+    guiTeclas(s) { this.conCadena(s, (p) => this.x.abla_gui_teclas(p)); }
+    guiPeticiones() { return this.x.abla_gui_peticiones(); }
+    guiAviso(s) { this.conCadena(s, (p) => this.x.abla_gui_aviso(p)); }
+    guiCamara(encendida) { this.x.abla_gui_camara(encendida ? 1 : 0); }
+    // dejar un archivo en el mundo (por ejemplo, una foto para que la vean)
+    escribirArchivo(ruta, bytes) {
+      this.fs.poner(ruta, { dir: false, datos: bytes, tam: bytes.length, mtime: Date.now() });
+    }
   }
 
   global.Cerebro = Cerebro;
