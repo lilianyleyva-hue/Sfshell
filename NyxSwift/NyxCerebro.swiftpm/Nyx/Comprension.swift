@@ -20,6 +20,24 @@ extension Resh {
     /// Partículas de la gramática Resh (mi, ko, ye, va…).
     static let formasParticula: Set<String> = Set(particulas.values)
 
+    /// Las que solo marcan gramática (acuerdo, agente, paciente, pasado…):
+    /// al traducir se quitan. Las demás (na = no, pa = para, va = y…) sí significan algo.
+    static let soloGramatica: Set<String> = {
+        var s = Set<String>()
+        for k in ["acuerdo", "desacuerdo", "agente", "paciente", "pasado", "futuro"] {
+            if let r = particulas[k] { s.insert(r) }
+        }
+        return s
+    }()
+
+    /// Una partícula en español al traducir (nil: se quita). "ye" al principio
+    /// solo marca la pregunta; en medio es la palabra "pregunta".
+    static func particulaEnEspanol(_ r: String, alPrincipio: Bool) -> String? {
+        if soloGramatica.contains(r) { return nil }
+        if r == particulas["pregunta"] && alPrincipio { return nil }
+        return inverso[r]
+    }
+
     static func aEspanol(_ r: String) -> String? { inverso[r] }
 
     /// ¿Es una palabra Resh (y no una palabra española)?
@@ -49,7 +67,13 @@ extension Resh {
                 out.append(w)
                 continue
             }
-            if formasParticula.contains(letras) { continue }      // gramática Resh
+            if formasParticula.contains(letras) {
+                guard let p = particulaEnEspanol(letras, alPrincipio: out.isEmpty) else { continue }
+                let antes = String(w.prefix { !$0.isLetter })
+                let despues = String(w.reversed().prefix { !$0.isLetter }.reversed())
+                out.append(antes + p + despues)
+                continue
+            }
             let antes = String(w.prefix { !$0.isLetter })
             let despues = String(w.reversed().prefix { !$0.isLetter }.reversed())
             out.append(antes + es + despues)
@@ -62,7 +86,10 @@ extension Resh {
         var out: [String] = []
         for t in Palabras.tokens(texto, max: 40) {
             if espanolProtegido.contains(t) { out.append(t); continue }
-            if formasParticula.contains(t) && esForma(t) { continue }
+            if formasParticula.contains(t) && esForma(t) {
+                if let p = particulaEnEspanol(t, alPrincipio: out.isEmpty) { out.append(p) }
+                continue
+            }
             if esForma(t), let es = inverso[t] { out.append(es) } else { out.append(t) }
         }
         return out.joined(separator: " ")

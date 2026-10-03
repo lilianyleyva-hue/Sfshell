@@ -19,11 +19,14 @@ struct PantallaUno: View {
             Text(nyx.avisoUno).font(.caption)
             FiabilidadUno(nyx: nyx, ver: verFiabilidad)
             HStack {
-                TextField("Pregúntale, enséñale o ponle un reto…", text: $texto)
+                TextField("Pregúntale, enséñale, ponle un reto o escribe un tema y pulsa 🌐…", text: $texto)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { envia() }
                 Button("Enviar") { envia() }
                     .buttonStyle(.borderedProminent)
+                Button("🌐") { busca() }
+                    .buttonStyle(.bordered)
+                    .disabled(nyx.buscandoInternet)
             }
             HStack {
                 Toggle("Traducir", isOn: $nyx.traducir)
@@ -38,6 +41,12 @@ struct PantallaUno: View {
 
     func envia() {
         nyx.hablaUno(texto)
+        texto = ""
+    }
+
+    /// Lo que hay en la caja es el tema que busca en Wikipedia.
+    func busca() {
+        nyx.aprendeDeInternet(texto)
         texto = ""
     }
 }

@@ -101,9 +101,20 @@ final class ConsejoLogico {
         let sin = String(w.dropLast())
         if sin.hasSuffix("e") {
             let antes = sin.dropLast().last
-            if let c = antes, "rlndj".contains(c) { return String(sin.dropLast()) }
+            if let c = antes, "rlndj".contains(c) {
+                return ConsejoLogico.acentoAgudo(String(sin.dropLast()))
+            }
         }
         return sin
+    }
+
+    /// El plural pierde la tilde: delfines → delfín, camiones → camión, jardines → jardín.
+    static func acentoAgudo(_ w: String) -> String {
+        if w.count < 5 || w.contains(where: { "áéíóú".contains($0) }) { return w }
+        for (fin, con) in [("on", "ón"), ("in", "ín"), ("an", "án")] where w.hasSuffix(fin) {
+            return String(w.dropLast(2)) + con
+        }
+        return w
     }
 
     /// "los perros grandes" → "perro grande".
@@ -114,12 +125,12 @@ final class ConsejoLogico {
 
     /// Lee una frase y guarda los hechos o reglas que contiene.
     @discardableResult
-    func lee(_ texto: String, quien: String) -> [String] {
+    func lee(_ texto: String, quien: String, confianza: Float = 1) -> [String] {
         let t = texto.lowercased()
         var nuevos: [String] = []
         if let r = reglaDe(t) {
             if reglas[r] == nil {
-                reglas[r] = Apoyo(confianza: 1, quien: quien, porque: [texto])
+                reglas[r] = Apoyo(confianza: confianza, quien: quien, porque: [texto])
                 nuevos.append("si \(r.si) entonces \(r.entonces)")
             }
             return nuevos
@@ -130,12 +141,12 @@ final class ConsejoLogico {
             let partes = h.b.components(separatedBy: " y ").flatMap { $0.components(separatedBy: " e ") }
             for b in partes where !b.isEmpty {
                 let uno = Hecho(a: h.a, rel: h.rel, b: b.trimmingCharacters(in: .whitespaces))
-                if pon(uno, Apoyo(confianza: 1, quien: quien, porque: [texto])) { nuevos.append(uno.texto) }
+                if pon(uno, Apoyo(confianza: confianza, quien: quien, porque: [texto])) { nuevos.append(uno.texto) }
             }
         } else if toks.count <= 3, !toks.isEmpty, !t.contains("?"), t.contains(where: { $0.isLetter }) {
             let p = ConsejoLogico.frase(toks)
             if !p.isEmpty && props[p] == nil {
-                props[p] = Apoyo(confianza: 1, quien: quien, porque: [texto])
+                props[p] = Apoyo(confianza: confianza, quien: quien, porque: [texto])
                 nuevos.append(p)
             }
         }

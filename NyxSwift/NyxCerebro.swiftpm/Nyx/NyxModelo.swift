@@ -351,6 +351,38 @@ final class NyxModelo: ObservableObject {
         guardaUno()
     }
 
+    /// Lee en Wikipedia sobre un tema y lo aprende (con menos confianza que lo tuyo).
+    @Published var buscandoInternet = false
+
+    func aprendeDeInternet(_ tema: String) {
+        let t = tema.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.isEmpty || buscandoInternet { avisoUno = "escribe un tema en la caja y pulsa 🌐"; return }
+        buscandoInternet = true
+        avisoUno = "🌐 buscando «\(t)» en Wikipedia…"
+        Task { @MainActor in
+            do {
+                let l = try await Internet.aprendeSobre(t)
+                var hechos: [String] = []
+                for f in l.frases {
+                    self.consejo.lee(f)
+                    hechos += self.logico.lee(Internet.clausula(f), quien: "internet", confianza: 0.7)
+                }
+                self.contadorUno += 1
+                let leido = l.frases.joined(separator: ". ")
+                let detalle = "🌐 Wikipedia: «\(l.titulo)» · \(l.frases.count) frases leídas · \(hechos.count) hechos"
+                let es = "leí sobre \(l.titulo): " + leido
+                self.chatUno.append(MensajeUno(id: self.contadorUno, deHumano: false, es: es, resh: Resh.traduceTexto(es),
+                                               detalle: detalle, pasos: hechos.prefix(8).joined(separator: "\n")))
+                self.avisoUno = detalle
+                self.refrescaUno()
+                self.guardaUno()
+            } catch {
+                self.avisoUno = "🌐 no pude leer «\(t)» (sin internet o no está en Wikipedia)"
+            }
+            self.buscandoInternet = false
+        }
+    }
+
     /// Lo que Nyx quiere saber.
     func curiosidadUno() {
         guard let q = uno.curiosidad() else { avisoUno = "no se le ocurre nada que preguntar"; return }
@@ -539,9 +571,11 @@ final class NyxModelo: ObservableObject {
     func ensena(_ texto: String) -> Int {
         var lineas = 0
         for l in texto.split(whereSeparator: { $0 == "\n" || $0 == "." }) {
-            let t = l.trimmingCharacters(in: .whitespaces)
+            // puede venir en Resh: se traduce (los números y signos se quedan)
+            let t = Resh.traduceConservando(l.trimmingCharacters(in: .whitespaces))
             if t.isEmpty { continue }
             consejo.lee(t)
+            logico.lee(t, quien: "tú")
             lineas += 1
         }
         version += 1
