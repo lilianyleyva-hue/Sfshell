@@ -182,6 +182,10 @@ final class ConsejoLogico {
             while j < resto.count && !marcas.contains(resto[j]) { j += 1 }
             return Array(resto[0 ..< j]) + [verbo] + Array(resto[j...])
         }
+        if verbo == "es" || verbo == "son", let k = resto.firstIndex(where: { articulos.contains($0) }), k > 0 {
+            // con "es", el sujeto va primero: "¿es tener un verbo irregular?" → "tener | es | un verbo irregular"
+            return Array(resto[..<k]) + [verbo] + Array(resto[k...])
+        }
         if let k = resto.firstIndex(where: { articulos.contains($0) }), k > 0 {
             // el objeto va primero: "pelo | el gato"
             return Array(resto[k...]) + [verbo] + Array(resto[..<k])

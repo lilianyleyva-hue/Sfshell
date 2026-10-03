@@ -1,0 +1,821 @@
+# Cómo se usan las palabras del español, y sus excepciones
+
+Gramática básica del español con sus excepciones, escrita para Nyx: una idea por frase, en la forma «X es …», para que la aprendan a la vez su memoria y su lógica.
+
+Para dárselo a Nyx usa el archivo **Gramatica_y_excepciones_para_Nyx.txt**: en la pestaña Nyx, «📄 Archivos» → elige el archivo.
+
+## Cómo se forma una frase
+
+- Una frase en español suele tener sujeto, verbo y complemento, en ese orden.
+- El sujeto es quien hace la acción, como en «el perro come».
+- El verbo es la palabra que dice la acción o el estado.
+- En español se puede quitar el sujeto cuando el verbo ya dice quién es, como en «como pan».
+- El orden de las palabras en español es flexible, pero lo normal es sujeto, verbo y complemento.
+- Para negar se pone «no» delante del verbo, como en «no quiero».
+- En español la doble negación es correcta, como en «no veo nada» o «no viene nadie».
+- Las preguntas se escriben con un signo de apertura al principio y otro de cierre al final.
+- Las exclamaciones también se escriben con dos signos, uno al principio y otro al final.
+- Las palabras para preguntar llevan tilde: qué, quién, cuál, cómo, dónde, cuándo y cuánto.
+- En una pregunta el verbo suele ir antes del sujeto, como en «dónde vive tu hermano».
+- Una frase termina con un punto.
+- La coma separa las partes de una frase y los elementos de una lista.
+- La primera palabra de una frase se escribe con mayúscula.
+- Los nombres de personas, ciudades y países se escriben con mayúscula.
+- Los días de la semana y los meses se escriben con minúscula en español.
+
+## Los sustantivos y el género
+
+- Un sustantivo es una palabra que nombra personas, animales, cosas o ideas.
+- Cada sustantivo en español es masculino o femenino.
+- Casi siempre las palabras que terminan en «o» son masculinas, como «libro».
+- Casi siempre las palabras que terminan en «a» son femeninas, como «casa».
+- Las palabras que terminan en «ción», «sión», «dad», «tad» y «tud» son femeninas, como «canción» y «ciudad».
+- Las palabras que terminan en «aje» y «or» suelen ser masculinas, como «viaje» y «amor».
+- Muchas palabras de persona cambian la «o» por «a» para el femenino, como «niño» y «niña».
+- Las palabras que terminan en «ista» sirven para hombre y mujer, como «el artista» y «la artista».
+
+## Excepciones del género
+
+- «día» es una palabra masculina aunque termina en «a», se dice el día.
+- «mapa» es una palabra masculina, se dice el mapa.
+- «problema» es una palabra masculina, se dice el problema.
+- «sistema» es una palabra masculina, se dice el sistema.
+- «tema» es una palabra masculina, se dice el tema.
+- «idioma» es una palabra masculina, se dice el idioma.
+- «programa» es una palabra masculina, se dice el programa.
+- «planeta» es una palabra masculina, se dice el planeta.
+- «clima» es una palabra masculina, se dice el clima.
+- «sofá» es una palabra masculina, se dice el sofá.
+- «mano» es una palabra femenina aunque termina en «o», se dice la mano.
+- «foto» es una palabra femenina porque viene de fotografía, se dice la foto.
+- «moto» es una palabra femenina porque viene de motocicleta, se dice la moto.
+- «radio» es una palabra femenina cuando es el aparato, se dice la radio.
+- «agua» es una palabra femenina pero se dice el agua porque empieza por «a» con fuerza.
+- «águila» es una palabra femenina pero se dice el águila y las águilas.
+- «alma» es una palabra femenina pero se dice el alma y las almas.
+- «hambre» es una palabra femenina pero se dice el hambre, y se dice mucha hambre.
+- «hacha» es una palabra femenina pero se dice el hacha y las hachas.
+- Las palabras femeninas que empiezan por «a» o «ha» con fuerza usan «el» y «un» en singular.
+- En plural esas palabras vuelven a usar «las», como en las aguas.
+- «gente» es una palabra femenina y singular aunque habla de muchas personas, se dice la gente es buena.
+- «persona» es una palabra femenina aunque hable de un hombre.
+- «víctima» es una palabra femenina aunque hable de un hombre.
+- «bebé» es una palabra masculina aunque hable de una niña.
+
+## El plural
+
+- Para hacer el plural de una palabra que termina en vocal se añade «s», como en «casa» y «casas».
+- Para hacer el plural de una palabra que termina en consonante se añade «es», como en «árbol» y «árboles».
+- Los artículos y los adjetivos también van en plural cuando el sustantivo va en plural.
+
+## Excepciones del plural
+
+- Las palabras que terminan en «z» cambian la «z» por «c» en plural, como «lápiz» y «lápices».
+- El plural de «pez» es «peces».
+- El plural de «luz» es «luces».
+- El plural de «vez» es «veces».
+- El plural de «voz» es «voces».
+- El plural de «nariz» es «narices».
+- Las palabras que terminan en «s» sin fuerza en la última sílaba no cambian en plural, como «el lunes» y «los lunes».
+- «crisis» es igual en singular y en plural.
+- «virus» es igual en singular y en plural.
+- «paraguas» es igual en singular y en plural.
+- Las palabras que terminan en «ión» pierden la tilde en plural, como «canción» y «canciones».
+- El plural de «autobús» es «autobuses», sin tilde.
+- El plural de «inglés» es «ingleses», sin tilde.
+- El plural de «joven» es «jóvenes», con tilde.
+- El plural de «examen» es «exámenes», con tilde.
+- El plural de «imagen» es «imágenes», con tilde.
+- El plural de «carácter» es «caracteres», y la fuerza cambia de sílaba.
+- El plural de «régimen» es «regímenes».
+- El plural de «menú» es «menús».
+- El plural de «club» es «clubes» o «clubs».
+- El plural de «sí» es «síes», y el de «no» es «noes».
+- «gafas» es una palabra que casi siempre se usa en plural.
+- «tijeras» es una palabra que casi siempre se usa en plural.
+- «vacaciones» es una palabra que casi siempre se usa en plural.
+- «pantalones» se usa en plural aunque hable de una sola prenda.
+
+## Los artículos
+
+- Los artículos son el, la, los, las, un, una, unos y unas.
+- «el» es el artículo para una cosa masculina conocida.
+- «la» es el artículo para una cosa femenina conocida.
+- «un» y «una» se usan para algo que se nombra por primera vez o que no es conocido.
+- El artículo tiene el mismo género y número que su sustantivo.
+- «al» es la unión de «a» y «el», como en voy al cine.
+- «del» es la unión de «de» y «el», como en vengo del parque.
+- «a» y «el» no se unen cuando «El» es parte de un nombre, como en voy a El Salvador.
+- «el» con tilde es un pronombre, como en él canta, y sin tilde es un artículo, como en el perro.
+
+## Los adjetivos
+
+- Un adjetivo es una palabra que dice cómo es un sustantivo, como «grande» o «rojo».
+- El adjetivo tiene el mismo género y número que el sustantivo, como en «casas blancas».
+- En español el adjetivo suele ir después del sustantivo, como en «un coche rápido».
+- Algunos adjetivos cambian de sentido según el lugar, «un gran hombre» es importante y «un hombre grande» es alto.
+- Los adjetivos que terminan en «e» o en consonante sirven para masculino y femenino, como «verde» y «azul».
+- Para comparar se usa «más que» o «menos que», como en «es más alto que yo».
+- Para decir igual se usa «tan como», como en «es tan alto como yo».
+
+## Excepciones de los adjetivos
+
+- «bueno» se convierte en «buen» delante de un sustantivo masculino singular, como en «buen día».
+- «malo» se convierte en «mal» delante de un sustantivo masculino singular, como en «mal tiempo».
+- «grande» se convierte en «gran» delante de cualquier sustantivo singular, como en «gran casa».
+- «primero» se convierte en «primer» delante de un sustantivo masculino singular, como en «primer día».
+- «tercero» se convierte en «tercer» delante de un sustantivo masculino singular.
+- «alguno» se convierte en «algún» delante de un sustantivo masculino singular.
+- «ninguno» se convierte en «ningún» delante de un sustantivo masculino singular.
+- «santo» se convierte en «san» delante de un nombre, como en San Juan, salvo Santo Tomás y Santo Domingo.
+- «ciento» se convierte en «cien» delante de un sustantivo o de mil, como en cien años.
+- «uno» se convierte en «un» delante de un sustantivo masculino, como en un libro.
+- El comparativo de «bueno» es «mejor» y no se dice más bueno.
+- El comparativo de «malo» es «peor».
+- El comparativo de «grande» para la edad es «mayor».
+- El comparativo de «pequeño» para la edad es «menor».
+
+## Los pronombres
+
+- Los pronombres de sujeto son yo, tú, él, ella, usted, nosotros, nosotras, vosotros, vosotras, ellos, ellas y ustedes.
+- «usted» es la forma de respeto para hablar a una persona y usa el verbo como él.
+- «ustedes» se usa para hablar a varias personas y usa el verbo como ellos.
+- En España se usa «vosotros» para hablar con confianza a varias personas, y en América se usa «ustedes».
+- En algunos países se usa «vos» en lugar de «tú», como en vos tenés.
+- «me», «te», «lo», «la», «le», «nos», «os», «los», «las» y «les» son pronombres que van con el verbo.
+- Los pronombres van antes del verbo conjugado, como en lo veo.
+- Los pronombres van pegados al infinitivo, al gerundio y a la orden afirmativa, como en verlo, viéndolo y míralo.
+- Cuando «le» o «les» van delante de «lo», «la», «los» o «las», se cambian por «se», como en se lo doy.
+- Después de una preposición se usa «mí» y «ti», como en para mí y para ti.
+- Con la preposición «con» se dice «conmigo» y «contigo».
+
+## Los posesivos
+
+- Los posesivos dicen de quién es algo: mi, tu, su, nuestro, vuestro y sus plurales.
+- «mi» sin tilde es posesivo, como en mi casa, y «mí» con tilde es pronombre, como en para mí.
+- «tu» sin tilde es posesivo, como en tu perro, y «tú» con tilde es pronombre, como en tú cantas.
+- «su» puede significar de él, de ella, de usted, de ellos o de ustedes.
+- Después del sustantivo se usan mío, tuyo, suyo y sus formas, como en un amigo mío.
+
+## Los verbos
+
+- Los verbos en español terminan en «ar», «er» o «ir» en infinitivo.
+- El infinitivo es la forma del verbo que no dice quién hace la acción, como «cantar».
+- El verbo cambia su final según la persona y el tiempo, como en canto, cantas y canta.
+- El presente dice lo que pasa ahora o siempre.
+- El pretérito indefinido dice algo que pasó y terminó, como en ayer comí.
+- El pretérito imperfecto describe el pasado o lo que pasaba muchas veces, como en de niño jugaba.
+- El futuro dice lo que va a pasar, como en mañana cantaré.
+- También se puede hablar del futuro con ir a y el infinitivo, como en voy a cantar.
+- El condicional dice lo que pasaría, como en yo cantaría.
+- El subjuntivo se usa para deseos, dudas y órdenes, como en quiero que vengas.
+- El imperativo sirve para dar órdenes, como en ven aquí.
+- El gerundio termina en «ando» o «iendo» y dice una acción en curso, como en estoy comiendo.
+- El participio termina en «ado» o «ido» y se usa con haber, como en he comido.
+- El presente de un verbo en «ar» con yo termina en «o», como en hablo.
+- El presente de un verbo en «ar» con tú termina en «as», como en hablas.
+- El presente de un verbo en «ar» con él o ella termina en «a», como en habla.
+- El presente de un verbo en «er» o «ir» con él o ella termina en «e», como en come y vive.
+- El presente con nosotros termina en «amos», «emos» o «imos», como en hablamos, comemos y vivimos.
+- El presente con ellos termina en «an» o «en», como en hablan y comen.
+- El pasado de un verbo en «ar» con yo termina en «é», como en hablé.
+- El pasado de un verbo en «er» o «ir» con yo termina en «í», como en comí.
+- El pasado de un verbo en «ar» con él termina en «ó», como en habló.
+- El pasado de un verbo en «er» o «ir» con él termina en «ió», como en comió.
+- El futuro se forma con el infinitivo y las terminaciones é, ás, á, emos, éis y án, como en hablaré.
+- Los verbos que terminan en «se» como «lavarse» son reflexivos y usan me, te, se, como en me lavo.
+
+## Ser y estar
+
+- «ser» se usa para lo que algo es siempre, como el origen, la profesión o el carácter.
+- «estar» se usa para estados y lugares, como en estoy cansado o estoy en casa.
+- Se dice «soy de México» con ser porque es el origen.
+- Se dice «estoy en México» con estar porque es el lugar.
+- Algunos adjetivos cambian de sentido con ser y estar, ser listo es inteligente y estar listo es preparado.
+- Ser aburrido es hacer que otros se aburran, y estar aburrido es sentir aburrimiento.
+- Los eventos usan ser para el lugar, como en la fiesta es en mi casa.
+- «hay» es una forma de haber que dice que algo existe, como en hay un gato.
+- «hay» no cambia en plural, se dice hay un gato y hay dos gatos.
+
+## Por y para
+
+- «para» indica finalidad, destino o fecha límite, como en estudio para aprender.
+- «por» indica causa, medio, lugar de paso o cambio, como en lo hice por ti.
+- Se dice «gracias por» y no gracias para.
+- Se dice «salgo para Madrid» para el destino y «paso por Madrid» para el camino.
+
+## Gustar y verbos parecidos
+
+- «gustar» se usa al revés que en otros idiomas, como en me gusta el chocolate.
+- Con gustar, lo que gusta es el sujeto, por eso se dice me gustan los perros en plural.
+- Funcionan igual que gustar los verbos encantar, doler, importar, interesar y parecer.
+- Se dice me duele la cabeza y no me duelo la cabeza.
+
+## La preposición a
+
+- Delante de una persona que recibe la acción se pone «a», como en veo a María.
+- Delante de una cosa no se pone «a», como en veo la casa.
+- Con los animales queridos también se pone «a», como en quiero a mi perro.
+
+## Cambios de y, o
+
+- «y» se convierte en «e» delante de una palabra que empieza por «i» o «hi», como en padre e hijo.
+- «y» no cambia delante de «hie», como en agua y hielo.
+- «o» se convierte en «u» delante de una palabra que empieza por «o» o «ho», como en siete u ocho.
+
+## La tilde
+
+- Las palabras agudas llevan la fuerza en la última sílaba y llevan tilde si terminan en vocal, «n» o «s», como café.
+- Las palabras llanas llevan la fuerza en la penúltima sílaba y llevan tilde si no terminan en vocal, «n» o «s», como árbol.
+- Las palabras esdrújulas llevan la fuerza en la antepenúltima sílaba y siempre llevan tilde, como música.
+- La tilde diacrítica distingue palabras que se escriben igual.
+- «sí» con tilde es afirmación, y «si» sin tilde es condición, como en si llueve.
+- «él» con tilde es pronombre, y «el» sin tilde es artículo.
+- «más» con tilde es cantidad, y «mas» sin tilde significa pero.
+- «té» con tilde es la bebida, y «te» sin tilde es pronombre.
+- «sé» con tilde es del verbo saber o ser, y «se» sin tilde es pronombre.
+- «dé» con tilde es del verbo dar, y «de» sin tilde es preposición.
+- «aún» con tilde significa todavía, y «aun» sin tilde significa incluso.
+- «solo» se escribe sin tilde tanto si significa solamente como si significa sin compañía.
+- Los monosílabos como «fue», «dio», «vio» y «pie» no llevan tilde.
+
+## Cambios de letra en los verbos
+
+- Los verbos que terminan en «car» cambian la «c» por «qu» delante de «e», como en busqué.
+- Los verbos que terminan en «gar» añaden una «u» delante de «e», como en llegué.
+- Los verbos que terminan en «zar» cambian la «z» por «c» delante de «e», como en empecé.
+- Los verbos que terminan en «ger» o «gir» cambian la «g» por «j» delante de «o» y «a», como en cojo y elijo.
+- Los verbos que terminan en «guir» pierden la «u» delante de «o», como en sigo.
+- Los verbos que terminan en «cer» o «cir» suelen hacer «zco» con yo, como en conozco y traduzco.
+- Los verbos que terminan en «uir» añaden una «y», como en construyo.
+
+## Verbos que cambian la raíz
+
+- Algunos verbos cambian la «e» por «ie» cuando la fuerza cae en la raíz, como pensar y pienso.
+- Algunos verbos cambian la «o» por «ue» cuando la fuerza cae en la raíz, como poder y puedo.
+- Algunos verbos en «ir» cambian la «e» por «i», como pedir y pido.
+- «jugar» es el único verbo que cambia la «u» por «ue», como en juego.
+- Con nosotros y vosotros la raíz no cambia, como en pensamos y podemos.
+
+## Participios irregulares
+
+- El participio de «abrir» es «abierto» y no abrido.
+- El participio de «cubrir» es «cubierto» y no cubrido.
+- El participio de «decir» es «dicho» y no decido.
+- El participio de «escribir» es «escrito» y no escribido.
+- El participio de «hacer» es «hecho» y no hacido.
+- El participio de «morir» es «muerto» y no morido.
+- El participio de «poner» es «puesto» y no ponido.
+- El participio de «romper» es «roto» y no rompido.
+- El participio de «ver» es «visto» y no veído.
+- El participio de «volver» es «vuelto» y no volvido.
+- El participio de «resolver» es «resuelto» y no resolvido.
+- El participio de «devolver» es «devuelto» y no devolvido.
+- El participio de «descubrir» es «descubierto» y no descubrido.
+- El participio de «imprimir» es «impreso» y no imprimido solo en algunos casos.
+
+## Números
+
+- «uno» se convierte en «un» delante de un sustantivo masculino, como en un perro, y en «una» con femenino.
+- «veintiuno» se convierte en «veintiún» delante de un sustantivo masculino, como en veintiún años.
+- Del dieciséis al veintinueve los números se escriben en una sola palabra, como dieciséis y veinticinco.
+- Desde el treinta y uno los números se escriben separados con «y», como treinta y dos.
+- «quinientos» es el número quinientos y no se dice cincocientos.
+- «setecientos» es el número setecientos y no se dice sietecientos.
+- «novecientos» es el número novecientos y no se dice nuevecientos.
+- «mil» no se pone en plural cuando es número, se dice dos mil.
+- «millón» sí se pone en plural, se dice dos millones, y lleva «de» delante del sustantivo, como un millón de personas.
+
+## Modelos de verbos regulares
+
+- «hablar» es un verbo regular.
+- «hablo» es la forma de «hablar» en presente con yo.
+- «habla» es la forma de «hablar» en presente con él, ella o usted.
+- «hablé» es la forma de «hablar» en pasado con yo.
+- «habló» es la forma de «hablar» en pasado con él, ella o usted.
+- «hablaré» es la forma de «hablar» en futuro con yo.
+- «hablado» es el participio de «hablar», como en he hablado.
+- «hablando» es el gerundio de «hablar», como en estoy hablando.
+- «comer» es un verbo regular.
+- «como» es la forma de «comer» en presente con yo.
+- «come» es la forma de «comer» en presente con él, ella o usted.
+- «comí» es la forma de «comer» en pasado con yo.
+- «comió» es la forma de «comer» en pasado con él, ella o usted.
+- «comeré» es la forma de «comer» en futuro con yo.
+- «comido» es el participio de «comer», como en he comido.
+- «comiendo» es el gerundio de «comer», como en estoy comiendo.
+- «vivir» es un verbo regular.
+- «vivo» es la forma de «vivir» en presente con yo.
+- «vive» es la forma de «vivir» en presente con él, ella o usted.
+- «viví» es la forma de «vivir» en pasado con yo.
+- «vivió» es la forma de «vivir» en pasado con él, ella o usted.
+- «viviré» es la forma de «vivir» en futuro con yo.
+- «vivido» es el participio de «vivir», como en he vivido.
+- «viviendo» es el gerundio de «vivir», como en estoy viviendo.
+
+## Verbos irregulares y sus formas
+
+- «ser» es un verbo irregular.
+- «soy» es la forma de «ser» en presente con yo.
+- «es» es la forma de «ser» en presente con él, ella o usted.
+- «fui» es la forma de «ser» en pasado con yo.
+- «fue» es la forma de «ser» en pasado con él, ella o usted.
+- «seré» es la forma de «ser» en futuro con yo.
+- «sido» es el participio de «ser», como en he sido.
+- «siendo» es el gerundio de «ser», como en estoy siendo.
+- «estar» es un verbo irregular.
+- «estoy» es la forma de «estar» en presente con yo.
+- «está» es la forma de «estar» en presente con él, ella o usted.
+- «estuve» es la forma de «estar» en pasado con yo.
+- «estuvo» es la forma de «estar» en pasado con él, ella o usted.
+- «estaré» es la forma de «estar» en futuro con yo.
+- «estado» es el participio de «estar», como en he estado.
+- «estando» es el gerundio de «estar», como en estoy estando.
+- «ir» es un verbo irregular.
+- «voy» es la forma de «ir» en presente con yo.
+- «va» es la forma de «ir» en presente con él, ella o usted.
+- «fui» es la forma de «ir» en pasado con yo.
+- «fue» es la forma de «ir» en pasado con él, ella o usted.
+- «iré» es la forma de «ir» en futuro con yo.
+- «ido» es el participio de «ir», como en he ido.
+- «yendo» es el gerundio de «ir», como en estoy yendo.
+- «tener» es un verbo irregular.
+- «tengo» es la forma de «tener» en presente con yo.
+- «tiene» es la forma de «tener» en presente con él, ella o usted.
+- «tuve» es la forma de «tener» en pasado con yo.
+- «tuvo» es la forma de «tener» en pasado con él, ella o usted.
+- «tendré» es la forma de «tener» en futuro con yo.
+- «tenido» es el participio de «tener», como en he tenido.
+- «teniendo» es el gerundio de «tener», como en estoy teniendo.
+- «hacer» es un verbo irregular.
+- «hago» es la forma de «hacer» en presente con yo.
+- «hace» es la forma de «hacer» en presente con él, ella o usted.
+- «hice» es la forma de «hacer» en pasado con yo.
+- «hizo» es la forma de «hacer» en pasado con él, ella o usted.
+- «haré» es la forma de «hacer» en futuro con yo.
+- «hecho» es el participio de «hacer», como en he hecho.
+- «haciendo» es el gerundio de «hacer», como en estoy haciendo.
+- «decir» es un verbo irregular.
+- «digo» es la forma de «decir» en presente con yo.
+- «dice» es la forma de «decir» en presente con él, ella o usted.
+- «dije» es la forma de «decir» en pasado con yo.
+- «dijo» es la forma de «decir» en pasado con él, ella o usted.
+- «diré» es la forma de «decir» en futuro con yo.
+- «dicho» es el participio de «decir», como en he dicho.
+- «diciendo» es el gerundio de «decir», como en estoy diciendo.
+- «poder» es un verbo irregular.
+- «puedo» es la forma de «poder» en presente con yo.
+- «puede» es la forma de «poder» en presente con él, ella o usted.
+- «pude» es la forma de «poder» en pasado con yo.
+- «pudo» es la forma de «poder» en pasado con él, ella o usted.
+- «podré» es la forma de «poder» en futuro con yo.
+- «podido» es el participio de «poder», como en he podido.
+- «pudiendo» es el gerundio de «poder», como en estoy pudiendo.
+- «querer» es un verbo irregular.
+- «quiero» es la forma de «querer» en presente con yo.
+- «quiere» es la forma de «querer» en presente con él, ella o usted.
+- «quise» es la forma de «querer» en pasado con yo.
+- «quiso» es la forma de «querer» en pasado con él, ella o usted.
+- «querré» es la forma de «querer» en futuro con yo.
+- «querido» es el participio de «querer», como en he querido.
+- «queriendo» es el gerundio de «querer», como en estoy queriendo.
+- «saber» es un verbo irregular.
+- «sé» es la forma de «saber» en presente con yo.
+- «sabe» es la forma de «saber» en presente con él, ella o usted.
+- «supe» es la forma de «saber» en pasado con yo.
+- «supo» es la forma de «saber» en pasado con él, ella o usted.
+- «sabré» es la forma de «saber» en futuro con yo.
+- «sabido» es el participio de «saber», como en he sabido.
+- «sabiendo» es el gerundio de «saber», como en estoy sabiendo.
+- «poner» es un verbo irregular.
+- «pongo» es la forma de «poner» en presente con yo.
+- «pone» es la forma de «poner» en presente con él, ella o usted.
+- «puse» es la forma de «poner» en pasado con yo.
+- «puso» es la forma de «poner» en pasado con él, ella o usted.
+- «pondré» es la forma de «poner» en futuro con yo.
+- «puesto» es el participio de «poner», como en he puesto.
+- «poniendo» es el gerundio de «poner», como en estoy poniendo.
+- «salir» es un verbo irregular.
+- «salgo» es la forma de «salir» en presente con yo.
+- «sale» es la forma de «salir» en presente con él, ella o usted.
+- «salí» es la forma de «salir» en pasado con yo.
+- «salió» es la forma de «salir» en pasado con él, ella o usted.
+- «saldré» es la forma de «salir» en futuro con yo.
+- «salido» es el participio de «salir», como en he salido.
+- «saliendo» es el gerundio de «salir», como en estoy saliendo.
+- «venir» es un verbo irregular.
+- «vengo» es la forma de «venir» en presente con yo.
+- «viene» es la forma de «venir» en presente con él, ella o usted.
+- «vine» es la forma de «venir» en pasado con yo.
+- «vino» es la forma de «venir» en pasado con él, ella o usted.
+- «vendré» es la forma de «venir» en futuro con yo.
+- «venido» es el participio de «venir», como en he venido.
+- «viniendo» es el gerundio de «venir», como en estoy viniendo.
+- «ver» es un verbo irregular.
+- «veo» es la forma de «ver» en presente con yo.
+- «ve» es la forma de «ver» en presente con él, ella o usted.
+- «vi» es la forma de «ver» en pasado con yo.
+- «vio» es la forma de «ver» en pasado con él, ella o usted.
+- «veré» es la forma de «ver» en futuro con yo.
+- «visto» es el participio de «ver», como en he visto.
+- «viendo» es el gerundio de «ver», como en estoy viendo.
+- «dar» es un verbo irregular.
+- «doy» es la forma de «dar» en presente con yo.
+- «da» es la forma de «dar» en presente con él, ella o usted.
+- «di» es la forma de «dar» en pasado con yo.
+- «dio» es la forma de «dar» en pasado con él, ella o usted.
+- «daré» es la forma de «dar» en futuro con yo.
+- «dado» es el participio de «dar», como en he dado.
+- «dando» es el gerundio de «dar», como en estoy dando.
+- «oír» es un verbo irregular.
+- «oigo» es la forma de «oír» en presente con yo.
+- «oye» es la forma de «oír» en presente con él, ella o usted.
+- «oí» es la forma de «oír» en pasado con yo.
+- «oyó» es la forma de «oír» en pasado con él, ella o usted.
+- «oiré» es la forma de «oír» en futuro con yo.
+- «oído» es el participio de «oír», como en he oído.
+- «oyendo» es el gerundio de «oír», como en estoy oyendo.
+- «traer» es un verbo irregular.
+- «traigo» es la forma de «traer» en presente con yo.
+- «trae» es la forma de «traer» en presente con él, ella o usted.
+- «traje» es la forma de «traer» en pasado con yo.
+- «trajo» es la forma de «traer» en pasado con él, ella o usted.
+- «traeré» es la forma de «traer» en futuro con yo.
+- «traído» es el participio de «traer», como en he traído.
+- «trayendo» es el gerundio de «traer», como en estoy trayendo.
+- «caer» es un verbo irregular.
+- «caigo» es la forma de «caer» en presente con yo.
+- «cae» es la forma de «caer» en presente con él, ella o usted.
+- «caí» es la forma de «caer» en pasado con yo.
+- «cayó» es la forma de «caer» en pasado con él, ella o usted.
+- «caeré» es la forma de «caer» en futuro con yo.
+- «caído» es el participio de «caer», como en he caído.
+- «cayendo» es el gerundio de «caer», como en estoy cayendo.
+- «haber» es un verbo irregular.
+- «he» es la forma de «haber» en presente con yo.
+- «ha» es la forma de «haber» en presente con él, ella o usted.
+- «hube» es la forma de «haber» en pasado con yo.
+- «hubo» es la forma de «haber» en pasado con él, ella o usted.
+- «habré» es la forma de «haber» en futuro con yo.
+- «habido» es el participio de «haber», como en he habido.
+- «habiendo» es el gerundio de «haber», como en estoy habiendo.
+- «conducir» es un verbo irregular.
+- «conduzco» es la forma de «conducir» en presente con yo.
+- «conduce» es la forma de «conducir» en presente con él, ella o usted.
+- «conduje» es la forma de «conducir» en pasado con yo.
+- «condujo» es la forma de «conducir» en pasado con él, ella o usted.
+- «conduciré» es la forma de «conducir» en futuro con yo.
+- «conducido» es el participio de «conducir», como en he conducido.
+- «conduciendo» es el gerundio de «conducir», como en estoy conduciendo.
+- «traducir» es un verbo irregular.
+- «traduzco» es la forma de «traducir» en presente con yo.
+- «traduce» es la forma de «traducir» en presente con él, ella o usted.
+- «traduje» es la forma de «traducir» en pasado con yo.
+- «tradujo» es la forma de «traducir» en pasado con él, ella o usted.
+- «traduciré» es la forma de «traducir» en futuro con yo.
+- «traducido» es el participio de «traducir», como en he traducido.
+- «traduciendo» es el gerundio de «traducir», como en estoy traduciendo.
+- «conocer» es un verbo irregular.
+- «conozco» es la forma de «conocer» en presente con yo.
+- «conoce» es la forma de «conocer» en presente con él, ella o usted.
+- «conocí» es la forma de «conocer» en pasado con yo.
+- «conoció» es la forma de «conocer» en pasado con él, ella o usted.
+- «conoceré» es la forma de «conocer» en futuro con yo.
+- «conocido» es el participio de «conocer», como en he conocido.
+- «conociendo» es el gerundio de «conocer», como en estoy conociendo.
+- «andar» es un verbo irregular.
+- «ando» es la forma de «andar» en presente con yo.
+- «anda» es la forma de «andar» en presente con él, ella o usted.
+- «anduve» es la forma de «andar» en pasado con yo.
+- «anduvo» es la forma de «andar» en pasado con él, ella o usted.
+- «andaré» es la forma de «andar» en futuro con yo.
+- «andado» es el participio de «andar», como en he andado.
+- «andando» es el gerundio de «andar», como en estoy andando.
+- «caber» es un verbo irregular.
+- «quepo» es la forma de «caber» en presente con yo.
+- «cabe» es la forma de «caber» en presente con él, ella o usted.
+- «cupe» es la forma de «caber» en pasado con yo.
+- «cupo» es la forma de «caber» en pasado con él, ella o usted.
+- «cabré» es la forma de «caber» en futuro con yo.
+- «cabido» es el participio de «caber», como en he cabido.
+- «cabiendo» es el gerundio de «caber», como en estoy cabiendo.
+- «valer» es un verbo irregular.
+- «valgo» es la forma de «valer» en presente con yo.
+- «vale» es la forma de «valer» en presente con él, ella o usted.
+- «valí» es la forma de «valer» en pasado con yo.
+- «valió» es la forma de «valer» en pasado con él, ella o usted.
+- «valdré» es la forma de «valer» en futuro con yo.
+- «valido» es el participio de «valer», como en he valido.
+- «valiendo» es el gerundio de «valer», como en estoy valiendo.
+- «jugar» es un verbo irregular.
+- «juego» es la forma de «jugar» en presente con yo.
+- «juega» es la forma de «jugar» en presente con él, ella o usted.
+- «jugué» es la forma de «jugar» en pasado con yo.
+- «jugó» es la forma de «jugar» en pasado con él, ella o usted.
+- «jugaré» es la forma de «jugar» en futuro con yo.
+- «jugado» es el participio de «jugar», como en he jugado.
+- «jugando» es el gerundio de «jugar», como en estoy jugando.
+- «dormir» es un verbo irregular.
+- «duermo» es la forma de «dormir» en presente con yo.
+- «duerme» es la forma de «dormir» en presente con él, ella o usted.
+- «dormí» es la forma de «dormir» en pasado con yo.
+- «durmió» es la forma de «dormir» en pasado con él, ella o usted.
+- «dormiré» es la forma de «dormir» en futuro con yo.
+- «dormido» es el participio de «dormir», como en he dormido.
+- «durmiendo» es el gerundio de «dormir», como en estoy durmiendo.
+- «morir» es un verbo irregular.
+- «muero» es la forma de «morir» en presente con yo.
+- «muere» es la forma de «morir» en presente con él, ella o usted.
+- «morí» es la forma de «morir» en pasado con yo.
+- «murió» es la forma de «morir» en pasado con él, ella o usted.
+- «moriré» es la forma de «morir» en futuro con yo.
+- «muerto» es el participio de «morir», como en he muerto.
+- «muriendo» es el gerundio de «morir», como en estoy muriendo.
+- «pedir» es un verbo irregular.
+- «pido» es la forma de «pedir» en presente con yo.
+- «pide» es la forma de «pedir» en presente con él, ella o usted.
+- «pedí» es la forma de «pedir» en pasado con yo.
+- «pidió» es la forma de «pedir» en pasado con él, ella o usted.
+- «pediré» es la forma de «pedir» en futuro con yo.
+- «pedido» es el participio de «pedir», como en he pedido.
+- «pidiendo» es el gerundio de «pedir», como en estoy pidiendo.
+- «seguir» es un verbo irregular.
+- «sigo» es la forma de «seguir» en presente con yo.
+- «sigue» es la forma de «seguir» en presente con él, ella o usted.
+- «seguí» es la forma de «seguir» en pasado con yo.
+- «siguió» es la forma de «seguir» en pasado con él, ella o usted.
+- «seguiré» es la forma de «seguir» en futuro con yo.
+- «seguido» es el participio de «seguir», como en he seguido.
+- «siguiendo» es el gerundio de «seguir», como en estoy siguiendo.
+- «sentir» es un verbo irregular.
+- «siento» es la forma de «sentir» en presente con yo.
+- «siente» es la forma de «sentir» en presente con él, ella o usted.
+- «sentí» es la forma de «sentir» en pasado con yo.
+- «sintió» es la forma de «sentir» en pasado con él, ella o usted.
+- «sentiré» es la forma de «sentir» en futuro con yo.
+- «sentido» es el participio de «sentir», como en he sentido.
+- «sintiendo» es el gerundio de «sentir», como en estoy sintiendo.
+- «mentir» es un verbo irregular.
+- «miento» es la forma de «mentir» en presente con yo.
+- «miente» es la forma de «mentir» en presente con él, ella o usted.
+- «mentí» es la forma de «mentir» en pasado con yo.
+- «mintió» es la forma de «mentir» en pasado con él, ella o usted.
+- «mentiré» es la forma de «mentir» en futuro con yo.
+- «mentido» es el participio de «mentir», como en he mentido.
+- «mintiendo» es el gerundio de «mentir», como en estoy mintiendo.
+- «preferir» es un verbo irregular.
+- «prefiero» es la forma de «preferir» en presente con yo.
+- «prefiere» es la forma de «preferir» en presente con él, ella o usted.
+- «preferí» es la forma de «preferir» en pasado con yo.
+- «prefirió» es la forma de «preferir» en pasado con él, ella o usted.
+- «preferiré» es la forma de «preferir» en futuro con yo.
+- «preferido» es el participio de «preferir», como en he preferido.
+- «prefiriendo» es el gerundio de «preferir», como en estoy prefiriendo.
+- «servir» es un verbo irregular.
+- «sirvo» es la forma de «servir» en presente con yo.
+- «sirve» es la forma de «servir» en presente con él, ella o usted.
+- «serví» es la forma de «servir» en pasado con yo.
+- «sirvió» es la forma de «servir» en pasado con él, ella o usted.
+- «serviré» es la forma de «servir» en futuro con yo.
+- «servido» es el participio de «servir», como en he servido.
+- «sirviendo» es el gerundio de «servir», como en estoy sirviendo.
+- «repetir» es un verbo irregular.
+- «repito» es la forma de «repetir» en presente con yo.
+- «repite» es la forma de «repetir» en presente con él, ella o usted.
+- «repetí» es la forma de «repetir» en pasado con yo.
+- «repitió» es la forma de «repetir» en pasado con él, ella o usted.
+- «repetiré» es la forma de «repetir» en futuro con yo.
+- «repetido» es el participio de «repetir», como en he repetido.
+- «repitiendo» es el gerundio de «repetir», como en estoy repitiendo.
+- «vestir» es un verbo irregular.
+- «visto» es la forma de «vestir» en presente con yo.
+- «viste» es la forma de «vestir» en presente con él, ella o usted.
+- «vestí» es la forma de «vestir» en pasado con yo.
+- «vistió» es la forma de «vestir» en pasado con él, ella o usted.
+- «vestiré» es la forma de «vestir» en futuro con yo.
+- «vestido» es el participio de «vestir», como en he vestido.
+- «vistiendo» es el gerundio de «vestir», como en estoy vistiendo.
+- «elegir» es un verbo irregular.
+- «elijo» es la forma de «elegir» en presente con yo.
+- «elige» es la forma de «elegir» en presente con él, ella o usted.
+- «elegí» es la forma de «elegir» en pasado con yo.
+- «eligió» es la forma de «elegir» en pasado con él, ella o usted.
+- «elegiré» es la forma de «elegir» en futuro con yo.
+- «elegido» es el participio de «elegir», como en he elegido.
+- «eligiendo» es el gerundio de «elegir», como en estoy eligiendo.
+- «pensar» es un verbo irregular.
+- «pienso» es la forma de «pensar» en presente con yo.
+- «piensa» es la forma de «pensar» en presente con él, ella o usted.
+- «pensé» es la forma de «pensar» en pasado con yo.
+- «pensó» es la forma de «pensar» en pasado con él, ella o usted.
+- «pensaré» es la forma de «pensar» en futuro con yo.
+- «pensado» es el participio de «pensar», como en he pensado.
+- «pensando» es el gerundio de «pensar», como en estoy pensando.
+- «empezar» es un verbo irregular.
+- «empiezo» es la forma de «empezar» en presente con yo.
+- «empieza» es la forma de «empezar» en presente con él, ella o usted.
+- «empecé» es la forma de «empezar» en pasado con yo.
+- «empezó» es la forma de «empezar» en pasado con él, ella o usted.
+- «empezaré» es la forma de «empezar» en futuro con yo.
+- «empezado» es el participio de «empezar», como en he empezado.
+- «empezando» es el gerundio de «empezar», como en estoy empezando.
+- «cerrar» es un verbo irregular.
+- «cierro» es la forma de «cerrar» en presente con yo.
+- «cierra» es la forma de «cerrar» en presente con él, ella o usted.
+- «cerré» es la forma de «cerrar» en pasado con yo.
+- «cerró» es la forma de «cerrar» en pasado con él, ella o usted.
+- «cerraré» es la forma de «cerrar» en futuro con yo.
+- «cerrado» es el participio de «cerrar», como en he cerrado.
+- «cerrando» es el gerundio de «cerrar», como en estoy cerrando.
+- «despertar» es un verbo irregular.
+- «despierto» es la forma de «despertar» en presente con yo.
+- «despierta» es la forma de «despertar» en presente con él, ella o usted.
+- «desperté» es la forma de «despertar» en pasado con yo.
+- «despertó» es la forma de «despertar» en pasado con él, ella o usted.
+- «despertaré» es la forma de «despertar» en futuro con yo.
+- «despertado» es el participio de «despertar», como en he despertado.
+- «despertando» es el gerundio de «despertar», como en estoy despertando.
+- «entender» es un verbo irregular.
+- «entiendo» es la forma de «entender» en presente con yo.
+- «entiende» es la forma de «entender» en presente con él, ella o usted.
+- «entendí» es la forma de «entender» en pasado con yo.
+- «entendió» es la forma de «entender» en pasado con él, ella o usted.
+- «entenderé» es la forma de «entender» en futuro con yo.
+- «entendido» es el participio de «entender», como en he entendido.
+- «entendiendo» es el gerundio de «entender», como en estoy entendiendo.
+- «perder» es un verbo irregular.
+- «pierdo» es la forma de «perder» en presente con yo.
+- «pierde» es la forma de «perder» en presente con él, ella o usted.
+- «perdí» es la forma de «perder» en pasado con yo.
+- «perdió» es la forma de «perder» en pasado con él, ella o usted.
+- «perderé» es la forma de «perder» en futuro con yo.
+- «perdido» es el participio de «perder», como en he perdido.
+- «perdiendo» es el gerundio de «perder», como en estoy perdiendo.
+- «volver» es un verbo irregular.
+- «vuelvo» es la forma de «volver» en presente con yo.
+- «vuelve» es la forma de «volver» en presente con él, ella o usted.
+- «volví» es la forma de «volver» en pasado con yo.
+- «volvió» es la forma de «volver» en pasado con él, ella o usted.
+- «volveré» es la forma de «volver» en futuro con yo.
+- «vuelto» es el participio de «volver», como en he vuelto.
+- «volviendo» es el gerundio de «volver», como en estoy volviendo.
+- «contar» es un verbo irregular.
+- «cuento» es la forma de «contar» en presente con yo.
+- «cuenta» es la forma de «contar» en presente con él, ella o usted.
+- «conté» es la forma de «contar» en pasado con yo.
+- «contó» es la forma de «contar» en pasado con él, ella o usted.
+- «contaré» es la forma de «contar» en futuro con yo.
+- «contado» es el participio de «contar», como en he contado.
+- «contando» es el gerundio de «contar», como en estoy contando.
+- «encontrar» es un verbo irregular.
+- «encuentro» es la forma de «encontrar» en presente con yo.
+- «encuentra» es la forma de «encontrar» en presente con él, ella o usted.
+- «encontré» es la forma de «encontrar» en pasado con yo.
+- «encontró» es la forma de «encontrar» en pasado con él, ella o usted.
+- «encontraré» es la forma de «encontrar» en futuro con yo.
+- «encontrado» es el participio de «encontrar», como en he encontrado.
+- «encontrando» es el gerundio de «encontrar», como en estoy encontrando.
+- «recordar» es un verbo irregular.
+- «recuerdo» es la forma de «recordar» en presente con yo.
+- «recuerda» es la forma de «recordar» en presente con él, ella o usted.
+- «recordé» es la forma de «recordar» en pasado con yo.
+- «recordó» es la forma de «recordar» en pasado con él, ella o usted.
+- «recordaré» es la forma de «recordar» en futuro con yo.
+- «recordado» es el participio de «recordar», como en he recordado.
+- «recordando» es el gerundio de «recordar», como en estoy recordando.
+- «costar» es un verbo irregular.
+- «cuesto» es la forma de «costar» en presente con yo.
+- «cuesta» es la forma de «costar» en presente con él, ella o usted.
+- «costé» es la forma de «costar» en pasado con yo.
+- «costó» es la forma de «costar» en pasado con él, ella o usted.
+- «costaré» es la forma de «costar» en futuro con yo.
+- «costado» es el participio de «costar», como en he costado.
+- «costando» es el gerundio de «costar», como en estoy costando.
+- «mover» es un verbo irregular.
+- «muevo» es la forma de «mover» en presente con yo.
+- «mueve» es la forma de «mover» en presente con él, ella o usted.
+- «moví» es la forma de «mover» en pasado con yo.
+- «movió» es la forma de «mover» en pasado con él, ella o usted.
+- «moveré» es la forma de «mover» en futuro con yo.
+- «movido» es el participio de «mover», como en he movido.
+- «moviendo» es el gerundio de «mover», como en estoy moviendo.
+- «oler» es un verbo irregular.
+- «huelo» es la forma de «oler» en presente con yo.
+- «huele» es la forma de «oler» en presente con él, ella o usted.
+- «olí» es la forma de «oler» en pasado con yo.
+- «olió» es la forma de «oler» en pasado con él, ella o usted.
+- «oleré» es la forma de «oler» en futuro con yo.
+- «olido» es el participio de «oler», como en he olido.
+- «oliendo» es el gerundio de «oler», como en estoy oliendo.
+- «construir» es un verbo irregular.
+- «construyo» es la forma de «construir» en presente con yo.
+- «construye» es la forma de «construir» en presente con él, ella o usted.
+- «construí» es la forma de «construir» en pasado con yo.
+- «construyó» es la forma de «construir» en pasado con él, ella o usted.
+- «construiré» es la forma de «construir» en futuro con yo.
+- «construido» es el participio de «construir», como en he construido.
+- «construyendo» es el gerundio de «construir», como en estoy construyendo.
+- «huir» es un verbo irregular.
+- «huyo» es la forma de «huir» en presente con yo.
+- «huye» es la forma de «huir» en presente con él, ella o usted.
+- «huí» es la forma de «huir» en pasado con yo.
+- «huyó» es la forma de «huir» en pasado con él, ella o usted.
+- «huiré» es la forma de «huir» en futuro con yo.
+- «huido» es el participio de «huir», como en he huido.
+- «huyendo» es el gerundio de «huir», como en estoy huyendo.
+- «leer» es un verbo con cambio ortográfico.
+- «leo» es la forma de «leer» en presente con yo.
+- «lee» es la forma de «leer» en presente con él, ella o usted.
+- «leí» es la forma de «leer» en pasado con yo.
+- «leyó» es la forma de «leer» en pasado con él, ella o usted.
+- «leeré» es la forma de «leer» en futuro con yo.
+- «leído» es el participio de «leer», como en he leído.
+- «leyendo» es el gerundio de «leer», como en estoy leyendo.
+- «reír» es un verbo irregular.
+- «río» es la forma de «reír» en presente con yo.
+- «ríe» es la forma de «reír» en presente con él, ella o usted.
+- «reí» es la forma de «reír» en pasado con yo.
+- «rio» es la forma de «reír» en pasado con él, ella o usted.
+- «reiré» es la forma de «reír» en futuro con yo.
+- «reído» es el participio de «reír», como en he reído.
+- «riendo» es el gerundio de «reír», como en estoy riendo.
+- «escribir» es un verbo regular salvo el participio.
+- «escribo» es la forma de «escribir» en presente con yo.
+- «escribe» es la forma de «escribir» en presente con él, ella o usted.
+- «escribí» es la forma de «escribir» en pasado con yo.
+- «escribió» es la forma de «escribir» en pasado con él, ella o usted.
+- «escribiré» es la forma de «escribir» en futuro con yo.
+- «escrito» es el participio de «escribir», como en he escrito.
+- «escribiendo» es el gerundio de «escribir», como en estoy escribiendo.
+- «abrir» es un verbo regular salvo el participio.
+- «abro» es la forma de «abrir» en presente con yo.
+- «abre» es la forma de «abrir» en presente con él, ella o usted.
+- «abrí» es la forma de «abrir» en pasado con yo.
+- «abrió» es la forma de «abrir» en pasado con él, ella o usted.
+- «abriré» es la forma de «abrir» en futuro con yo.
+- «abierto» es el participio de «abrir», como en he abierto.
+- «abriendo» es el gerundio de «abrir», como en estoy abriendo.
+- «romper» es un verbo regular salvo el participio.
+- «rompo» es la forma de «romper» en presente con yo.
+- «rompe» es la forma de «romper» en presente con él, ella o usted.
+- «rompí» es la forma de «romper» en pasado con yo.
+- «rompió» es la forma de «romper» en pasado con él, ella o usted.
+- «romperé» es la forma de «romper» en futuro con yo.
+- «roto» es el participio de «romper», como en he roto.
+- «rompiendo» es el gerundio de «romper», como en estoy rompiendo.
+- «buscar» es un verbo con cambio ortográfico.
+- «busco» es la forma de «buscar» en presente con yo.
+- «busca» es la forma de «buscar» en presente con él, ella o usted.
+- «busqué» es la forma de «buscar» en pasado con yo.
+- «buscó» es la forma de «buscar» en pasado con él, ella o usted.
+- «buscaré» es la forma de «buscar» en futuro con yo.
+- «buscado» es el participio de «buscar», como en he buscado.
+- «buscando» es el gerundio de «buscar», como en estoy buscando.
+- «llegar» es un verbo con cambio ortográfico.
+- «llego» es la forma de «llegar» en presente con yo.
+- «llega» es la forma de «llegar» en presente con él, ella o usted.
+- «llegué» es la forma de «llegar» en pasado con yo.
+- «llegó» es la forma de «llegar» en pasado con él, ella o usted.
+- «llegaré» es la forma de «llegar» en futuro con yo.
+- «llegado» es el participio de «llegar», como en he llegado.
+- «llegando» es el gerundio de «llegar», como en estoy llegando.
+- «pagar» es un verbo con cambio ortográfico.
+- «pago» es la forma de «pagar» en presente con yo.
+- «paga» es la forma de «pagar» en presente con él, ella o usted.
+- «pagué» es la forma de «pagar» en pasado con yo.
+- «pagó» es la forma de «pagar» en pasado con él, ella o usted.
+- «pagaré» es la forma de «pagar» en futuro con yo.
+- «pagado» es el participio de «pagar», como en he pagado.
+- «pagando» es el gerundio de «pagar», como en estoy pagando.
+- «tocar» es un verbo con cambio ortográfico.
+- «toco» es la forma de «tocar» en presente con yo.
+- «toca» es la forma de «tocar» en presente con él, ella o usted.
+- «toqué» es la forma de «tocar» en pasado con yo.
+- «tocó» es la forma de «tocar» en pasado con él, ella o usted.
+- «tocaré» es la forma de «tocar» en futuro con yo.
+- «tocado» es el participio de «tocar», como en he tocado.
+- «tocando» es el gerundio de «tocar», como en estoy tocando.
+- «coger» es un verbo con cambio ortográfico.
+- «cojo» es la forma de «coger» en presente con yo.
+- «coge» es la forma de «coger» en presente con él, ella o usted.
+- «cogí» es la forma de «coger» en pasado con yo.
+- «cogió» es la forma de «coger» en pasado con él, ella o usted.
+- «cogeré» es la forma de «coger» en futuro con yo.
+- «cogido» es el participio de «coger», como en he cogido.
+- «cogiendo» es el gerundio de «coger», como en estoy cogiendo.
+- «fui» es a la vez el pasado de «ser» y de «ir» con yo, y se entiende por el contexto.
+- «visto» es el participio de «ver» y también la forma de «vestir» en presente con yo.
+- «sé» es la forma de «saber» con yo y también la orden de «ser» con tú, como en sé bueno.
+
+## Órdenes irregulares con tú
+
+- La orden de «decir» con tú es «di», como en di la verdad.
+- La orden de «hacer» con tú es «haz», como en haz la tarea.
+- La orden de «ir» con tú es «ve», como en ve a casa.
+- La orden de «poner» con tú es «pon», como en pon la mesa.
+- La orden de «salir» con tú es «sal», como en sal de aquí.
+- La orden de «ser» con tú es «sé», como en sé bueno.
+- La orden de «tener» con tú es «ten», como en ten cuidado.
+- La orden de «venir» con tú es «ven», como en ven aquí.
+- Las órdenes negativas usan el subjuntivo, como en no vengas y no digas eso.
+
