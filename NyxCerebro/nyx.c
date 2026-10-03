@@ -12,7 +12,10 @@
 
 #define RUTA_MEMORIA "nyx_memoria.txt"
 
-static Consejo nyx;
+/* las 18 mentes viven en memoria pedida al arrancar (no en el programa):
+ * así el runtime de WebAssembly de Code App no tiene que reservarla de golpe */
+static Consejo *nyxp;
+#define nyx (*nyxp)
 static int conColor = 1;
 static int verAprende = 1;
 
@@ -343,6 +346,13 @@ static void resh(const char *palabra) {
 int main(void) {
     char l[1024];
     int ordenes = 0;
+    setvbuf(stdout, NULL, _IONBF, 0);   /* que se vea todo al momento */
+    printf("despertando a las 18 mentes…\n");
+    nyxp = (Consejo *)calloc(1, sizeof *nyxp);
+    if (!nyxp) {
+        printf("no hay memoria para las 18 mentes (%lu MB)\n", (unsigned long)(sizeof *nyxp >> 20));
+        return 1;
+    }
     nyx.ev = al_evento;
     consejo_init(&nyx, (unsigned long long)time(NULL) * 2654435761ULL, 0);
     nyx.ev = al_evento;

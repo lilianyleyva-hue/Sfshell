@@ -30,7 +30,7 @@
 #include "resh.h"
 
 #define NROLES 18
-#define MAXSEM 1400        /* semiones por mente */
+#define MAXSEM 1000        /* semiones por mente */
 #define MAXVEC 16          /* acoples por semión */
 #define DIMF 8             /* rasgos de la firma */
 #define LARGO 28           /* bytes de una etiqueta (con el 0 final) */
@@ -1552,16 +1552,29 @@ static int consejo_guarda(const Consejo *c, const char *ruta) {
     return fclose(f) == 0;
 }
 
+static int consejo_carga2(Consejo *c, Consejo *tmp0, FILE *f);
+
 static int consejo_carga(Consejo *c, const char *ruta) {
-    static Consejo tmp;    /* se carga aparte: si el archivo está mal, no se pierde nada */
+    /* se carga aparte (en memoria pedida al momento): si el archivo está
+     * mal, no se pierde nada */
     FILE *f = fopen(ruta, "r");
+    Consejo *tmp;
+    int ok;
+    if (!f) return 0;
+    tmp = (Consejo *)malloc(sizeof *tmp);
+    if (!tmp) { fclose(f); return 0; }
+    *tmp = *c;
+    ok = consejo_carga2(c, tmp, f);
+    free(tmp);
+    return ok;
+}
+
+static int consejo_carga2(Consejo *c, Consejo *tmp0, FILE *f) {
     int r, i, k, ver;
     char cab[8];
-    if (!f) return 0;
-    tmp = *c;
-    if (fscanf(f, "%7s %d %lu", cab, &ver, &tmp.tick) != 3 || strcmp(cab, "NYX") != 0) { fclose(f); return 0; }
+    if (fscanf(f, "%7s %d %lu", cab, &ver, &tmp0->tick) != 3 || strcmp(cab, "NYX") != 0) { fclose(f); return 0; }
     for (r = 0; r < NROLES; r++) {
-        Mente *m = &tmp.m[r];
+        Mente *m = &tmp0->m[r];
         int rr, n, nobj;
         if (fscanf(f, " MENTE %d %d %d %d %ld %ld %ld %ld %ld", &rr, &n, &m->aciertos, &m->intentos,
                    &m->ciclos, &m->dichos, &m->ideas, &m->cristales, &m->reshAprendidas) != 9 || rr != r || n < 0 || n > MAXSEM) { fclose(f); return 0; }
@@ -1594,7 +1607,7 @@ static int consejo_carga(Consejo *c, const char *ruta) {
         m_hash_rehace(m);
     }
     fclose(f);
-    *c = tmp;
+    *c = *tmp0;
     return 1;
 }
 
