@@ -1,5 +1,10 @@
 # Nuevo Cerebro IA
 
+Este repositorio tiene dos partes:
+
+- **Interfaz web** (esta página): un cerebro que ve y escucha de forma diferente.
+- **[Especie Abla](especie/README.md)**: 27 mentes en C++ que hablan su propio idioma de 4000 palabras, guardan su conocimiento en archivos `.cpp`, tienen una terminal estilo bash y no dejan de pensar.
+
 Una interfaz para un cerebro de IA que **no ve ni escucha como nosotros**.
 
 - **Ver** 👁 — no reconoce objetos. Percibe el mundo como un campo de *movimiento, luz y color* (una rejilla de 16×12). La vista previa nunca muestra la imagen de la cámara, solo lo que el cerebro siente de ella.
