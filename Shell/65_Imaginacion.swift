@@ -218,17 +218,15 @@ enum Imaginacion {
     static let tipos = ["investigar", "escribir", "programar", "dibujar", "conversar", "compartir", "ordenar",
                         "recordar", "calcular", "chat", "rutina"]
 
-    /// Programas que una IA sabe escribir, en C o Python.
+    /// Programas que una IA sabe escribir, en Python.
     static func programa(_ tema: String, _ rol: RolMental) -> (String, [PasoIA]) {
         let n = Int.random(in: 6 ... 15)
         let nombre = "p_" + rol.rawValue.prefix(4)
         switch Int.random(in: 0 ..< 6) {
         case 0:
             return ("calcule el factorial de \(n)", [
-                PasoIA(orden: "echo '#include <stdio.h>' > /scripts/\(nombre).c"),
-                PasoIA(orden: "echo 'int main(){ long long f = 1; for (int i = 2; i <= \(n); i++) f *= i; printf(\"\(n)! = %lld\\n\", f); return 0; }' >> /scripts/\(nombre).c"),
-                PasoIA(orden: "gcc /scripts/\(nombre).c -o /scripts/\(nombre)"),
-                PasoIA(orden: "run /scripts/\(nombre)")])
+                PasoIA(orden: "echo 'import math; print(\"\(n)! =\", math.factorial(\(n)))' > /scripts/\(nombre).py"),
+                PasoIA(orden: "python3 /scripts/\(nombre).py")])
         case 1:
             return ("encuentre los primos hasta \(n * 10)", [
                 PasoIA(orden: "echo 'print([n for n in range(2, \(n * 10)) if all(n % d for d in range(2, int(n ** 0.5) + 1))])' > /scripts/\(nombre).py"),
@@ -239,10 +237,10 @@ enum Imaginacion {
                 PasoIA(orden: "python3 /scripts/\(nombre).py")])
         case 3:
             return ("muestre \(n) números de Fibonacci", [
-                PasoIA(orden: "echo '#include <iostream>' > /scripts/\(nombre).cpp"),
-                PasoIA(orden: "echo 'int main(){ long a = 0, b = 1; for (int i = 0; i < \(n); i++) { std::cout << a << \" \"; long t = a + b; a = b; b = t; } std::cout << std::endl; }' >> /scripts/\(nombre).cpp"),
-                PasoIA(orden: "g++ /scripts/\(nombre).cpp -o /scripts/\(nombre)"),
-                PasoIA(orden: "run /scripts/\(nombre)")])
+                PasoIA(orden: "echo 'a, b = 0, 1' > /scripts/\(nombre).py"),
+                PasoIA(orden: "echo 'for i in range(\(n)): print(a, end=\" \"); a, b = b, a + b' >> /scripts/\(nombre).py"),
+                PasoIA(orden: "echo 'print()' >> /scripts/\(nombre).py"),
+                PasoIA(orden: "python3 /scripts/\(nombre).py")])
         case 4:
             return ("cuente las palabras de mi diario", [
                 PasoIA(orden: "echo 'print(len(open(\"/Documentos/diario.txt\").read().split()), \"palabras en mi diario\")' > /scripts/\(nombre).py"),
@@ -256,12 +254,11 @@ enum Imaginacion {
 
     static func dibujo(_ rol: RolMental) -> [PasoIA] {
         let n = "d_" + rol.rawValue.prefix(4)
-        let r = Int.random(in: 60 ... 200)
+        let r = Int.random(in: 4 ... 9)
         return [
-            PasoIA(orden: "echo '#include <graphics.h>' > /scripts/\(n).c"),
-            PasoIA(orden: "echo 'int main(){ initgraph(0,0,\"\"); circle(320,240,\(r)); rectangle(\(320 - r),\(240 - r),\(320 + r),\(240 + r)); line(0,480,640,0); closegraph(); return 0; }' >> /scripts/\(n).c"),
-            PasoIA(orden: "gcc /scripts/\(n).c -o /scripts/\(n)"),
-            PasoIA(orden: "run /scripts/\(n) > /Escritorio/dibujo.txt"),
+            PasoIA(orden: "echo 'for y in range(-\(r), \(r) + 1):' > /scripts/\(n).py"),
+            PasoIA(orden: "echo '    print(\"\".join(\"#\" if abs(x * x / 4 + y * y - \(r * r)) < \(r) else \" \" for x in range(-\(2 * r), \(2 * r) + 1)))' >> /scripts/\(n).py"),
+            PasoIA(orden: "python3 /scripts/\(n).py > /Escritorio/dibujo.txt"),
             PasoIA(orden: "wc -l /Escritorio/dibujo.txt")]
     }
 

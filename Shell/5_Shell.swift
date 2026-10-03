@@ -157,11 +157,9 @@ final class Shell: @unchecked Sendable {
             Shell.esc(), Shell.objetos(), Shell.mixCommands(), Shell.git(),
             Shell.macos(), Shell.logicGame(), Shell.unixMas(), Shell.bash(),
             Shell.huella(), Shell.nyx(), Shell.ias(), Shell.comandosIA(),
-            Shell.apiLocal(), Shell.termux(), Shell.python(), Shell.ipa(), Shell.web(), Shell.herramientas(), Shell.chat(),
-            Shell.compiladores(), Shell.wasm()
+            Shell.apiLocal(), Shell.termux(), Shell.python(), Shell.ipa(), Shell.web(), Shell.herramientas(), Shell.chat(), Shell.wasm()
         ]
         for m in modulos { cmds.merge(m) { _, b in b } }
-        cmds["run"] = Shell.envuelveRun(cmds["run"])
         commands = cmds
         js.envRef = env
         loadHistory()
@@ -446,10 +444,6 @@ final class Shell: @unchecked Sendable {
                 argv = expanded + Array(argv.dropFirst())
             }
             guard !argv.isEmpty else { continue }
-            // ./programa dentro de una tubería o con && también se ejecuta
-            if argv[0].hasPrefix("./") && argv[0].count > 2 {
-                argv = ["run", String(argv[0].dropFirst(2))] + Array(argv.dropFirst())
-            }
             let name = argv[0]
 
             // VAR=valor delante del comando: solo mientras dura el comando

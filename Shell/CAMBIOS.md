@@ -392,3 +392,11 @@ Comandos nuevos:
 - `ia imagina <rol>` — los deseos que se le ocurren, con su valor, y el elegido.
 - `ia aprendizaje [rol]` — qué le gusta hacer, qué evita, lo que le enseñaste.
 - `ia enseña <rol> <comando>` — lo practicará sola.
+
+## Versión ligera (C, C++ y Java fuera)
+
+Los lenguajes ahora se ejecutan en **Code App**, así que la shell ya no lleva
+su propio intérprete de C/C++/Java (unas 20.000 líneas que hacían fallar el
+build en el iPad). Se quedan WebAssembly, Python, la consola en vivo (^C y
+programas que piden datos) y la imaginación de las IAs. Los programas y
+dibujos que imaginan las IAs ahora son en Python.
