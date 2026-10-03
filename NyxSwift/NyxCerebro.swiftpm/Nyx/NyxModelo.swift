@@ -87,6 +87,9 @@ final class NyxModelo: ObservableObject {
     @Published var lineasPuente: [LineaPuente] = []
     @Published var puenteOcupado = false
     @Published var respuestaAntiguo = ""
+    // los tres consejos juntos
+    let asamblea = Asamblea()
+    @Published var lineasAsamblea: [LineaAsamblea] = []
     /// Mostrar la traducción al español debajo del Resh.
     @Published var traducir = true
     private var cosasCamara: Set<String> = []
@@ -266,6 +269,31 @@ final class NyxModelo: ObservableObject {
             }
             self.puenteOcupado = false
             await self.guardaAntiguo()
+            self.guarda()
+        }
+    }
+
+    // MARK: la asamblea de los tres consejos
+
+    /// Los tres consejos hablan 'n' turnos (si das un tema, empiezan por él).
+    func turnosAsamblea(_ n: Int, tema: String = "") {
+        if puenteOcupado { return }
+        puenteOcupado = true
+        let t = tema.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task { @MainActor in
+            await self.puente.prepara(memoria: self.memoriaAntigua())
+            if !t.isEmpty {
+                _ = self.asamblea.proponTema(t, logico: self.logico)
+                self.lineasAsamblea = self.asamblea.lineas
+            }
+            for _ in 0 ..< n {
+                _ = await self.asamblea.turno(nuevo: self.consejo, puente: self.puente, logico: self.logico)
+                self.lineasAsamblea = self.asamblea.lineas
+                self.version += 1
+            }
+            self.puenteOcupado = false
+            await self.guardaAntiguo()
+            self.guardaLogica()
             self.guarda()
         }
     }

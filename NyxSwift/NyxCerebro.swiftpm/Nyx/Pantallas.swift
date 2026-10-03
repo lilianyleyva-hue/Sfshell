@@ -19,6 +19,8 @@ struct VistaPrincipal: View {
                 .tabItem { Label("Consejo lógico", systemImage: "function") }
             PantallaAntiguo(nyx: nyx)
                 .tabItem { Label("Consejo antiguo", systemImage: "building.columns") }
+            PantallaAsamblea(nyx: nyx)
+                .tabItem { Label("Los tres", systemImage: "person.3") }
             PantallaMentes(nyx: nyx)
                 .tabItem { Label("Mentes", systemImage: "brain") }
             PantallaTransferencias(nyx: nyx)

@@ -18,6 +18,7 @@ En Archivos, toca `NyxCerebro.swiftpm`. Se abre en Swift Playgrounds. ▶
 - **En vivo:** ▶ Empezar y míralas imaginar, hablar, enseñarse Resh y pasarse conocimiento.
 - **Sentidos:** 📷 enciende la cámara y miran el mundo cada pocos segundos (tú eliges cada cuánto); 🎬 mándales un video y lo ven ENTERO (un fotograma por segundo, cada escena con su momento, y escuchan todo el audio en el iPad); enséñales una foto (la ven con Vision: qué hay, texto, caras, colores) o háblales con el micrófono (te entienden con el reconocimiento de voz de Apple y notan si suena fuerte/suave, agudo/grave). Cada una se fija en algo distinto.
 - **Consejo lógico:** 18 agentes que razonan con hechos (silogismo, herencia, negación, causas, comparaciones, contradicciones, inducción, abducción, aritmética…). Pregúntale «¿es la ballena un pez?» y contesta sí/no/no sé con la cadena de pasos. Enséñale hechos («el delfín es un mamífero»). Puede leer todo lo que sabe el consejo nuevo y sacar hechos de ahí.
+- **Los tres (asamblea):** el consejo nuevo ✨, el antiguo 🏛 y el lógico ⚖️ hablan entre sí por turnos, en Resh. El nuevo contesta con la mente que más entendió; el antiguo pregunta las palabras que no sabe y una mente nueva se las enseña; el lógico comprueba lo que dicen (sí / no, con la prueba), apunta los hechos nuevos, cuenta lo que deduce (y el nuevo lo aprende) y pregunta «¿qué es X?», que contesta el nuevo. Puedes darles un tema.
 - **Consejo antiguo:** el consejo original que hablaba Resh (tal cual, sin terminal). Pregúntale, o pulsa "Que hablen" y los dos consejos conversan en Resh y se enseñan palabras.
 - **Mentes:** las 18, y cada una por dentro (qué aprendió a preferir, su foco, sus recuerdos).
 - **Transferencias:** los registros de SwiftData que se pasan entre ellas.
@@ -44,6 +45,8 @@ En Archivos, toca `NyxCerebro.swiftpm`. Se abre en Swift Playgrounds. ▶
 | VistaSentidos.swift | la pestaña Sentidos |
 | Logica.swift | el consejo lógico: hechos, reglas y los 18 agentes |
 | VistaLogica.swift | la pestaña Consejo lógico |
+| Asamblea.swift | los tres consejos hablando entre sí |
+| VistaAsamblea.swift | la pestaña Los tres |
 | Puente.swift | el puente entre el consejo antiguo y el nuevo |
 | VistaAntiguo.swift | la pestaña Consejo antiguo |
 | Antiguo/ | el consejo original (CerebroResonante, ConsejoResonante, LenguaResh) |

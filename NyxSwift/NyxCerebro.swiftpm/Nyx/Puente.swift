@@ -97,14 +97,14 @@ final class Puente {
     }
 
     @MainActor
-    private func oyeElViejo(_ texto: String) async {
+    func oyeElViejo(_ texto: String) async {
         for rol in RolMental.allCases {
             await viejo.mente(rol)?.recibir(mensaje: texto, de: "consejo-nuevo", tipo: .dato)
         }
     }
 
     /// "qué significa kash?" / "ye kash?": si alguna mente nueva lo sabe, enseña.
-    private func ensenaAlViejo(_ texto: String, _ nuevo: Consejo) -> (quien: String, resh: String, es: String)? {
+    func ensenaAlViejo(_ texto: String, _ nuevo: Consejo) -> (quien: String, resh: String, es: String)? {
         let pregunta = texto.contains("significa") || texto.hasPrefix("ye ") || texto.hasSuffix("?")
         if !pregunta { return nil }
         for t in Palabras.tokens(texto) where Resh.esForma(t) && !Resh.formasParticula.contains(t) {
