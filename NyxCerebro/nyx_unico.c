@@ -1,52 +1,235 @@
-/* nyx_unico.c — Nyx completo en UN solo archivo (interfaz + cerebro + Resh).
- * En Code App: ponlo en la carpeta abierta y pulsa ▶. No necesita nada más.
- * (Se genera juntando nyx.c, cerebro.h y resh.h.)
+/* nyx_unico.c — Nyx completo en UN solo archivo (se genera juntando la carpeta NyxC).
+ * Para un compilador que solo acepta un archivo: ábrelo y ejecútalo.
  */
-/* nyx.c — Interfaz de texto de las 18 IAs de Nyx (C99).
+
+/* nyx.h — lo que comparten todos los archivos de Nyx (tipos y funciones).
  *
- * Se ejecuta en la terminal de Code App (o en cualquier terminal):
- *   abre nyx.c y pulsa ▶   ·   o:  clang nyx.c -o nyx -lm && ./nyx
- * Necesita cerebro.h y resh.h en la misma carpeta.
+ * Nyx: el cerebro resonante de las 18 IAs, en C (C99).
+ *   main.c      la interfaz (el programa empieza aquí)
+ *   base.c      azar, textos y cómo es cada una de las 18
+ *   resh.c      diccionario de la lengua Resh (datos en resh.h)
+ *   texto.c     palabras y firmas
+ *   mente.c     una mente: semiones, resonancia, veredicto, frases
+ *   frases.c    memoria de frases (lo que leyeron, entero)
+ *   consejo.c   las 18 juntas: imaginación, deliberación, opinión
+ *   memoria.c   guardar y cargar
  */
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
-/* cerebro.h — Cerebro resonante de las 18 IAs de Nyx, en C (C99).
- *
- * Es el mismo paradigma del CerebroResonante de Nyxshell (Swift), llevado a C
- * y mejorado:
- *   - Cada mente es un fluido de "semiones" (palabras/ideas) con amplitud A,
- *     fase y carga. Pensar = dejar que las fases se sincronicen (Kuramoto)
- *     hasta que gana un atractor de coherencia.
- *   - MEJORA: memoria de secuencia. Además de la asociación, cada acople
- *     guarda cuánto "A va seguido de B". Así las mentes responden con frases
- *     en español aprendidas de lo que leen y oyen, no con palabras sueltas.
- *   - MEJORA: las palabras vacías (el, la, de, que…) no ganan veredictos.
- *   - MEJORA: la lengua Resh se reparte: cada mente sabe una parte, pregunta
- *     lo que no sabe ("ye árbol?") y las demás le enseñan.
- *   - MEJORA: imaginación con aprendizaje por refuerzo. Cada mente imagina
- *     qué quiere hacer (hablar, preguntar, imaginar, soñar, recordar,
- *     escuchar), lo hace, mide cómo le fue y aprende qué le conviene.
- *   - MEJORA: tu opinión (bien/mal) reestructura lo aprendido: lo malo queda
- *     en oposición de fase y pierde futuros veredictos.
- *   - Persistencia en un archivo de texto.
- *
- * Solo usa la biblioteca estándar de C: compila con clang/gcc y en Code App.
- */
-#ifndef NYX_CEREBRO_H
-#define NYX_CEREBRO_H
+#ifndef NYX_H
+#define NYX_H
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+
+#define NROLES 18
+#define MAXSEM 1000        /* semiones por mente */
+#define MAXVEC 16          /* acoples por semión */
+#define DIMF 8             /* rasgos de la firma */
+#define LARGO 28           /* bytes de una etiqueta (con el 0 final) */
+#define HASHN 4096         /* tabla etiqueta -> semión (potencia de 2) */
+#define NACC 6             /* cosas que una mente puede querer hacer */
+#define NVEN 16            /* ventana de contexto (lo último que vivió) */
+#define LVEN 112
+#define MAXEST 24          /* palabras por estímulo */
+#define NCAM 48            /* caminos A->B->C recordados */
+#define MAXFRASE 24        /* palabras de una frase dicha */
+#define MAXFR 1500         /* frases recordadas */
+#define LFRASE 160
+#define NYX_PI 3.14159265f
+#define NYX_2PI 6.28318531f
+
+typedef struct { const char *es; const char *resh; } ParResh;
+
+enum { ACC_HABLAR, ACC_PREGUNTAR, ACC_IMAGINAR, ACC_SONAR, ACC_RECORDAR, ACC_ESCUCHAR };
+typedef struct {
+    const char *nombre;
+    float ruido, rigidez, A0;   /* η, λ, A₀ de la dinámica */
+    float sabeResh;             /* qué parte del Resh sabe al nacer */
+    const char *objetivo;       /* lo que persigue */
+    float gusto[NACC];          /* gusto innato por cada acción */
+    int color;                  /* color ANSI 256 para la UI */
+} RolInfo;
+#define NYX_NCORPUS nyx_ncorpus
+typedef struct {
+    short j;
+    float w;      /* asociación (resonancia) */
+    float th;     /* desfase preferido: 0 acuerdo, π oposición */
+    float sec;    /* secuencia: cuánto "este va seguido de j" */
+} Acople;
+typedef struct {
+    char et[LARGO];
+    float f[DIMF];
+    float A, fase, frec;
+    signed char carga;
+    unsigned char fusion;   /* idea propia (a⊕b) */
+    unsigned char sabe;     /* sabe decirla en Resh */
+    unsigned char nv;
+    unsigned short usos, dialogo;
+    Acople v[MAXVEC];
+} Semion;
+typedef struct { short a, b, c; unsigned char k; } Camino;
+
+typedef struct {
+    int rol;
+    int n;
+    Semion s[MAXSEM];
+    short hash[HASHN];
+    float ruido, rigidez, A0;
+    short obj[8]; int nobj;
+    short foco[7]; int nfoco;          /* memoria de trabajo (7±2) */
+    short epis[24]; int nepis;         /* memoria episódica */
+    Camino cam[NCAM]; int ncam;
+    int aciertos, intentos;
+    float valor[NACC];                 /* lo aprendido: cuánto le conviene cada acción */
+    int veces[NACC];
+    int ultima, racha;
+    short recientes[6]; int nrec;      /* lo que ganó hace poco (fatiga) */
+    char ven[NVEN][LVEN]; int iven, nven;
+    long ciclos, dichos, ideas, cristales, reshAprendidas;
+} Mente;
+enum { EV_PIENSA, EV_DICE, EV_APRENDE, EV_IDEA, EV_RESH, EV_SUENA, EV_NOTA };
+typedef void (*NyxEvento)(void *ud, int rol, int tipo, const char *texto);
+typedef struct {
+    int rol;
+    char atractor[LARGO];
+    float C, E, peso;
+    int acuerdo;
+} NyxVoto;
+typedef struct {
+    char frase[420];
+    char resh[420];
+    char ganador[LARGO];
+    int vocero;
+    float acuerdo;
+    NyxVoto votos[NROLES];
+    int nvotos;
+    int recordada;          /* 1: la recordó de lo que leyó · 0: la armó ella */
+} NyxRespuesta;
+
+/* Una frase que leyeron, entera (frases.c). */
+typedef struct {
+    char t[LFRASE];
+    float puntos;           /* tu opinión: bien suma, mal resta */
+    unsigned short usos;
+} FraseMem;
+typedef struct {
+    Mente m[NROLES];
+    unsigned long tick;
+    int ultimo;
+    NyxEvento ev;
+    void *ud;
+    /* para 'bien' y 'mal': qué se dijo y quién lo pensó */
+    int fbValido, fbN;
+    int fbMente[NROLES], fbGan[NROLES], fbNest[NROLES];
+    int fbEst[NROLES][MAXEST];
+    int fbFrase[MAXFRASE], fbNfrase, fbVocero;
+    char ecos[10][200]; int iecos;     /* lo último que se dijo (anti-eco) */
+    int fbFr, fbRecordada;             /* la frase recordada que se dijo (o -1) */
+    FraseMem fr[MAXFR]; int nfr;       /* memoria de frases */
+} Consejo;
+
+/* datos compartidos */
+extern const char *NYX_ACC[NACC];
+extern const RolInfo NYX_ROLES[NROLES];
+extern const char *NYX_CORPUS[];
+extern const int nyx_ncorpus;
+
+/* funciones */
+void nyx_semilla(unsigned long long s);
+unsigned nyx_u32(void);
+unsigned nyx_fnv(const char *s);
+void nyx_copia(char *dst, const char *src, size_t cap);
+int nyx_rol_de(const char *nombre);
+int nyx_vacia(const char *w);
+int nyx_conector(const char *w);
+void nyx_dic_init(void);
+const char *nyx_a_resh(const char *es);
+const char *nyx_a_es(const char *resh);
+int nyx_es_particula(const char *es);
+int nyx_tokens(const char *t, char toks[][LARGO], int max);
+void nyx_firma(const char *w, float *f);
+float m_precision(const Mente *m);
+void m_ventana(Mente *m, const char *texto);
+int m_busca(const Mente *m, const char *et);
+void m_hash_pon(Mente *m, int i);
+void m_hash_rehace(Mente *m);
+int m_nuevo(Mente *m, const char *et, int fusion);
+Acople *m_acople(Mente *m, int a, int b);
+Acople *m_acople_nuevo(Mente *m, int a, int b, float w, float th);
+void m_fija(Mente *m, int a, int b, float w, float th);
+void m_refuerza(Mente *m, int a, int b, float dw, float th, float dsec);
+float m_coh(const Mente *m, int i);
+void m_envuelve(float *f);
+void m_decae(Mente *m, int i, float ruido);
+void m_propaga(Mente *m, int i);
+int m_region(const Mente *m, const int *est, int ne, int *out, int tope);
+void m_atiende(Mente *m, int id);
+void m_episodio(Mente *m, int id);
+int m_es_objetivo(const Mente *m, int id);
+void m_poda(Mente *m);
+int m_ingesta2(Mente *m, const char *texto, int *ids, int max, int dialogo, float gramatica);
+int m_ingesta(Mente *m, const char *texto, int *ids, int max, int dialogo);
+int m_ingesta2(Mente *m, const char *texto, int *ids, int max, int dialogo, float gramatica);
+int m_predice(const Mente *m, int *out, int max);
+int m_recibe(Mente *m, const char *texto, const char *quien, int *ids, int max);
+int m_salto(const Mente *m, int id, const int *vis, int nvis);
+int m_cristaliza(Mente *m, int a, int b, int c);
+int m_transitiva(Mente *m, int id);
+float m_incrustacion(const Mente *m, int id);
+int m_veredicto(Mente *m, const int *est0, int ne0, float *C, float *E, int *cristal);
+float m_en_contexto(const int *ctx, int nctx, int id);
+int m_frase(Mente *m, int centro, int *out, int max, const int *ctx, int nctx);
+void m_texto(const Mente *m, const int *ids, int n, char *es, size_t ces, char *resh, size_t cre);
+int m_imagina(Mente *m, int *pa, int *pb);
+void m_cansa(Mente *m, const int *ids, int n);
+void m_piensa(Mente *m);
+void m_init(Mente *m, int rol);
+int c_es_eco(const Consejo *c, const char *es);
+void c_pon_eco(Consejo *c, const char *es);
+void c_evento(Consejo *c, int rol, int tipo, const char *texto);
+void consejo_init(Consejo *c, unsigned long long semilla, int conInfancia);
+int consejo_lee(Consejo *c, const char *texto);
+float c_difunde(Consejo *c, int emisor, const int *frase, int nf, int *aprendieron, char *palabraAprendida);
+int c_ya_dicho(const Mente *m, const char *es);
+int c_tema(const Mente *m);
+int c_duda(const Mente *m);
+void c_aprende(Consejo *c, int rol, int acc, float recompensa);
+float c_puntaje(const Mente *m, int a);
+float c_habla(Consejo *c, int rol, int centro, const char *prefijo);
+void consejo_paso(Consejo *c);
+void consejo_delibera(Consejo *c, const char *pregunta, NyxRespuesta *out);
+void consejo_habla_con(Consejo *c, int rol, const char *texto, char *es, size_t ces, char *resh, size_t cre, float *C);
+int consejo_opina(Consejo *c, int bueno);
+int consejo_guarda(const Consejo *c, const char *ruta);
+int consejo_carga2(Consejo *c, Consejo *tmp0, FILE *f);
+int consejo_carga(Consejo *c, const char *ruta);
+int consejo_carga2(Consejo *c, Consejo *tmp0, FILE *f);
+int m_cuenta_resh(const Mente *m);
+int m_mejor_accion(const Mente *m);
+
+
+/* frases.c */
+int frases_pon(Consejo *c, const char *texto);
+int frases_elige(const Consejo *c, const Mente *m, int centro, const int *ctx, int nctx, float *puntaje);
+void frases_resh(const Mente *m, const char *es, char *resh, size_t cap);
+void frases_opina(Consejo *c, int k, int bueno);
+
+/* ayudas pequeñas */
+static inline float nyx_f01(void) { return (float)(nyx_u32() >> 8) * (1.0f / 16777216.0f); }
+static inline float nyx_rango(float a, float b) { return a + (b - a) * nyx_f01(); }
+static inline int nyx_ent(int n) { return n <= 0 ? 0 : (int)(nyx_u32() % (unsigned)n); }
+static inline float nyx_min(float a, float b) { return a < b ? a : b; }
+static inline float nyx_max(float a, float b) { return a > b ? a : b; }
+static inline float nyx_lim(float x, float a, float b) { return x < a ? a : (x > b ? b : x); }
+
+#endif
+
 /* resh.h — léxico de la lengua Resh (generado del léxico Swift de Nyxshell).
  * Español -> Resh. No hace falta editarlo a mano. */
 #ifndef NYX_RESH_H
 #define NYX_RESH_H
 
-typedef struct { const char *es; const char *resh; } ParResh;
 
 /* partículas: la capa de coordinación (forma, significado) */
 static const ParResh RESH_PARTICULAS[] = {
@@ -3242,20 +3425,8 @@ static const ParResh RESH_LEXICO[] = {
 #endif
 
 
-#define NROLES 18
-#define MAXSEM 1000        /* semiones por mente */
-#define MAXVEC 16          /* acoples por semión */
-#define DIMF 8             /* rasgos de la firma */
-#define LARGO 28           /* bytes de una etiqueta (con el 0 final) */
-#define HASHN 4096         /* tabla etiqueta -> semión (potencia de 2) */
-#define NACC 6             /* cosas que una mente puede querer hacer */
-#define NVEN 16            /* ventana de contexto (lo último que vivió) */
-#define LVEN 112
-#define MAXEST 24          /* palabras por estímulo */
-#define NCAM 48            /* caminos A->B->C recordados */
-#define MAXFRASE 12
-#define NYX_PI 3.14159265f
-#define NYX_2PI 6.28318531f
+/* ===== base.c ===== */
+/* base.c — azar, textos y cómo es cada una de las 18 */
 
 /* ------------------------------------------------------------------ */
 /*  Azar (xorshift: igual en todas las plataformas)                    */
@@ -3263,11 +3434,11 @@ static const ParResh RESH_LEXICO[] = {
 
 static unsigned long long nyx_azar_estado = 88172645463325252ULL;
 
-static void nyx_semilla(unsigned long long s) {
+void nyx_semilla(unsigned long long s) {
     nyx_azar_estado = s ? s : 88172645463325252ULL;
 }
 
-static unsigned nyx_u32(void) {
+unsigned nyx_u32(void) {
     unsigned long long x = nyx_azar_estado;
     x ^= x << 13;
     x ^= x >> 7;
@@ -3276,20 +3447,14 @@ static unsigned nyx_u32(void) {
     return (unsigned)(x >> 32);
 }
 
-static float nyx_f01(void) { return (float)(nyx_u32() >> 8) * (1.0f / 16777216.0f); }
-static float nyx_rango(float a, float b) { return a + (b - a) * nyx_f01(); }
-static int nyx_ent(int n) { return n <= 0 ? 0 : (int)(nyx_u32() % (unsigned)n); }
-static float nyx_min(float a, float b) { return a < b ? a : b; }
-static float nyx_max(float a, float b) { return a > b ? a : b; }
-static float nyx_lim(float x, float a, float b) { return x < a ? a : (x > b ? b : x); }
 
-static unsigned nyx_fnv(const char *s) {
+unsigned nyx_fnv(const char *s) {
     unsigned h = 2166136261u;
     while (*s) { h ^= (unsigned char)*s++; h *= 16777619u; }
     return h;
 }
 
-static void nyx_copia(char *dst, const char *src, size_t cap) {
+void nyx_copia(char *dst, const char *src, size_t cap) {
     size_t i = 0;
     if (cap == 0) return;
     while (src[i] && i + 1 < cap) { dst[i] = src[i]; i++; }
@@ -3311,19 +3476,10 @@ static void nyx_copia(char *dst, const char *src, size_t cap) {
 /*  Roles: cómo es cada una de las 18                                  */
 /* ------------------------------------------------------------------ */
 
-enum { ACC_HABLAR, ACC_PREGUNTAR, ACC_IMAGINAR, ACC_SONAR, ACC_RECORDAR, ACC_ESCUCHAR };
-static const char *NYX_ACC[NACC] = { "hablar", "preguntar", "imaginar", "soñar", "recordar", "escuchar" };
+const char *NYX_ACC[NACC] = { "hablar", "preguntar", "imaginar", "soñar", "recordar", "escuchar" };
 
-typedef struct {
-    const char *nombre;
-    float ruido, rigidez, A0;   /* η, λ, A₀ de la dinámica */
-    float sabeResh;             /* qué parte del Resh sabe al nacer */
-    const char *objetivo;       /* lo que persigue */
-    float gusto[NACC];          /* gusto innato por cada acción */
-    int color;                  /* color ANSI 256 para la UI */
-} RolInfo;
 
-static const RolInfo NYX_ROLES[NROLES] = {
+const RolInfo NYX_ROLES[NROLES] = {
     { "sintaxis",    0.02f, 1.2f,  0.65f, 0.45f, "frase bien formada orden claro estructura", {.5f,.2f,.1f,.4f,.3f,.3f},  39 },
     { "semantica",   0.05f, 0.8f,  0.60f, 0.40f, "significado claro que se entienda",          {.6f,.3f,.2f,.3f,.3f,.3f},  45 },
     { "logica",      0.01f, 1.4f,  0.70f, 0.30f, "valido sin contradiccion coherente",         {.4f,.3f,.1f,.6f,.2f,.3f},  33 },
@@ -3344,7 +3500,7 @@ static const RolInfo NYX_ROLES[NROLES] = {
     { "empatia",     0.05f, 0.6f,  0.65f, 0.35f, "escucha comprende alinea acompana",          {.5f,.3f,.2f,.2f,.3f,.8f}, 210 },
 };
 
-static int nyx_rol_de(const char *nombre) {
+int nyx_rol_de(const char *nombre) {
     int r;
     for (r = 0; r < NROLES; r++)
         if (strcmp(NYX_ROLES[r].nombre, nombre) == 0) return r;
@@ -3355,7 +3511,7 @@ static int nyx_rol_de(const char *nombre) {
 }
 
 /* Lo que leen al nacer: la infancia de las 18 (si no hay memoria guardada). */
-static const char *NYX_CORPUS[] = {
+const char *NYX_CORPUS[] = {
     "la mente aprende cuando escucha y pregunta",
     "una idea nueva nace cuando dos ideas se unen",
     "la luz del sol hace crecer el árbol",
@@ -3397,7 +3553,7 @@ static const char *NYX_CORPUS[] = {
     "juntas las mentes ven más lejos",
     "la esencia de algo es lo que no cambia",
 };
-#define NYX_NCORPUS ((int)(sizeof NYX_CORPUS / sizeof NYX_CORPUS[0]))
+const int nyx_ncorpus = (int)(sizeof NYX_CORPUS / sizeof NYX_CORPUS[0]);
 
 /* Palabras vacías: sirven para la gramática, nunca para ganar un veredicto. */
 static const char *NYX_VACIAS[] = {
@@ -3408,25 +3564,30 @@ static const char *NYX_VACIAS[] = {
     "tú", "él", "ella", "todo", "toda", "sin", "sobre", "entre", "hasta", "desde", "también", "ni",
 };
 
-static int nyx_vacia(const char *w) {
+int nyx_vacia(const char *w) {
     size_t i;
     for (i = 0; i < sizeof NYX_VACIAS / sizeof NYX_VACIAS[0]; i++)
         if (strcmp(NYX_VACIAS[i], w) == 0) return 1;
     return 0;
 }
 
-static int nyx_conector(const char *w) {
+int nyx_conector(const char *w) {
     static const char *c[] = { "y", "o", "u", "e", "en", "por", "con", "de", "del", "que", "a", "al", "para", "ni", "pero", "sin", "como", "se", "es", "son" };
     size_t i;
     for (i = 0; i < sizeof c / sizeof c[0]; i++) if (strcmp(c[i], w) == 0) return 1;
     return 0;
 }
 
+
+/* ===== resh.c ===== */
+/* resh.c — diccionario de la lengua Resh (tabla hash sobre resh.h) */
+
+#define NYX_DICN 8192
+
 /* ------------------------------------------------------------------ */
 /*  Diccionario Resh (tabla hash sobre resh.h)                         */
 /* ------------------------------------------------------------------ */
 
-#define NYX_DICN 8192
 static short nyx_dic_es[NYX_DICN], nyx_dic_re[NYX_DICN];
 static int nyx_dic_listo = 0;
 
@@ -3445,7 +3606,7 @@ static void nyx_dic_pon(short *t, int k, int porResh) {
     t[h] = (short)k;
 }
 
-static void nyx_dic_init(void) {
+void nyx_dic_init(void) {
     int k;
     if (nyx_dic_listo) return;
     for (k = 0; k < NYX_DICN; k++) { nyx_dic_es[k] = -1; nyx_dic_re[k] = -1; }
@@ -3467,29 +3628,33 @@ static const ParResh *nyx_dic_busca(const short *t, const char *clave, int porRe
 }
 
 /* español -> resh (NULL si no está en el léxico) */
-static const char *nyx_a_resh(const char *es) {
+const char *nyx_a_resh(const char *es) {
     const ParResh *p = nyx_dic_busca(nyx_dic_es, es, 0);
     return p ? p->resh : NULL;
 }
 
 /* resh -> español */
-static const char *nyx_a_es(const char *resh) {
+const char *nyx_a_es(const char *resh) {
     const ParResh *p = nyx_dic_busca(nyx_dic_re, resh, 1);
     return p ? p->es : NULL;
 }
 
-static int nyx_es_particula(const char *es) {
+int nyx_es_particula(const char *es) {
     int k;
     for (k = 0; k < N_RESH_PROTOCOLO; k++)
         if (strcmp(RESH_PROTOCOLO[k].es, es) == 0) return 1;
     return 0;
 }
 
+
+/* ===== texto.c ===== */
+/* texto.c — palabras en minúscula y firma formal */
+
 /* ------------------------------------------------------------------ */
 /*  Texto: palabras en minúscula, sin puntuación                       */
 /* ------------------------------------------------------------------ */
 
-static int nyx_tokens(const char *t, char toks[][LARGO], int max) {
+int nyx_tokens(const char *t, char toks[][LARGO], int max) {
     int n = 0;
     char w[64];
     int lw = 0;
@@ -3531,7 +3696,7 @@ static int nyx_tokens(const char *t, char toks[][LARGO], int max) {
 }
 
 /* Firma formal de una palabra (sin embeddings): forma, ritmo y símbolos. */
-static void nyx_firma(const char *w, float *f) {
+void nyx_firma(const char *w, float *f) {
     int len = 0, nb = 0, sim = 0, dig = 0, voc = 0, simb = 0, acen = 0, i;
     double suma = 0, var = 0, media;
     int L = (int)strlen(w);
@@ -3559,61 +3724,28 @@ static void nyx_firma(const char *w, float *f) {
     f[7] = (float)simb / (float)len;
 }
 
+
+/* ===== mente.c ===== */
+/* mente.c — una mente: semiones, resonancia, veredicto y frases */
+
 /* ------------------------------------------------------------------ */
 /*  Mente                                                              */
 /* ------------------------------------------------------------------ */
 
-typedef struct {
-    short j;
-    float w;      /* asociación (resonancia) */
-    float th;     /* desfase preferido: 0 acuerdo, π oposición */
-    float sec;    /* secuencia: cuánto "este va seguido de j" */
-} Acople;
 
-typedef struct {
-    char et[LARGO];
-    float f[DIMF];
-    float A, fase, frec;
-    signed char carga;
-    unsigned char fusion;   /* idea propia (a⊕b) */
-    unsigned char sabe;     /* sabe decirla en Resh */
-    unsigned char nv;
-    unsigned short usos, dialogo;
-    Acople v[MAXVEC];
-} Semion;
 
-typedef struct { short a, b, c; unsigned char k; } Camino;
 
-typedef struct {
-    int rol;
-    int n;
-    Semion s[MAXSEM];
-    short hash[HASHN];
-    float ruido, rigidez, A0;
-    short obj[8]; int nobj;
-    short foco[7]; int nfoco;          /* memoria de trabajo (7±2) */
-    short epis[24]; int nepis;         /* memoria episódica */
-    Camino cam[NCAM]; int ncam;
-    int aciertos, intentos;
-    float valor[NACC];                 /* lo aprendido: cuánto le conviene cada acción */
-    int veces[NACC];
-    int ultima, racha;
-    short recientes[6]; int nrec;      /* lo que ganó hace poco (fatiga) */
-    char ven[NVEN][LVEN]; int iven, nven;
-    long ciclos, dichos, ideas, cristales, reshAprendidas;
-} Mente;
-
-static float m_precision(const Mente *m) {
+float m_precision(const Mente *m) {
     return m->intentos > 0 ? (float)m->aciertos / (float)m->intentos : 0.5f;
 }
 
-static void m_ventana(Mente *m, const char *texto) {
+void m_ventana(Mente *m, const char *texto) {
     nyx_copia(m->ven[m->iven], texto, LVEN);
     m->iven = (m->iven + 1) % NVEN;
     if (m->nven < NVEN) m->nven++;
 }
 
-static int m_busca(const Mente *m, const char *et) {
+int m_busca(const Mente *m, const char *et) {
     unsigned h = nyx_fnv(et) & (HASHN - 1);
     while (m->hash[h] >= 0) {
         if (strcmp(m->s[m->hash[h]].et, et) == 0) return m->hash[h];
@@ -3622,19 +3754,19 @@ static int m_busca(const Mente *m, const char *et) {
     return -1;
 }
 
-static void m_hash_pon(Mente *m, int i) {
+void m_hash_pon(Mente *m, int i) {
     unsigned h = nyx_fnv(m->s[i].et) & (HASHN - 1);
     while (m->hash[h] >= 0) h = (h + 1) & (HASHN - 1);
     m->hash[h] = (short)i;
 }
 
-static void m_hash_rehace(Mente *m) {
+void m_hash_rehace(Mente *m) {
     int i;
     for (i = 0; i < HASHN; i++) m->hash[i] = -1;
     for (i = 0; i < m->n; i++) m_hash_pon(m, i);
 }
 
-static int m_nuevo(Mente *m, const char *et, int fusion) {
+int m_nuevo(Mente *m, const char *et, int fusion) {
     Semion *s;
     const char *r;
     if (m->n >= MAXSEM) return -1;
@@ -3653,7 +3785,7 @@ static int m_nuevo(Mente *m, const char *et, int fusion) {
     return m->n++;
 }
 
-static Acople *m_acople(Mente *m, int a, int b) {
+Acople *m_acople(Mente *m, int a, int b) {
     Semion *s = &m->s[a];
     int k;
     for (k = 0; k < s->nv; k++)
@@ -3662,7 +3794,7 @@ static Acople *m_acople(Mente *m, int a, int b) {
 }
 
 /* Crea el acople a->b (si no cabe, reemplaza el más débil). */
-static Acople *m_acople_nuevo(Mente *m, int a, int b, float w, float th) {
+Acople *m_acople_nuevo(Mente *m, int a, int b, float w, float th) {
     Semion *s = &m->s[a];
     Acople *c;
     if (a == b) return NULL;
@@ -3679,14 +3811,14 @@ static Acople *m_acople_nuevo(Mente *m, int a, int b, float w, float th) {
     return c;
 }
 
-static void m_fija(Mente *m, int a, int b, float w, float th) {
+void m_fija(Mente *m, int a, int b, float w, float th) {
     Acople *c = m_acople(m, a, b);
     if (!c) c = m_acople_nuevo(m, a, b, w, th);
     if (c) { c->w = w; c->th = th; }
 }
 
 /* Refuerzo con saturación: repetir acerca a 1 sin pasarse. */
-static void m_refuerza(Mente *m, int a, int b, float dw, float th, float dsec) {
+void m_refuerza(Mente *m, int a, int b, float dw, float th, float dsec) {
     Acople *c;
     if (a == b) return;
     c = m_acople(m, a, b);
@@ -3695,7 +3827,7 @@ static void m_refuerza(Mente *m, int a, int b, float dw, float th, float dsec) {
     c->sec += dsec * (1 - c->sec);
 }
 
-static float m_coh(const Mente *m, int i) {
+float m_coh(const Mente *m, int i) {
     const Semion *s = &m->s[i];
     float c = 0;
     int k;
@@ -3706,12 +3838,12 @@ static float m_coh(const Mente *m, int i) {
     return c;
 }
 
-static void m_envuelve(float *f) {
+void m_envuelve(float *f) {
     *f = fmodf(*f, NYX_2PI);
     if (*f < 0) *f += NYX_2PI;
 }
 
-static void m_decae(Mente *m, int i, float ruido) {
+void m_decae(Mente *m, int i, float ruido) {
     Semion *s = &m->s[i];
     float A = s->A;
     float dA = -m->rigidez * (A * A - m->A0 * m->A0) * A * 0.02f;
@@ -3720,7 +3852,7 @@ static void m_decae(Mente *m, int i, float ruido) {
     m_envuelve(&s->fase);
 }
 
-static void m_propaga(Mente *m, int i) {
+void m_propaga(Mente *m, int i) {
     Semion *s = &m->s[i];
     float d = 0;
     int k;
@@ -3735,7 +3867,7 @@ static void m_propaga(Mente *m, int i) {
 }
 
 /* Lo que el estímulo despierta: él, sus vecinos y los vecinos de esos. */
-static int m_region(const Mente *m, const int *est, int ne, int *out, int tope) {
+int m_region(const Mente *m, const int *est, int ne, int *out, int tope) {
     static unsigned char marca[MAXSEM];
     int n = 0, i, k, ini, fin;
     for (i = 0; i < ne && n < tope; i++)
@@ -3756,7 +3888,7 @@ static int m_region(const Mente *m, const int *est, int ne, int *out, int tope) 
     return n;
 }
 
-static void m_atiende(Mente *m, int id) {
+void m_atiende(Mente *m, int id) {
     int i, j = 0;
     for (i = 0; i < m->nfoco; i++) if (m->foco[i] != id) m->foco[j++] = m->foco[i];
     m->nfoco = j;
@@ -3765,12 +3897,12 @@ static void m_atiende(Mente *m, int id) {
     m->s[id].A = nyx_min(1, m->s[id].A + 0.12f);
 }
 
-static void m_episodio(Mente *m, int id) {
+void m_episodio(Mente *m, int id) {
     if (m->nepis == 24) { memmove(m->epis, m->epis + 1, 23 * sizeof m->epis[0]); m->nepis = 23; }
     m->epis[m->nepis++] = (short)id;
 }
 
-static int m_es_objetivo(const Mente *m, int id) {
+int m_es_objetivo(const Mente *m, int id) {
     int k;
     for (k = 0; k < m->nobj; k++) if (m->obj[k] == id) return 1;
     return 0;
@@ -3778,7 +3910,7 @@ static int m_es_objetivo(const Mente *m, int id) {
 
 /* Poda homeostática: libera ~12% cuando la mente se llena. Primero caen las
  * ideas propias que nadie retomó; luego lo menos coherente y usado. */
-static void m_poda(Mente *m) {
+void m_poda(Mente *m) {
     static float punt[MAXSEM];
     static short nuevo[MAXSEM];
     int quitar = m->n / 8, i, k, q;
@@ -3838,17 +3970,16 @@ static void m_poda(Mente *m) {
 }
 
 /* Ingesta: texto -> semiones, con asociación (ventana de 3) y secuencia. */
-static int m_ingesta2(Mente *m, const char *texto, int *ids, int max, int dialogo, float gramatica);
 
 /* Ingesta con gramática plena (lo que escribe el humano o un libro). */
-static int m_ingesta(Mente *m, const char *texto, int *ids, int max, int dialogo) {
+int m_ingesta(Mente *m, const char *texto, int *ids, int max, int dialogo) {
     return m_ingesta2(m, texto, ids, max, dialogo, 1.0f);
 }
 
 /* gramatica: cuánto se aprende el ORDEN de las palabras. Las frases de otras
  * mentes enseñan asociaciones, pero poca gramática: si no, se copiarían sus
  * frases a medio hacer y el idioma se degradaría. */
-static int m_ingesta2(Mente *m, const char *texto, int *ids, int max, int dialogo, float gramatica) {
+int m_ingesta2(Mente *m, const char *texto, int *ids, int max, int dialogo, float gramatica) {
     char toks[MAXEST][LARGO];
     int nt = nyx_tokens(texto, toks, MAXEST), k = 0, i, d;
     if (m->n > MAXSEM - MAXEST - 8) m_poda(m);
@@ -3871,7 +4002,7 @@ static int m_ingesta2(Mente *m, const char *texto, int *ids, int max, int dialog
 }
 
 /* Predicción: lo que espera oír según su foco. */
-static int m_predice(const Mente *m, int *out, int max) {
+int m_predice(const Mente *m, int *out, int max) {
     int cand[64], n = 0, i, k;
     float peso[64];
     for (i = 0; i < m->nfoco; i++) {
@@ -3894,7 +4025,7 @@ static int m_predice(const Mente *m, int *out, int max) {
 }
 
 /* Recibir: transducir lo que otro dijo. Lo sorprendente se aprende más. */
-static int m_recibe(Mente *m, const char *texto, const char *quien, int *ids, int max) {
+int m_recibe(Mente *m, const char *texto, const char *quien, int *ids, int max) {
     int pred[3], np = m_predice(m, pred, 3), k, i, aciertos = 0;
     float sorpresa;
     char linea[LVEN];
@@ -3915,7 +4046,7 @@ static int m_recibe(Mente *m, const char *texto, const char *quien, int *ids, in
 }
 
 /* Elige el siguiente vecino más coherente no visitado (para razonar a saltos). */
-static int m_salto(const Mente *m, int id, const int *vis, int nvis) {
+int m_salto(const Mente *m, int id, const int *vis, int nvis) {
     const Semion *s = &m->s[id];
     int k, mejor = -1;
     float mc = -1e9f;
@@ -3932,7 +4063,7 @@ static int m_salto(const Mente *m, int id, const int *vis, int nvis) {
 }
 
 /* Cristalización: un camino A->B->C recorrido 3 veces se vuelve concepto. */
-static int m_cristaliza(Mente *m, int a, int b, int c) {
+int m_cristaliza(Mente *m, int a, int b, int c) {
     char et[LARGO * 3];
     char ea[10], eb[10], ec[10];
     int id, k;
@@ -3956,7 +4087,7 @@ static int m_cristaliza(Mente *m, int a, int b, int c) {
 }
 
 /* Inferencia transitiva: refuerza A->B->C; el atajo perdura. */
-static int m_transitiva(Mente *m, int id) {
+int m_transitiva(Mente *m, int id) {
     int vis[3], s1, s2, k;
     Acople *c;
     vis[0] = id;
@@ -3982,7 +4113,7 @@ static int m_transitiva(Mente *m, int id) {
     return -1;
 }
 
-static float m_incrustacion(const Mente *m, int id) {
+float m_incrustacion(const Mente *m, int id) {
     const Semion *s = &m->s[id];
     int k, n = 0;
     if (s->nv == 0) return 0;
@@ -3992,7 +4123,7 @@ static float m_incrustacion(const Mente *m, int id) {
 
 /* Veredicto: el estímulo despierta una región, se relaja con recocido
  * (caliente -> frío) y gana lo que la pregunta EVOCA (no su eco). */
-static int m_veredicto(Mente *m, const int *est0, int ne0, float *C, float *E, int *cristal) {
+int m_veredicto(Mente *m, const int *est0, int ne0, float *C, float *E, int *cristal) {
     static int reg[320];
     int est[MAXEST], ne = 0, nr, it, i, gan = -1;
     float mejor = -1e9f;
@@ -4050,7 +4181,7 @@ static int m_veredicto(Mente *m, const int *est0, int ne0, float *C, float *E, i
 
 /* Frase: lo que va antes y después del centro según la memoria de
  * secuencia. Devuelve los semiones en orden. */
-static float m_en_contexto(const int *ctx, int nctx, int id) {
+float m_en_contexto(const int *ctx, int nctx, int id) {
     int i;
     for (i = 0; i < nctx; i++) if (ctx[i] == id) return 0.6f;
     return 0;
@@ -4058,7 +4189,7 @@ static float m_en_contexto(const int *ctx, int nctx, int id) {
 
 /* ctx: las palabras de lo que se preguntó; la frase prefiere ir por ahí
  * (así "qué es el mar" lleva a "el mar es grande", no a otra frase con "es"). */
-static int m_frase(Mente *m, int centro, int *out, int max, const int *ctx, int nctx) {
+int m_frase(Mente *m, int centro, int *out, int max, const int *ctx, int nctx) {
     int pre[3], npre = 0, n = 0, i, k, actual, objetivoLargo;
     /* hasta 2 palabras que suelen ir ANTES */
     actual = centro;
@@ -4118,7 +4249,7 @@ static int m_frase(Mente *m, int centro, int *out, int max, const int *ctx, int 
     return n;
 }
 
-static void m_texto(const Mente *m, const int *ids, int n, char *es, size_t ces, char *resh, size_t cre) {
+void m_texto(const Mente *m, const int *ids, int n, char *es, size_t ces, char *resh, size_t cre) {
     int i;
     size_t le = 0, lr = 0;
     es[0] = 0; resh[0] = 0;
@@ -4133,7 +4264,7 @@ static void m_texto(const Mente *m, const int *ids, int n, char *es, size_t ces,
 }
 
 /* Idea propia: fusiona dos ideas activas parecidas por su firma efectiva. */
-static int m_imagina(Mente *m, int *pa, int *pb) {
+int m_imagina(Mente *m, int *pa, int *pb) {
     int act[64], na = 0, i, k, a, b = -1, id;
     float fa[DIMF], mejor = 1e9f;
     char et[LARGO * 2], ea[12], eb[12];
@@ -4185,13 +4316,13 @@ static int m_imagina(Mente *m, int *pa, int *pb) {
 }
 
 /* Después de decir algo, esas ideas se cansan: el tema puede cambiar. */
-static void m_cansa(Mente *m, const int *ids, int n) {
+void m_cansa(Mente *m, const int *ids, int n) {
     int i;
     for (i = 0; i < n; i++) m->s[ids[i]].A = nyx_max(0.1f, m->s[ids[i]].A * 0.7f);
 }
 
 /* Un ciclo de pensamiento local: relaja lo que está en el foco. */
-static void m_piensa(Mente *m) {
+void m_piensa(Mente *m) {
     int est[7], reg[200], nr, i;
     for (i = 0; i < m->nfoco; i++) est[i] = m->foco[i];
     nr = m_region(m, est, m->nfoco, reg, 160);
@@ -4201,7 +4332,7 @@ static void m_piensa(Mente *m) {
     m->ciclos++;
 }
 
-static void m_init(Mente *m, int rol) {
+void m_init(Mente *m, int rol) {
     int ids[MAXEST], n, i;
     memset(m, 0, sizeof *m);
     m->rol = rol;
@@ -4219,60 +4350,132 @@ static void m_init(Mente *m, int rol) {
     }
 }
 
+
+/* ===== frases.c ===== */
+/* frases.c — memoria de frases: lo que leyeron, entero.
+ *
+ * Las mentes recuerdan palabras y cómo se asocian (mente.c), pero una frase
+ * armada palabra por palabra a veces mezcla dos frases distintas. Aquí se
+ * guardan las frases completas que leyeron. Para responder, la mente que
+ * habla busca las frases que contienen su idea ganadora y elige la que mejor
+ * encaja con la pregunta y con lo que tiene activo. Tu opinión (bien/mal)
+ * también cuenta: una frase que no te gustó pierde la próxima vez.
+ */
+
+static int fr_tokens(const char *t, char toks[][LARGO], int max) {
+    return nyx_tokens(t, toks, max);
+}
+
+/* Guarda una frase (si no la tenía). Devuelve su índice o -1. */
+int frases_pon(Consejo *c, const char *texto) {
+    char toks[MAXEST][LARGO];
+    char limpio[LFRASE];
+    int n = fr_tokens(texto, toks, MAXEST), i, k, peor;
+    size_t l = 0;
+    if (n < 3) return -1;               /* "hola" no es una frase que recordar */
+    limpio[0] = 0;
+    for (i = 0; i < n; i++) {           /* se guarda ya normalizada */
+        int esc = snprintf(limpio + l, sizeof limpio - l, "%s%s", i ? " " : "", toks[i]);
+        if (esc < 0 || (size_t)esc >= sizeof limpio - l) break;
+        l += (size_t)esc;
+    }
+    for (k = 0; k < c->nfr; k++)
+        if (strcmp(c->fr[k].t, limpio) == 0) { if (c->fr[k].usos < 65000) c->fr[k].usos++; return k; }
+    if (c->nfr < MAXFR) k = c->nfr++;
+    else {                               /* llena: se olvida la menos valorada */
+        peor = 0;
+        for (k = 1; k < MAXFR; k++)
+            if (c->fr[k].puntos + 0.1f * c->fr[k].usos < c->fr[peor].puntos + 0.1f * c->fr[peor].usos) peor = k;
+        k = peor;
+    }
+    nyx_copia(c->fr[k].t, limpio, LFRASE);
+    c->fr[k].puntos = 0;
+    c->fr[k].usos = 1;
+    return k;
+}
+
+/* Elige la frase que esta mente diría sobre 'centro'.
+ * ctx: lo que se preguntó (ids de la mente). Devuelve índice o -1. */
+int frases_elige(const Consejo *c, const Mente *m, int centro, const int *ctx, int nctx, float *puntaje) {
+    char toks[MAXEST][LARGO];
+    int k, mejor = -1;
+    float mp = -1e9f;
+    const char *et;
+    if (centro < 0) return -1;
+    et = m->s[centro].et;
+    for (k = 0; k < c->nfr; k++) {
+        int n = fr_tokens(c->fr[k].t, toks, MAXEST), i, x, tiene = 0, enCtx = 0, conocidas = 0;
+        float act = 0, p;
+        for (i = 0; i < n; i++) {
+            int id;
+            if (strcmp(toks[i], et) == 0) tiene = 1;
+            if (nyx_vacia(toks[i])) continue;
+            for (x = 0; x < nctx; x++)
+                if (ctx[x] != centro && strcmp(m->s[ctx[x]].et, toks[i]) == 0) { enCtx++; break; }
+            id = m_busca(m, toks[i]);
+            if (id >= 0) { act += m->s[id].A; conocidas++; }
+        }
+        if (!tiene) continue;
+        p = 1.0f * (float)enCtx + 0.5f * (conocidas ? act / (float)conocidas : 0) + c->fr[k].puntos
+            + nyx_rango(0, m->ruido + 0.05f);
+        if (c_es_eco(c, c->fr[k].t)) p -= 2.0f;      /* no repetir lo que se acaba de decir */
+        if (p > mp) { mp = p; mejor = k; }
+    }
+    if (puntaje) *puntaje = mp;
+    return mejor;
+}
+
+/* La frase en Resh, con lo que esta mente sabe decir. */
+void frases_resh(const Mente *m, const char *es, char *resh, size_t cap) {
+    char toks[MAXEST][LARGO];
+    int n = fr_tokens(es, toks, MAXEST), i;
+    size_t l = 0;
+    resh[0] = 0;
+    for (i = 0; i < n; i++) {
+        int id = m_busca(m, toks[i]);
+        const char *r = id >= 0 && m->s[id].sabe ? nyx_a_resh(toks[i]) : NULL;
+        int esc = snprintf(resh + l, cap > l ? cap - l : 0, "%s%s", i ? " " : "", r ? r : toks[i]);
+        if (esc < 0 || (size_t)esc >= cap - l) break;
+        l += (size_t)esc;
+    }
+}
+
+/* Tu opinión sobre una frase recordada. */
+void frases_opina(Consejo *c, int k, int bueno) {
+    if (k < 0 || k >= c->nfr) return;
+    c->fr[k].puntos += bueno ? 0.5f : -1.0f;
+    if (c->fr[k].puntos < -5) c->fr[k].puntos = -5;
+    if (c->fr[k].puntos > 5) c->fr[k].puntos = 5;
+}
+
+
+/* ===== consejo.c ===== */
+/* consejo.c — las 18 juntas: imaginación, deliberación y opinión */
+
 /* ------------------------------------------------------------------ */
 /*  Consejo: las 18 juntas                                             */
 /* ------------------------------------------------------------------ */
 
-enum { EV_PIENSA, EV_DICE, EV_APRENDE, EV_IDEA, EV_RESH, EV_SUENA, EV_NOTA };
-typedef void (*NyxEvento)(void *ud, int rol, int tipo, const char *texto);
 
-typedef struct {
-    int rol;
-    char atractor[LARGO];
-    float C, E, peso;
-    int acuerdo;
-} NyxVoto;
 
-typedef struct {
-    char frase[420];
-    char resh[420];
-    char ganador[LARGO];
-    int vocero;
-    float acuerdo;
-    NyxVoto votos[NROLES];
-    int nvotos;
-} NyxRespuesta;
 
-typedef struct {
-    Mente m[NROLES];
-    unsigned long tick;
-    int ultimo;
-    NyxEvento ev;
-    void *ud;
-    /* para 'bien' y 'mal': qué se dijo y quién lo pensó */
-    int fbValido, fbN;
-    int fbMente[NROLES], fbGan[NROLES], fbNest[NROLES];
-    int fbEst[NROLES][MAXEST];
-    int fbFrase[MAXFRASE], fbNfrase, fbVocero;
-    char ecos[10][200]; int iecos;     /* lo último que se dijo (anti-eco) */
-} Consejo;
 
-static int c_es_eco(const Consejo *c, const char *es) {
+int c_es_eco(const Consejo *c, const char *es) {
     int i;
     for (i = 0; i < 10; i++) if (c->ecos[i][0] && strcmp(c->ecos[i], es) == 0) return 1;
     return 0;
 }
 
-static void c_pon_eco(Consejo *c, const char *es) {
+void c_pon_eco(Consejo *c, const char *es) {
     nyx_copia(c->ecos[c->iecos], es, sizeof c->ecos[0]);
     c->iecos = (c->iecos + 1) % 10;
 }
 
-static void c_evento(Consejo *c, int rol, int tipo, const char *texto) {
+void c_evento(Consejo *c, int rol, int tipo, const char *texto) {
     if (c->ev) c->ev(c->ud, rol, tipo, texto);
 }
 
-static void consejo_init(Consejo *c, unsigned long long semilla, int conInfancia) {
+void consejo_init(Consejo *c, unsigned long long semilla, int conInfancia) {
     int r, i, ids[MAXEST];
     nyx_dic_init();
     nyx_semilla(semilla);
@@ -4280,20 +4483,25 @@ static void consejo_init(Consejo *c, unsigned long long semilla, int conInfancia
     for (r = 0; r < NROLES; r++) m_init(&c->m[r], r);
     if (conInfancia)
         for (i = 0; i < NYX_NCORPUS; i++)
+        {
             for (r = 0; r < NROLES; r++) m_ingesta(&c->m[r], NYX_CORPUS[i], ids, MAXEST, 0);
+            frases_pon(c, NYX_CORPUS[i]);
+        }
     c->ultimo = -1;
+    c->fbFr = -1;
 }
 
 /* Todas leen un texto (enseñar). Devuelve cuántas palabras nuevas hubo. */
-static int consejo_lee(Consejo *c, const char *texto) {
+int consejo_lee(Consejo *c, const char *texto) {
     int r, ids[MAXEST], antes = c->m[0].n;
     for (r = 0; r < NROLES; r++) m_ingesta(&c->m[r], texto, ids, MAXEST, 0);
+    frases_pon(c, texto);
     return c->m[0].n - antes > 0 ? c->m[0].n - antes : 0;
 }
 
 /* Las demás oyen lo que dijo 'emisor'. Si el emisor sabía decir una palabra
  * en Resh y la oyente no, puede aprenderla. Devuelve la resonancia media. */
-static float c_difunde(Consejo *c, int emisor, const int *frase, int nf, int *aprendieron, char *palabraAprendida) {
+float c_difunde(Consejo *c, int emisor, const int *frase, int nf, int *aprendieron, char *palabraAprendida) {
     Mente *e = &c->m[emisor];
     char es[400], resh[400];
     float suma = 0;
@@ -4328,7 +4536,7 @@ static float c_difunde(Consejo *c, int emisor, const int *frase, int nf, int *ap
 }
 
 /* ¿Ya lo dijo hace poco? (anti-eco) */
-static int c_ya_dicho(const Mente *m, const char *es) {
+int c_ya_dicho(const Mente *m, const char *es) {
     int i;
     for (i = 0; i < m->nven; i++)
         if (strncmp(m->ven[i], "dije: ", 6) == 0 && strcmp(m->ven[i] + 6, es) == 0) return 1;
@@ -4336,7 +4544,7 @@ static int c_ya_dicho(const Mente *m, const char *es) {
 }
 
 /* Tema de esta mente ahora: lo más activo de su foco (o de sus objetivos). */
-static int c_tema(const Mente *m) {
+int c_tema(const Mente *m) {
     int i, mejor = -1;
     float mA = -1;
     for (i = 0; i < m->nfoco; i++) {
@@ -4349,7 +4557,7 @@ static int c_tema(const Mente *m) {
 }
 
 /* Palabra que quiere aprender a decir en Resh (o -1). */
-static int c_duda(const Mente *m) {
+int c_duda(const Mente *m) {
     int i, mejor = -1;
     float mA = 0.3f;
     for (i = 0; i < m->n; i++) {
@@ -4360,7 +4568,7 @@ static int c_duda(const Mente *m) {
     return mejor;
 }
 
-static void c_aprende(Consejo *c, int rol, int acc, float recompensa) {
+void c_aprende(Consejo *c, int rol, int acc, float recompensa) {
     Mente *m = &c->m[rol];
     float antes = m->valor[acc];
     char t[128];
@@ -4370,24 +4578,60 @@ static void c_aprende(Consejo *c, int rol, int acc, float recompensa) {
     c_evento(c, rol, EV_APRENDE, t);
 }
 
-static float c_puntaje(const Mente *m, int a) {
+float c_puntaje(const Mente *m, int a) {
     float p = NYX_ROLES[m->rol].gusto[a] + m->valor[a] + 0.3f / (1.0f + (float)m->veces[a]);
     if (a == m->ultima) p -= 0.15f * (float)m->racha;   /* aburrimiento */
     return p + nyx_rango(-m->ruido * 2, m->ruido * 2);
 }
 
+/* Lo que una mente dirá sobre 'centro': una frase que recuerda (si encaja
+ * con lo que se habla) o una que arma ella. No crea ni poda semiones: los
+ * índices que tiene quien llama siguen valiendo. Devuelve 1 si la recordó. */
+static int c_compone(Consejo *c, Mente *m, int centro, const int *ctx, int nctx, float probRecuerdo,
+                     int *out, int *nout, char *es, size_t ces, char *resh, size_t cre, int *idx) {
+    float p = 0;
+    int k = nyx_f01() < probRecuerdo ? frases_elige(c, m, centro, ctx, nctx, &p) : -1;
+    *idx = -1;
+    if (k >= 0 && p > -0.5f) {
+        char toks[MAXEST][LARGO];
+        int n = nyx_tokens(c->fr[k].t, toks, MAXEST), i;
+        nyx_copia(es, c->fr[k].t, ces);
+        frases_resh(m, es, resh, cre);
+        *nout = 0;
+        for (i = 0; i < n && *nout < MAXFRASE; i++) {
+            int id = m_busca(m, toks[i]);
+            if (id >= 0) out[(*nout)++] = id;
+        }
+        if (c->fr[k].usos < 65000) c->fr[k].usos++;
+        *idx = k;
+        return 1;
+    }
+    *nout = m_frase(m, centro, out, MAXFRASE, ctx, nctx);
+    m_texto(m, out, *nout, es, ces, resh, cre);
+    return 0;
+}
+
+/* Las que más recuerdan frases enteras (y las que más inventan). */
+static float c_prob_recuerdo(int rol) {
+    switch (rol) {
+    case 6: return 0.8f;                 /* memoria */
+    case 13: return 0.6f;                /* narrativa */
+    case 4: case 9: return 0.15f;        /* creativo, intuicion: prefieren inventar */
+    default: return 0.35f;
+    }
+}
+
 /* Habla una mente: forma una frase desde 'centro', la dice, las demás la oyen. */
-static float c_habla(Consejo *c, int rol, int centro, const char *prefijo) {
+float c_habla(Consejo *c, int rol, int centro, const char *prefijo) {
     Mente *m = &c->m[rol];
     int frase[MAXFRASE], nf, aprend;
     char es[400], resh[400], linea[900], palabra[LARGO];
     float res;
     {
-        int ctx[7], i;
+        int ctx[7], i, idx;
         for (i = 0; i < m->nfoco; i++) ctx[i] = m->foco[i];
-        nf = m_frase(m, centro, frase, MAXFRASE, ctx, m->nfoco);
+        c_compone(c, m, centro, ctx, m->nfoco, c_prob_recuerdo(rol), frase, &nf, es, sizeof es, resh, sizeof resh, &idx);
     }
-    m_texto(m, frase, nf, es, sizeof es, resh, sizeof resh);
     if (c_ya_dicho(m, es) || c_es_eco(c, es)) return -0.6f;
     c_pon_eco(c, es);
     snprintf(linea, sizeof linea, "%s%s   «%s»", prefijo, resh, es);
@@ -4407,7 +4651,7 @@ static float c_habla(Consejo *c, int rol, int centro, const char *prefijo) {
 
 /* Un paso de vida libre: una mente imagina qué quiere hacer, lo hace,
  * mide cómo le fue y aprende. */
-static void consejo_paso(Consejo *c) {
+void consejo_paso(Consejo *c) {
     int rol, a, tema, duda, mejorA = -1, segunda = -1, tercera = -1, posible[NACC], i;
     float punt[NACC], rec = 0;
     Mente *m;
@@ -4603,14 +4847,14 @@ static void consejo_paso(Consejo *c) {
 }
 
 /* Pregunta del humano a las 18: deliberación con votos. */
-static void consejo_delibera(Consejo *c, const char *pregunta, NyxRespuesta *out) {
+void consejo_delibera(Consejo *c, const char *pregunta, NyxRespuesta *out) {
     int r, i, j, gan[NROLES];
     float peso[NROLES], C[NROLES], E[NROLES], mejor = -1;
     char etiq[NROLES][LARGO];
     float suma[NROLES];
     int nEtq = 0, ganE = -1;
     memset(out, 0, sizeof *out);
-    c->fbValido = 1; c->fbN = 0;
+    c->fbValido = 1; c->fbN = 0; c->fbFr = -1;
     for (r = 0; r < NROLES; r++) {
         Mente *m = &c->m[r];
         int ids[MAXEST], k = m_recibe(m, pregunta, "humano", ids, MAXEST), cr;
@@ -4664,9 +4908,11 @@ static void consejo_delibera(Consejo *c, const char *pregunta, NyxRespuesta *out
         Mente *v = &c->m[out->vocero];
         int aprend;
         char palabra[LARGO], es[400], resh[400];
-        c->fbNfrase = m_frase(v, gan[out->vocero], c->fbFrase, MAXFRASE, c->fbEst[out->vocero], c->fbNest[out->vocero]);
+        out->recordada = c_compone(c, v, gan[out->vocero], c->fbEst[out->vocero], c->fbNest[out->vocero], 0.9f,
+                                   c->fbFrase, &c->fbNfrase, es, sizeof es, resh, sizeof resh, &c->fbFr);
+        c->fbRecordada = out->recordada;
         c->fbVocero = out->vocero;
-        m_texto(v, c->fbFrase, c->fbNfrase, es, sizeof es, resh, sizeof resh);
+        c_pon_eco(c, es);
         if (out->acuerdo < 0.25f) {
             snprintf(out->frase, sizeof out->frase, "¿%s?", es);
             snprintf(out->resh, sizeof out->resh, "ye %s?", resh);
@@ -4679,20 +4925,19 @@ static void consejo_delibera(Consejo *c, const char *pregunta, NyxRespuesta *out
 }
 
 /* Hablar con una sola mente. */
-static void consejo_habla_con(Consejo *c, int rol, const char *texto, char *es, size_t ces, char *resh, size_t cre, float *C) {
+void consejo_habla_con(Consejo *c, int rol, const char *texto, char *es, size_t ces, char *resh, size_t cre, float *C) {
     Mente *m = &c->m[rol];
     int ids[MAXEST], k = m_recibe(m, texto, "humano", ids, MAXEST), g, cr;
     float E;
     es[0] = 0; resh[0] = 0; *C = 0;
-    c->fbValido = 0;
+    c->fbValido = 0; c->fbFr = -1;
     if (k == 0) { snprintf(es, ces, "(no entendí)"); return; }
     {   /* si iba a repetir lo que se acaba de decir, piensa otra cosa */
         int intento;
         for (intento = 0; intento < 4; intento++) {
             g = m_veredicto(m, ids, k, C, &E, &cr);
             if (g < 0) { snprintf(es, ces, "(no entendí)"); return; }
-            c->fbNfrase = m_frase(m, g, c->fbFrase, MAXFRASE, ids, k);
-            m_texto(m, c->fbFrase, c->fbNfrase, es, ces, resh, cre);
+            c->fbRecordada = c_compone(c, m, g, ids, k, nyx_max(0.8f, c_prob_recuerdo(rol)), c->fbFrase, &c->fbNfrase, es, ces, resh, cre, &c->fbFr);
             if (!c_es_eco(c, es)) break;
         }
     }
@@ -4709,7 +4954,7 @@ static void consejo_habla_con(Consejo *c, int rol, const char *texto, char *es, 
 }
 
 /* Tu opinión sobre la última respuesta reestructura lo aprendido. */
-static int consejo_opina(Consejo *c, int bueno) {
+int consejo_opina(Consejo *c, int bueno) {
     int i, k, x;
     if (!c->fbValido) return 0;
     for (i = 0; i < c->fbN; i++) {
@@ -4725,6 +4970,7 @@ static int consejo_opina(Consejo *c, int bueno) {
         if (bueno) { m->aciertos++; m->intentos++; m->valor[ACC_HABLAR] += 0.05f; }
         else { m->intentos++; m->valor[ACC_HABLAR] -= 0.05f; }
     }
+    frases_opina(c, c->fbFr, bueno);     /* la frase recordada también se juzga */
     if (bueno) {     /* la frase dicha queda como buena secuencia */
         Mente *v = &c->m[c->fbVocero];
         for (x = 0; x + 1 < c->fbNfrase; x++) m_refuerza(v, c->fbFrase[x], c->fbFrase[x + 1], 0.1f, 0.3f, 0.2f);
@@ -4733,15 +4979,19 @@ static int consejo_opina(Consejo *c, int bueno) {
     return 1;
 }
 
+
+/* ===== memoria.c ===== */
+/* memoria.c — guardar y cargar lo aprendido */
+
 /* ------------------------------------------------------------------ */
 /*  Memoria en disco (texto)                                           */
 /* ------------------------------------------------------------------ */
 
-static int consejo_guarda(const Consejo *c, const char *ruta) {
+int consejo_guarda(const Consejo *c, const char *ruta) {
     FILE *f = fopen(ruta, "w");
     int r, i, k;
     if (!f) return 0;
-    fprintf(f, "NYX 1 %lu\n", c->tick);
+    fprintf(f, "NYX 2 %lu\n", c->tick);
     for (r = 0; r < NROLES; r++) {
         const Mente *m = &c->m[r];
         fprintf(f, "MENTE %d %d %d %d %ld %ld %ld %ld %ld\n", r, m->n, m->aciertos, m->intentos,
@@ -4761,13 +5011,14 @@ static int consejo_guarda(const Consejo *c, const char *ruta) {
             fprintf(f, "\n");
         }
     }
+    fprintf(f, "FRASES %d\n", c->nfr);
+    for (r = 0; r < c->nfr; r++) fprintf(f, "F %.3f %u %s\n", c->fr[r].puntos, c->fr[r].usos, c->fr[r].t);
     fprintf(f, "FIN\n");
     return fclose(f) == 0;
 }
 
-static int consejo_carga2(Consejo *c, Consejo *tmp0, FILE *f);
 
-static int consejo_carga(Consejo *c, const char *ruta) {
+int consejo_carga(Consejo *c, const char *ruta) {
     /* se carga aparte (en memoria pedida al momento): si el archivo está
      * mal, no se pierde nada */
     FILE *f = fopen(ruta, "r");
@@ -4782,7 +5033,7 @@ static int consejo_carga(Consejo *c, const char *ruta) {
     return ok;
 }
 
-static int consejo_carga2(Consejo *c, Consejo *tmp0, FILE *f) {
+int consejo_carga2(Consejo *c, Consejo *tmp0, FILE *f) {
     int r, i, k, ver;
     char cab[8];
     if (fscanf(f, "%7s %d %lu", cab, &ver, &tmp0->tick) != 3 || strcmp(cab, "NYX") != 0) { fclose(f); return 0; }
@@ -4819,27 +5070,58 @@ static int consejo_carga2(Consejo *c, Consejo *tmp0, FILE *f) {
         m->ultima = -1; m->racha = 0;
         m_hash_rehace(m);
     }
+    {   /* frases recordadas (los archivos viejos no las tienen) */
+        char pal[16];
+        tmp0->nfr = 0;
+        if (fscanf(f, " %15s", pal) == 1 && strcmp(pal, "FRASES") == 0) {
+            int nf, q;
+            if (fscanf(f, " %d", &nf) != 1 || nf < 0 || nf > MAXFR) { fclose(f); return 0; }
+            for (q = 0; q < nf; q++) {
+                FraseMem *x = &tmp0->fr[q];
+                unsigned u;
+                char lin[LFRASE + 8];
+                if (fscanf(f, " F %f %u ", &x->puntos, &u) != 2 || !fgets(lin, sizeof lin, f)) { fclose(f); return 0; }
+                lin[strcspn(lin, "\r\n")] = 0;
+                nyx_copia(x->t, lin, LFRASE);
+                x->usos = (unsigned short)u;
+            }
+            tmp0->nfr = nf;
+        } else {
+            int q;
+            for (q = 0; q < NYX_NCORPUS; q++) frases_pon(tmp0, NYX_CORPUS[q]);
+        }
+        tmp0->fbFr = -1;
+    }
     fclose(f);
     *c = *tmp0;
     return 1;
 }
 
 /* Cuántas palabras sabe decir en Resh una mente. */
-static int m_cuenta_resh(const Mente *m) {
+int m_cuenta_resh(const Mente *m) {
     int i, n = 0;
     for (i = 0; i < m->n; i++) if (m->s[i].sabe) n++;
     return n;
 }
 
-static int m_mejor_accion(const Mente *m) {
+int m_mejor_accion(const Mente *m) {
     int a, mejor = 0;
     for (a = 1; a < NACC; a++)
         if (NYX_ROLES[m->rol].gusto[a] + m->valor[a] > NYX_ROLES[m->rol].gusto[mejor] + m->valor[mejor]) mejor = a;
     return mejor;
 }
 
-#endif
 
+/* ===== main.c ===== */
+/* main.c — Interfaz de texto de las 18 IAs de Nyx (C99). Aquí empieza el programa.
+ *
+ * Compilar todo junto:  cc *.c -o nyx -lm  &&  ./nyx
+ * (en C Free: un proyecto con todos los .c de esta carpeta)
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
 
 #define RUTA_MEMORIA "nyx_memoria.txt"
 
@@ -5026,7 +5308,7 @@ static void muestra_respuesta(const NyxRespuesta *r) {
     printf("ganó «%s» · acuerdo %d%% · habló ", r->ganador, (int)(r->acuerdo * 100 + 0.5f));
     normal();
     if (r->vocero >= 0) nombre_rol(r->vocero, 0);
-    printf("\n\n");
+    tenue(); printf(r->recordada ? " · lo recordó de lo que leyó\n\n" : " · frase propia\n\n"); normal();
     for (i = 0; i < r->nvotos && i < 6; i++) {
         const NyxVoto *v = &r->votos[i];
         printf("   ");
@@ -5267,7 +5549,8 @@ int main(void) {
             if (!*p) { printf("  uso: @%s <texto>\n", nom); continue; }
             consejo_habla_con(&nyx, r, p, es, sizeof es, rs, sizeof rs, &C);
             printf("\n  "); nombre_rol(r, 0); printf(": "); negrita(); printf("%s\n", es); normal();
-            printf("  "); tenue(); printf("resh: %s%s   (C=%+.2f · ¿bien / mal?)\n\n", C < 0.2f ? "ye " : "mi ko ", rs, C); normal();
+            printf("  "); tenue(); printf("resh: %s%s   (C=%+.2f · %s · ¿bien / mal?)\n\n", C < 0.2f ? "ye " : "mi ko ", rs, C,
+                                         nyx.fbRecordada ? "recordada" : "frase propia"); normal();
         }
         else {
             NyxRespuesta r;
