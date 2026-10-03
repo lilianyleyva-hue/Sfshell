@@ -25,6 +25,7 @@ static const char* AYUDA =
     "  traducir <frase>              traduce una frase de Abla\n"
     "  idioma                        estado del idioma (4000 innatas + creadas)\n"
     "  red                           mensajes entre los seres\n"
+    "  ritmo [ms]                    cada cuánto piensan (p. ej. ritmo 300: más rápido)\n"
     "  guardar                       guarda ahora (también se guarda solo)\n";
 
 static void unir_desde(int argc, char** argv, int desde, Texto* t) {
@@ -282,6 +283,9 @@ EXPORTA("abla_ejecutar") const char* abla_ejecutar(const char* linea) {
   } else if (!strcmp(c, "red")) {
     tx_printf(&salida, "Ciclo %llu · mensajes en Abla: %llu · data C: %llu\n", (unsigned long long)E.tick,
               (unsigned long long)E.mensajes_abla, (unsigned long long)E.mensajes_c);
+  } else if (!strcmp(c, "ritmo") || !strcmp(c, "velocidad")) {
+    if (argc > 1) abla_fijar_ritmo(atoi(argv[1]));
+    tx_printf(&salida, "Piensan un ciclo cada %d ms.%s\n", E.ritmo, argc > 1 ? "" : " (cámbialo con: ritmo 500)");
   } else if (!strcmp(c, "guardar")) {
     abla_guardar();
     tx_add(&salida, "Guardado: conocimiento en /conocimiento/*.c, memoria en /memoria/\n");

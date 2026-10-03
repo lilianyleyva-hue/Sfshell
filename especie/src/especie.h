@@ -75,5 +75,6 @@ void anotar(Ser* s, const char* texto, int publico);
 int frase_de(const struct hecho* h, const char* marca, int* out);
 int conoce_palabra(const Ser* s, int palabra);
 double ahora_ms(void);
+int tui_ejecutar(int color); /* 0 si no hay terminal interactiva */
 
 #endif

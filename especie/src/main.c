@@ -1,7 +1,10 @@
 /* Especie Abla — 27 mentes que no dejan de pensar. Versión de terminal.
  *
  * Compilar:  make   (o: cc -std=c11 -O2 con todos los .c de src/ y -lpthread)
- * Usar:      ./abla [--mundo DIR] [--contexto TOKENS] [--ritmo MS]
+ * Usar:      ./abla [--mundo DIR] [--contexto TOKENS] [--ritmo MS] [--consola]
+ *
+ * En una terminal interactiva abre la interfaz a pantalla completa (tui.c);
+ * con --consola, o si la entrada no es una terminal, usa la consola de líneas.
  *
  * Con hilos (Linux, macOS, Termux, iSH): piensan en segundo plano, sin pausa.
  * Sin hilos (WebAssembly, -DABLA_SIN_HILOS): piensan entre cada comando y se
@@ -38,7 +41,6 @@ static void* pensar_siempre(void* arg) {
 #define SOLTAR() ((void)0)
 #endif
 
-const char* abla_prompt(void);
 
 static int color = 1;
 static void en_color(const char* codigo, const char* s) {
@@ -72,13 +74,14 @@ static void escuchar_en_vivo(int segundos, const char* filtro) {
 int main(int argc, char** argv) {
   const char* mundo = "mundo";
   unsigned contexto = 1000000;
-  int ritmo = 800;
+  int ritmo = 800, consola = 0;
   for (int i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "--mundo") && i + 1 < argc) mundo = argv[++i];
     else if (!strcmp(argv[i], "--contexto") && i + 1 < argc) contexto = (unsigned)strtoul(argv[++i], NULL, 10);
     else if (!strcmp(argv[i], "--ritmo") && i + 1 < argc) ritmo = atoi(argv[++i]);
+    else if (!strcmp(argv[i], "--consola")) consola = 1;
     else {
-      printf("uso: %s [--mundo DIR] [--contexto TOKENS] [--ritmo MS]\n", argv[0]);
+      printf("uso: %s [--mundo DIR] [--contexto TOKENS] [--ritmo MS] [--consola]\n", argv[0]);
       return strcmp(argv[i], "-h") && strcmp(argv[i], "--help");
     }
   }
@@ -90,6 +93,12 @@ int main(int argc, char** argv) {
   abla_iniciar(mundo, contexto, 0);
   abla_fijar_ritmo(ritmo);
   printf("Los 27 están despiertos.\n");
+
+  if (!consola && tui_ejecutar(color)) { /* interfaz a pantalla completa */
+    abla_guardar();
+    printf("La especie dormirá hasta que vuelvas a abrirla, y recordará todo.\n");
+    return 0;
+  }
 
   int saludo[3] = {idioma_de_espanol("nosotros"), idioma_de_espanol("despertar"), idioma_de_espanol("pensamiento")};
   Texto a, g;

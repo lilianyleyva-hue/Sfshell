@@ -170,6 +170,7 @@ int abla_iniciar(const char* mundo, unsigned contexto, long max_mem_bytes);
 void abla_ciclo(void);
 int abla_ciclos_atrasados(int maximo);
 const char* abla_ejecutar(const char* linea);
+const char* abla_prompt(void);
 void abla_guardar(void);
 int abla_ritmo(void);
 void abla_fijar_ritmo(int ms);

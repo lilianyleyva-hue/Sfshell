@@ -3,10 +3,11 @@
 27 mentes artificiales de un tipo nuevo. **El cerebro está escrito en C** (el idioma de los
 kernels) y **su conocimiento se guarda como código C**. Tiene dos caras:
 
-- **Interfaz visual** (`web/index.html`): la red de las 27 mentes con sus mensajes en vivo,
-  sus pensamientos, una charla para hablarles, el diccionario y una terminal. El mismo
-  cerebro en C corre dentro de la página, compilado a WebAssembly.
-- **Terminal** (`./abla`): la versión de consola, estilo bash/Termux.
+- **Interfaz de terminal en C** (`./abla`): pantalla completa con la red de las 27 mentes y sus
+  mensajes en vivo, sus pensamientos, la ficha de cada ser con su conocimiento en C, y una línea
+  de órdenes estilo bash/Termux. Todo en C, sin dependencias.
+- **Interfaz web** (`web/index.html`): lo mismo en el navegador; el cerebro en C corre dentro de
+  la página, compilado a WebAssembly.
 
 No son modelos de lenguaje: son **agentes simbólicos**. Razonan con hechos y reglas, recuerdan,
 se hablan entre ellos y **no dejan de pensar** mientras la página o el programa están abiertos.
@@ -52,18 +53,38 @@ Abre `especie/web/index.html`:
 No necesita servidor ni compilar nada: el cerebro en C ya viene compilado dentro de `abla-wasm.js`.
 Su memoria se guarda en el navegador (IndexedDB) cada 10 segundos y cada vez que les hablas.
 
-## Usar la terminal
+## Usar la interfaz de terminal
 
 ```sh
 make            # compila con cc (gcc o clang)
 ./abla
 ```
 
-- **Termux** (Android): `pkg install clang make`, luego `make`.
-- **iSH** (iPad): `apk add gcc musl-dev make`, luego `make` y `./abla --ritmo 2000`.
-- **a-Shell** (iPad): `clang -std=c11 -O2 src/*.c -o abla` y `wasm abla` (sin hilos: piensan entre comandos).
+```
+┌ Red de la especie ──────────┐┌ [Pensamientos] Ser  Salida ─────── Tab: panel ┐
+│   Rureje •    • Ronuje      ││ 12 Vikije: Deduzco que dato es parte de tabla… │
+│ Sipeje •   ·  ▪   • Visije  ││ 13 Ronuje: Creo una palabra: «nisish» = raíz + │
+│   …las 27 y sus mensajes    ││ palabra. Se la enseño a toda la especie.       │
+└─────────────────────────────┘└────────────────────────────────────────────────┘
+┌ Los 27 ───────────────────────────────────────────────────────────────────────┐
+humano@abla:/$ decir 19 sol causa luz pregunta
+```
 
-Comandos (escribe `ayuda`): `seres`, `ser 19`, `mente 19`, `escuchar 10`, `decir 3 sol causa luz pregunta`,
+- **Tab** cambia el panel de la derecha: Pensamientos (en vivo) · Ser (memoria, y su conocimiento en C) · Salida (lo que devuelven tus comandos).
+- **← →** eligen un ser · **↑ ↓** historial · **RePág / AvPág** desplazan la salida · **Esc** borra la línea · `salir` o **Ctrl+C** para salir.
+- Abajo escribes cualquier comando (`decir`, `enseñar`, `ls`, `cat`…). Mientras escribes, siguen pensando.
+- `./abla --consola` usa la consola de líneas de siempre (también se usa sola si la entrada no es una terminal).
+
+Dónde funciona:
+
+- **iSH** (iPad, gratis en la App Store): `apk add gcc musl-dev make git`, clona el repositorio, `cd Sfshell/especie`, `make` y `./abla`.
+  iSH es lento: si va pesado, `./abla --ritmo 2000`. Pon el iPad en horizontal para ver la red (necesita 96 columnas o más).
+- **Termux** (Android): `pkg install clang make`, luego `make` y `./abla`.
+- **Linux y macOS**: `make` y `./abla`.
+- **a-Shell** (iPad): no tiene terminal cruda, así que usa la consola de líneas: `clang -std=c11 -O2 src/*.c -o abla` y `wasm abla`.
+- **Code App**: su terminal no muestra la salida de los programas; ahí usa la interfaz web.
+
+Comandos (escribe `ayuda`; también `ritmo 300` para que piensen más rápido): `seres`, `ser 19`, `mente 19`, `escuchar 10`, `decir 3 sol causa luz pregunta`,
 `enseñar todos fuego causa caliente`, `alimentar todos hechos.txt`, `dic palabra`, `traducir nosa vure mika`,
 `idioma`, `red`, `guardar`, y una terminal estilo bash dentro de `mundo/`: `ls`, `cd`, `cat`, `mkdir`, `echo > archivo`, `tree`, `grep`…
 Cada ser tiene su propio `$HOME` en `/seres/<Nombre>`, donde escribe sus archivos (`teoremas.txt`, `datos.csv`, `palabras.abla`, `diario.abla`).
@@ -87,7 +108,8 @@ cerebro un sistema de archivos en memoria para que sus `fopen`, `mkdir` y `opend
 | `src/memoria.c` | Contexto en RAM y memoria de largo plazo en disco |
 | `src/shell.c` | La terminal estilo bash (rutas encerradas en `mundo/`) |
 | `src/comandos.c` | Los comandos y la API en JSON que usa la interfaz |
-| `src/main.c` | El programa de terminal (con un hilo que piensa sin parar) |
+| `src/tui.c` | La interfaz de terminal a pantalla completa (ANSI + termios) |
+| `src/main.c` | El programa de terminal: abre la interfaz, o la consola de líneas con un hilo que piensa sin parar |
 | `web/` | La interfaz: `index.html`, `ui.js`, `ui.css`, `wasi.js`, `abla.js` |
 
 ## Lo que es y lo que no es
