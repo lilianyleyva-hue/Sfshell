@@ -9,30 +9,34 @@
  *
  * Mientras escribes, la especie sigue pensando: un solo bucle reparte el
  * tiempo entre el teclado, los ciclos de pensamiento y el dibujo.
- * Funciona en Linux, macOS, Termux e iSH. En WebAssembly no hay terminal
- * cruda, así que ahí se usa la consola normal. */
+ *
+ * El dibujo y el teclado son los mismos en todas partes. Cambia solo dónde
+ * se muestra:
+ *   - en una terminal (Linux, macOS, Termux, iSH): ANSI + termios;
+ *   - en WebAssembly (Code App, Safari): la página pide cada cuadro ya hecho
+ *     (abla_tui_html) y le pasa las teclas (abla_tui_teclas). */
 #ifndef _DEFAULT_SOURCE
 #define _DEFAULT_SOURCE /* TIOCGWINSZ y struct winsize */
 #endif
 #include "especie.h"
 
 #if defined(__wasm__) || defined(ABLA_SIN_TUI)
-int tui_ejecutar(int color) {
-  (void)color;
-  return 0;
-}
+#define TERMINAL_CRUDA 0
 #else
-
+#define TERMINAL_CRUDA 1
 #include <sys/ioctl.h>
 #include <sys/select.h>
 #include <termios.h>
 #include <unistd.h>
+#endif
 
 /* ---------- colores ---------- */
 enum { C_NORMAL, C_TENUE, C_LENGUAJE, C_DATOS, C_LOGICA, C_DATAC, C_BLANCO, C_ROJO, C_AZUL, NCOLORES };
-static const char* SGR[NCOLORES] = {"0", "90", "95", "96", "92", "93", "97", "91", "94"};
 static const int COLOR_TRIBU[3] = {C_LENGUAJE, C_DATOS, C_LOGICA};
+#if TERMINAL_CRUDA
+static const char* SGR[NCOLORES] = {"0", "90", "95", "96", "92", "93", "97", "91", "94"};
 static int usar_color = 1;
+#endif
 
 /* ---------- pantalla: una rejilla de celdas que se vuelca de una vez ---------- */
 typedef struct {
@@ -43,6 +47,7 @@ typedef struct {
 static Celda* pantalla;
 static int W, H;
 
+#if TERMINAL_CRUDA
 static void tamano(int* w, int* h) {
   struct winsize ws;
   if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0 && ws.ws_row > 0) {
@@ -53,6 +58,7 @@ static void tamano(int* w, int* h) {
     *h = 24;
   }
 }
+#endif
 
 static void limpiar_pantalla(void) {
   for (int i = 0; i < W * H; i++) {
@@ -111,6 +117,7 @@ static void caja(int x, int y, int w, int h, const char* titulo, int activa) {
   }
 }
 
+#if TERMINAL_CRUDA
 static void escribir_todo(const char* p, size_t n) {
   while (n) {
     ssize_t w = write(STDOUT_FILENO, p, n);
@@ -195,6 +202,16 @@ static int activar_cruda(void) {
   const char* s = "\033[?1049h\033[2J";
   escribir_todo(s, strlen(s));
   return 1;
+}
+
+#endif /* TERMINAL_CRUDA */
+
+/* Borra la terminal de verdad (en el navegador no hace falta). */
+static void borrar_terminal(void) {
+#if TERMINAL_CRUDA
+  escribir_todo("\033[2J", 4);
+  olvidar_cuadro();
+#endif
 }
 
 /* ---------- estado de la interfaz ---------- */
@@ -491,12 +508,12 @@ static void dibujar_seres(int x0, int y0, int w, int h) {
   }
 }
 
-static void dibujar(void) {
-  int w, h;
-  tamano(&w, &h);
+static int cursor_x, cursor_y;
+
+/* Compone el cuadro completo en `pantalla` para un tamaño dado. */
+static void dibujar_en(int w, int h) {
   if (w != W || h != H || !pantalla) {
-    escribir_todo("\033[2J", 4);
-    olvidar_cuadro();
+    borrar_terminal();
     free(pantalla);
     W = w, H = h;
     pantalla = xmalloc(sizeof(Celda) * (size_t)(W * H));
@@ -504,7 +521,7 @@ static void dibujar(void) {
   limpiar_pantalla();
   if (W < 50 || H < 16) {
     texto(0, 0, W, "Agranda la terminal (mínimo 50×16).", C_ROJO, 1);
-    volcar(0, 1);
+    cursor_x = 0, cursor_y = 1;
     return;
   }
   /* cabecera */
@@ -563,7 +580,7 @@ static void dibujar(void) {
         W >= 100 ? "Tab panel · ←→ elegir ser · ↑↓ historial · RePág/AvPág desplazar · ritmo 500 · ayuda · salir"
                  : "Tab panel · ←→ ser · ↑↓ historial · ayuda · salir",
         C_TENUE, 0);
-  volcar(ap + ancho_e, yin);
+  cursor_x = ap + ancho_e, cursor_y = yin;
 }
 
 /* ---------- teclado ---------- */
@@ -580,7 +597,14 @@ static void ejecutar_linea(int* salir) {
     historial[nhist++] = xstrdup(c);
   }
   poshist = nhist;
-  if (!strcmp(c, "salir") || !strcmp(c, "exit")) *salir = 1;
+  if (!strcmp(c, "salir") || !strcmp(c, "exit")) {
+#if TERMINAL_CRUDA
+    *salir = 1;
+#else
+    anadir_salida("En el navegador no hace falta salir: su memoria se guarda sola.", C_TENUE);
+    panel = P_SALIDA;
+#endif
+  }
   else if (!strcmp(c, "clear")) {
     for (int i = 0; i < nsalida; i++) free(salida[i]);
     nsalida = 0;
@@ -637,7 +661,7 @@ static void tecla(const unsigned char* b, int n, int* i, int* salir) {
       poner_entrada(""); /* Esc: borra la línea */
     }
   } else if (k == 3 || (k == 4 && !lentrada)) { /* Ctrl+C, o Ctrl+D con la línea vacía */
-    *salir = 1;
+    *salir = TERMINAL_CRUDA;
   } else if (k == '\t') {
     panel = (panel + 1) % NPANELES;
   } else if (k == '\r' || k == '\n') {
@@ -649,12 +673,32 @@ static void tecla(const unsigned char* b, int n, int* i, int* salir) {
     }
     entrada[lentrada] = 0;
   } else if (k == 12) { /* Ctrl+L: redibujar todo */
-    escribir_todo("\033[2J", 4);
-    olvidar_cuadro();
+    borrar_terminal();
   } else if (k >= 32 && lentrada + 1 < sizeof entrada) {
     entrada[lentrada++] = (char)k;
     entrada[lentrada] = 0;
   }
+}
+
+/* Avanza lo que se mueve: mensajes en camino y brillo de las mentes. */
+static void animar(void) {
+  leer_novedades();
+  for (int k = 0; k < npart; k++) part[k].t += 0.18f;
+  int j = 0;
+  for (int k = 0; k < npart; k++)
+    if (part[k].t < 1) part[j++] = part[k];
+    else actividad[part[k].para] = actividad[part[k].para] > 2 ? actividad[part[k].para] : 2;
+  npart = j;
+  for (int k = 0; k < NUM_SERES; k++)
+    if (actividad[k] > 0) actividad[k]--;
+}
+
+#if TERMINAL_CRUDA
+static void dibujar(void) {
+  int w, h;
+  tamano(&w, &h);
+  dibujar_en(w, h);
+  volcar(cursor_x, cursor_y);
 }
 
 int tui_ejecutar(int color) {
@@ -686,15 +730,7 @@ int tui_ejecutar(int color) {
     }
     /* dibujar (unas 8 veces por segundo como mucho) */
     if (t - ultimo_dibujo >= 120 && (cambio || npart)) {
-      leer_novedades();
-      for (int k = 0; k < npart; k++) part[k].t += 0.18f;
-      int j = 0;
-      for (int k = 0; k < npart; k++)
-        if (part[k].t < 1) part[j++] = part[k];
-        else actividad[part[k].para] = actividad[part[k].para] > 2 ? actividad[part[k].para] : 2;
-      npart = j;
-      for (int k = 0; k < NUM_SERES; k++)
-        if (actividad[k] > 0) actividad[k]--;
+      animar();
       dibujar();
       ultimo_dibujo = t;
       cambio = 0;
@@ -702,5 +738,66 @@ int tui_ejecutar(int color) {
   }
   restaurar();
   return 1;
+}
+#else /* sin terminal cruda: la consola de líneas se encarga */
+int tui_ejecutar(int color) {
+  (void)color;
+  return 0;
+}
+#endif
+
+#if defined(__wasm__)
+/* ---------- la misma interfaz, mostrada por una página web ---------- */
+static Texto html;
+static int tui_web_lista = 0;
+
+static void tui_web_iniciar(void) {
+  if (tui_web_lista) return;
+  tui_web_lista = 1;
+  visto_red = E.nred;
+  visto_linea = E.nlinea > 30 ? E.nlinea - 30 : 0;
+}
+
+/* Teclas tal como llegarían de una terminal (flechas = ESC [ A…). */
+EXPORTA("abla_tui_teclas") void abla_tui_teclas(const char* s) {
+  tui_web_iniciar();
+  int n = (int)strlen(s), salir = 0;
+  for (int i = 0; i < n; i++) tecla((const unsigned char*)s, n, &i, &salir);
+}
+
+static void html_texto(const char* s) {
+  for (; *s; s++) {
+    if (*s == '<') tx_add(&html, "&lt;");
+    else if (*s == '>') tx_add(&html, "&gt;");
+    else if (*s == '&') tx_add(&html, "&amp;");
+    else tx_addn(&html, s, 1);
+  }
+}
+
+/* Devuelve el cuadro como HTML: filas de <span class="cN"> con el cursor marcado. */
+EXPORTA("abla_tui_html") const char* abla_tui_html(int w, int h) {
+  tui_web_iniciar();
+  animar();
+  dibujar_en(w, h);
+  tx_vaciar(&html);
+  tx_add(&html, "");
+  for (int y = 0; y < H; y++) {
+    int color = -1, negrita = -1, abierto = 0;
+    for (int x = 0; x < W; x++) {
+      Celda* c = &pantalla[y * W + x];
+      int es_cursor = x == cursor_x && y == cursor_y;
+      if (es_cursor || c->color != color || c->negrita != negrita) {
+        if (abierto) tx_add(&html, "</span>");
+        tx_printf(&html, "<span class=\"c%d%s%s\">", c->color, c->negrita ? " b" : "", es_cursor ? " cursor" : "");
+        abierto = 1;
+        color = es_cursor ? -1 : c->color;
+        negrita = es_cursor ? -1 : c->negrita;
+      }
+      html_texto(c->c);
+    }
+    if (abierto) tx_add(&html, "</span>");
+    if (y + 1 < H) tx_add(&html, "\n");
+  }
+  return html.p;
 }
 #endif

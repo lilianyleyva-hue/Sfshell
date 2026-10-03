@@ -61,6 +61,9 @@
     guardar() { this.x.abla_guardar(); return this.fs.guardar(); }
     ritmo() { return this.x.abla_ritmo(); }
     fijarRitmo(ms) { this.x.abla_fijar_ritmo(ms); }
+    // la interfaz de terminal en C (tui.c)
+    tuiHtml(columnas, filas) { return this.cadena(this.x.abla_tui_html(columnas, filas)); }
+    tuiTeclas(s) { this.conCadena(s, (p) => this.x.abla_tui_teclas(p)); }
   }
 
   global.Cerebro = Cerebro;

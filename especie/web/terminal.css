@@ -1,0 +1,89 @@
+:root {
+  --fondo: #0b0d14;
+  --barra: #141826;
+  --borde: #262b3c;
+  --texto: #d6d9e4;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--fondo);
+  color: var(--texto);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* La pantalla: una rejilla de caracteres, como una terminal. */
+#pantalla {
+  flex: 1;
+  margin: 0;
+  padding: 6px 8px;
+  overflow: hidden;
+  font-family: Menlo, "SF Mono", ui-monospace, "DejaVu Sans Mono", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.18;
+  white-space: pre;
+  cursor: text;
+}
+
+/* Los mismos colores que la terminal (tui.c). */
+.c0 { color: #d6d9e4; }
+.c1 { color: #6b7186; }
+.c2 { color: #ff6ad5; }
+.c3 { color: #4fd1ff; }
+.c4 { color: #b8ff6a; }
+.c5 { color: #ffc44d; }
+.c6 { color: #ffffff; }
+.c7 { color: #ff6b6b; }
+.c8 { color: #7aa2ff; }
+.b { font-weight: 700; }
+.cursor { background: #b8ff6a; color: #0b0d14; }
+
+/* Teclado oculto: recibe lo que escribes (también el teclado en pantalla del iPad). */
+#teclado {
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  border: 0;
+  padding: 0;
+  font-size: 16px; /* evita que iOS haga zoom al enfocar */
+  resize: none;
+}
+
+/* Teclas que el teclado en pantalla del iPad no tiene. */
+.barra {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--barra);
+  border-top: 1px solid var(--borde);
+  overflow-x: auto;
+  font: 14px system-ui, -apple-system, sans-serif;
+}
+.barra button {
+  min-width: 44px;
+  min-height: 40px;
+  padding: 0 10px;
+  background: #1d2234;
+  color: var(--texto);
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  font: inherit;
+  touch-action: manipulation;
+}
+.barra button:active { background: #2a3150; }
+.barra .hueco { flex: 1; }
+.barra #ritmo { color: #ffc44d; min-width: 46px; text-align: center; font-variant-numeric: tabular-nums; }
+.barra a { color: #6b7186; white-space: nowrap; padding: 0 6px; }

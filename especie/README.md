@@ -6,8 +6,10 @@ kernels) y **su conocimiento se guarda como código C**. Tiene dos caras:
 - **Interfaz de terminal en C** (`./abla`): pantalla completa con la red de las 27 mentes y sus
   mensajes en vivo, sus pensamientos, la ficha de cada ser con su conocimiento en C, y una línea
   de órdenes estilo bash/Termux. Todo en C, sin dependencias.
-- **Interfaz web** (`web/index.html`): lo mismo en el navegador; el cerebro en C corre dentro de
-  la página, compilado a WebAssembly.
+- **La misma interfaz de terminal dentro de una página** (`web/index.html`), para **Code App** y Safari:
+  `tui.c` y todo el cerebro compilados a WebAssembly; la página solo muestra lo que dibuja el C y le
+  pasa las teclas. Piensa rápido (un ciclo cada 0,3 s, o hasta 0,05 s con ⏩).
+- Hay además una vista gráfica (`web/visual.html`) con la red dibujada.
 
 No son modelos de lenguaje: son **agentes simbólicos**. Razonan con hechos y reglas, recuerdan,
 se hablan entre ellos y **no dejan de pensar** mientras la página o el programa están abiertos.
@@ -43,12 +45,14 @@ Se comunican de dos maneras: **en Abla** (aproximado, con duda o pregunta) o **e
   que compila de verdad con cualquier compilador de C, y al despertar cada ser vuelve a leer de ahí lo que sabe.
   En la interfaz, en la pestaña Ser, puedes verlo y descargarlo.
 
-## Usar la interfaz (iPad, Code App, Safari, cualquier navegador)
+## Usarla en Code App (iPad) o en cualquier navegador
 
-Abre `especie/web/index.html`:
+1. En Code App, abre `especie/web/index.html`.
+2. Toca la brújula 🧭 (vista previa).
 
-- En **Code App**: abre `index.html` y toca la brújula 🧭 (vista previa).
-- En **Safari**: publícalo (por ejemplo con GitHub Pages) o ábrelo desde la app Archivos.
+Es la interfaz de terminal en C, igual que en iSH, pero rápida. Toca la pantalla para escribir.
+La barra de abajo trae las teclas que el teclado del iPad no tiene (Tab, flechas, RePág, Esc),
+y ⏪ ⏩ para cambiar la velocidad de pensamiento.
 
 No necesita servidor ni compilar nada: el cerebro en C ya viene compilado dentro de `abla-wasm.js`.
 Su memoria se guarda en el navegador (IndexedDB) cada 10 segundos y cada vez que les hablas.
@@ -82,7 +86,7 @@ Dónde funciona:
 - **Termux** (Android): `pkg install clang make`, luego `make` y `./abla`.
 - **Linux y macOS**: `make` y `./abla`.
 - **a-Shell** (iPad): no tiene terminal cruda, así que usa la consola de líneas: `clang -std=c11 -O2 src/*.c -o abla` y `wasm abla`.
-- **Code App**: su terminal no muestra la salida de los programas; ahí usa la interfaz web.
+- **Code App**: su terminal no muestra la salida de los programas; abre `web/index.html` con la 🧭 (es esta misma interfaz).
 
 Comandos (escribe `ayuda`; también `ritmo 300` para que piensen más rápido): `seres`, `ser 19`, `mente 19`, `escuchar 10`, `decir 3 sol causa luz pregunta`,
 `enseñar todos fuego causa caliente`, `alimentar todos hechos.txt`, `dic palabra`, `traducir nosa vure mika`,
@@ -110,7 +114,9 @@ cerebro un sistema de archivos en memoria para que sus `fopen`, `mkdir` y `opend
 | `src/comandos.c` | Los comandos y la API en JSON que usa la interfaz |
 | `src/tui.c` | La interfaz de terminal a pantalla completa (ANSI + termios) |
 | `src/main.c` | El programa de terminal: abre la interfaz, o la consola de líneas con un hilo que piensa sin parar |
-| `web/` | La interfaz: `index.html`, `ui.js`, `ui.css`, `wasi.js`, `abla.js` |
+| `web/index.html`, `terminal.js` | La interfaz de terminal en una página (muestra lo que dibuja `tui.c`) |
+| `web/visual.html`, `ui.js` | La vista gráfica |
+| `web/wasi.js`, `abla.js` | Sistema de archivos para el cerebro en el navegador, y el puente con el C |
 
 ## Lo que es y lo que no es
 
