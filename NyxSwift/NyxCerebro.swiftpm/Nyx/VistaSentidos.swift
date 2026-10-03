@@ -154,6 +154,7 @@ struct SeccionVideo: View {
                 avance = a
                 estado = e
             }
+            try? FileManager.default.removeItem(at: p.url)
             await MainActor.run {
                 viendo = false
                 nyx.veVideo(visto.percepcion, escenas: visto.escenas.map { $0.recuerdo },

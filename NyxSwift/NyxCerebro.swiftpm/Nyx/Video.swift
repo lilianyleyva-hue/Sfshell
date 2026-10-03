@@ -23,7 +23,7 @@ struct Pelicula: Transferable {
             SentTransferredFile(p.url)
         } importing: { (recibido: ReceivedTransferredFile) in
             let ext = recibido.file.pathExtension.isEmpty ? "mov" : recibido.file.pathExtension
-            let destino = FileManager.default.temporaryDirectory.appendingPathComponent("nyx_video." + ext)
+            let destino = FileManager.default.temporaryDirectory.appendingPathComponent("nyx_video_\(UUID().uuidString)." + ext)
             try? FileManager.default.removeItem(at: destino)
             try FileManager.default.copyItem(at: recibido.file, to: destino)
             return Pelicula(url: destino)
@@ -182,7 +182,7 @@ enum Video {
                     if unaVez.primera() { c.resume(returning: []) }
                 }
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 600) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3600) {
                 if unaVez.primera() {
                     tarea.cancel()
                     c.resume(returning: [])

@@ -98,6 +98,13 @@ final class NyxModelo: ObservableObject {
     @Published var respuestaAntiguo = ""
     // Nyx Uno: una sola mente con lo mejor de todos
     var uno: NyxUno!
+    /// Lo que le mandaste y aún no ha leído (sin límite: se leen uno tras otro).
+    enum Adjunto {
+        case archivo(URL, String)
+        case enlace(URL)
+    }
+    private var colaAdjuntos: [Adjunto] = []
+    @Published var adjuntando = ""
     @Published var chatUno: [MensajeUno] = []
     @Published var estadoUno = ""
     @Published var avisoUno = ""
@@ -306,10 +313,15 @@ final class NyxModelo: ObservableObject {
 
     /// Le hablas a Nyx Uno: pregunta, enseñanza o corrección («no, es …»).
     func hablaUno(_ texto: String) {
-        let t = texto.trimmingCharacters(in: .whitespacesAndNewlines)
-        if t.isEmpty { return }
+        let todo = texto.trimmingCharacters(in: .whitespacesAndNewlines)
+        if todo.isEmpty { return }
         contadorUno += 1
-        chatUno.append(MensajeUno(id: contadorUno, deHumano: true, es: t, resh: "", detalle: "", pasos: ""))
+        chatUno.append(MensajeUno(id: contadorUno, deHumano: true, es: todo, resh: "", detalle: "", pasos: ""))
+        // los enlaces se ponen en la cola para leerlos
+        let (urls, resto) = Lector.enlaces(en: todo)
+        if !urls.isEmpty { adjunta(enlaces: urls) }
+        let t = resto.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.isEmpty { return }
         let p = uno.escucha(t)
         var detalle = ""
         var pasos: [String] = []
@@ -381,6 +393,85 @@ final class NyxModelo: ObservableObject {
             }
             self.buscandoInternet = false
         }
+    }
+
+    // MARK: adjuntos (archivos, fotos, videos, audios, enlaces)
+
+    /// Archivos ya copiados a un sitio propio (nombre para mostrar).
+    func adjunta(archivos: [(URL, String)]) {
+        for (u, n) in archivos { colaAdjuntos.append(.archivo(u, n)) }
+        sigueCola()
+    }
+
+    func adjunta(enlaces: [URL]) {
+        for u in enlaces { colaAdjuntos.append(.enlace(u)) }
+        sigueCola()
+    }
+
+    private var leyendoCola: Bool { !adjuntando.isEmpty }
+
+    private func sigueCola() {
+        if leyendoCola || colaAdjuntos.isEmpty { return }
+        adjuntando = "📎 empezando…"
+        Task { @MainActor in
+            var hechas = 0
+            while !self.colaAdjuntos.isEmpty {
+                let a = self.colaAdjuntos.removeFirst()
+                hechas += 1
+                let quedan = self.colaAdjuntos.count
+                let aviso: (String) -> Void = { [weak self] (e: String) in
+                    Task { @MainActor in self?.adjuntando = "📎 \(hechas) · \(e) · quedan \(quedan)" }
+                }
+                switch a {
+                case .archivo(let u, let nombre):
+                    self.adjuntando = "📎 leyendo «\(nombre)» · quedan \(quedan)"
+                    let c = await Lector.archivo(u, nombre: nombre, progreso: aviso)
+                    await self.aprendeAdjunto(c, fuente: "archivo", confianza: 0.8)
+                    if u.path.hasPrefix(FileManager.default.temporaryDirectory.path) { try? FileManager.default.removeItem(at: u) }
+                case .enlace(let u):
+                    self.adjuntando = "🔗 \(u.host ?? "enlace") · quedan \(quedan)"
+                    let c = await Lector.enlace(u, progreso: aviso)
+                    await self.aprendeAdjunto(c, fuente: "internet", confianza: 0.7)
+                }
+            }
+            self.adjuntando = ""
+            self.avisoUno = "📎 leí \(hechas) cosa(s)"
+            self.refrescaUno()
+            self.guardaUno()
+        }
+    }
+
+    /// Lo que salió de un adjunto lo aprenden su memoria y su lógica.
+    private func aprendeAdjunto(_ c: Contenido, fuente: String, confianza: Float) async {
+        var hechos: [String] = []
+        if let p = c.percepcion {
+            notasSentidos = consejo.percibe(p)
+            ultimaVista = p.descripcion
+        }
+        if !c.escenas.isEmpty { consejo.recuerdaEscenas(c.escenas) }
+        for (i, f) in c.frases.enumerated() {
+            consejo.lee(f)
+            hechos += logico.lee(Internet.clausula(f), quien: fuente, confianza: confianza)
+            if i % 25 == 24 {
+                adjuntando = "📖 «\(c.titulo)»: \(i + 1) de \(c.frases.count) frases"
+                try? await Task.sleep(nanoseconds: 2_000_000)      // deja respirar a la pantalla
+            }
+        }
+        var es = ""
+        if let p = c.percepcion {
+            es = "\(c.clase == .video ? "vi" : "miré") «\(c.titulo)»: " + p.descripcion
+        } else if !c.frases.isEmpty {
+            es = "leí «\(c.titulo)»: " + c.frases.prefix(2).joined(separator: ". ")
+        } else {
+            es = "«\(c.titulo)»: " + (c.nota.isEmpty ? "no encontré nada que aprender" : c.nota)
+        }
+        var detalle = "\(c.clase.icono) \(c.clase.rawValue) · \(c.frases.count) frases · \(hechos.count) hechos"
+        if !c.escenas.isEmpty { detalle += " · \(c.escenas.count) escenas" }
+        let pasos = (hechos.prefix(6).map { "⚖️ " + $0 } + c.escenas.prefix(4).map { "🎬 " + $0 }).joined(separator: "\n")
+        contadorUno += 1
+        chatUno.append(MensajeUno(id: contadorUno, deHumano: false, es: es, resh: Resh.traduceTexto(es), detalle: detalle, pasos: pasos))
+        if chatUno.count > 200 { chatUno.removeFirst(chatUno.count - 200) }
+        version += 1
     }
 
     /// Lo que Nyx quiere saber.
