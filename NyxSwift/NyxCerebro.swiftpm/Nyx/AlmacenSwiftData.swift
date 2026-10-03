@@ -135,6 +135,23 @@ enum AlmacenSwiftData {
         return filas.first(where: { $0.rol == 300 })?.texto
     }
 
+    /// Un texto cualquiera con su número (400: lo aprendido en las misiones).
+    static func guardaTexto(_ texto: String, rol: Int, en contexto: ModelContext) {
+        let filas = (try? contexto.fetch(FetchDescriptor<SaberMente>())) ?? []
+        if let f = filas.first(where: { $0.rol == rol }) {
+            f.texto = texto
+            f.actualizado = Date()
+        } else {
+            contexto.insert(SaberMente(rol: rol, texto: texto))
+        }
+        try? contexto.save()
+    }
+
+    static func cargaTexto(rol: Int, de contexto: ModelContext) -> String? {
+        let filas = (try? contexto.fetch(FetchDescriptor<SaberMente>())) ?? []
+        return filas.first(where: { $0.rol == rol })?.texto
+    }
+
     /// La memoria del consejo antiguo (rol 200).
     static func guardaAntiguo(_ datos: Data, en contexto: ModelContext) {
         let texto = String(decoding: datos, as: UTF8.self)

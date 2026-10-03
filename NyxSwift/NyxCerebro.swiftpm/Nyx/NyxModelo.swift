@@ -90,6 +90,11 @@ final class NyxModelo: ObservableObject {
     // los tres consejos juntos
     let asamblea = Asamblea()
     @Published var lineasAsamblea: [LineaAsamblea] = []
+    @Published var asambleaViva = false
+    @Published var estadoAsamblea = ""
+    @Published var marcador = "✨ 0   🏛 0   ⚖️ 0"
+    @Published var resumenMisiones = ""
+    private var tareaAsamblea: Task<Void, Never>?
     /// Mostrar la traducción al español debajo del Resh.
     @Published var traducir = true
     private var cosasCamara: Set<String> = []
@@ -131,6 +136,9 @@ final class NyxModelo: ObservableObject {
         #if canImport(SwiftData)
         if let ctx = contexto, let t = AlmacenSwiftData.cargaLogico(de: ctx), !t.isEmpty {
             logico = ConsejoLogico.desde(t)
+        }
+        if let ctx = contexto, let t = AlmacenSwiftData.cargaTexto(rol: 400, de: ctx), !t.isEmpty {
+            asamblea.saber = SaberMisiones.desde(t)
         }
         #endif
         conecta()
@@ -275,27 +283,72 @@ final class NyxModelo: ObservableObject {
 
     // MARK: la asamblea de los tres consejos
 
-    /// Los tres consejos hablan 'n' turnos (si das un tema, empiezan por él).
-    func turnosAsamblea(_ n: Int, tema: String = "") {
-        if puenteOcupado { return }
+    /// Que hablen (a su ritmo, hasta que ellos quieran) o que se callen.
+    func alternaAsamblea() {
+        if asambleaViva {
+            asambleaViva = false
+            estadoAsamblea = "les pediste silencio"
+        } else {
+            arrancaAsamblea()
+        }
+    }
+
+    /// Escribes en el chat de los tres (y si estaban callados, te contestan).
+    func escribeAsamblea(_ texto: String) {
+        asamblea.escribe(texto, logico: logico)
+        refrescaAsamblea()
+        if !asambleaViva { arrancaAsamblea() }
+    }
+
+    /// Les pones una misión (nil: al azar).
+    func misionAsamblea(_ tipo: TipoMision?) {
+        asamblea.proponMision(tipo)
+        refrescaAsamblea()
+        if !asambleaViva { arrancaAsamblea() }
+    }
+
+    private func arrancaAsamblea() {
+        if asambleaViva { return }
+        if puenteOcupado {
+            estadoAsamblea = "el consejo antiguo está ocupado: espera un momento"
+            return
+        }
+        asambleaViva = true
         puenteOcupado = true
-        let t = tema.trimmingCharacters(in: .whitespacesAndNewlines)
-        Task { @MainActor in
+        tareaAsamblea = Task { @MainActor in
             await self.puente.prepara(memoria: self.memoriaAntigua())
-            if !t.isEmpty {
-                _ = self.asamblea.proponTema(t, logico: self.logico)
-                self.lineasAsamblea = self.asamblea.lineas
+            var n = 0
+            while self.asambleaViva {
+                let r = await self.asamblea.siguiente(nuevo: self.consejo, puente: self.puente, logico: self.logico)
+                self.refrescaAsamblea()
+                n += 1
+                if !r.sigue { break }
+                if n % 30 == 0 { self.guardaMisiones() }
+                try? await Task.sleep(nanoseconds: UInt64(r.pausa * 1_000_000_000))
             }
-            for _ in 0 ..< n {
-                _ = await self.asamblea.turno(nuevo: self.consejo, puente: self.puente, logico: self.logico)
-                self.lineasAsamblea = self.asamblea.lineas
-                self.version += 1
-            }
+            self.asambleaViva = false
             self.puenteOcupado = false
+            self.refrescaAsamblea()
             await self.guardaAntiguo()
             self.guardaLogica()
+            self.guardaMisiones()
             self.guarda()
         }
+    }
+
+    private func refrescaAsamblea() {
+        lineasAsamblea = asamblea.lineas
+        estadoAsamblea = asamblea.estado
+        let p = asamblea.saber.puntos
+        marcador = "✨ \(p[0])   🏛 \(p[1])   ⚖️ \(p[2])   · \(asamblea.saber.jugadas) misiones"
+        resumenMisiones = asamblea.saber.resumen()
+        version += 1
+    }
+
+    private func guardaMisiones() {
+        #if canImport(SwiftData)
+        if let ctx = contexto { AlmacenSwiftData.guardaTexto(asamblea.saber.exporta(), rol: 400, en: ctx) }
+        #endif
     }
 
     /// Le preguntas al consejo antiguo (deliberan y votan, a su manera).
@@ -411,6 +464,9 @@ final class NyxModelo: ObservableObject {
         consejo = Consejo(infancia: true)
         logico = ConsejoLogico(primer: true)
         lineasLogica = []
+        asambleaViva = false
+        asamblea.olvida()
+        lineasAsamblea = []
         #if canImport(SwiftData)
         if let ctx = contexto {
             try? ctx.delete(model: Transferencia.self)

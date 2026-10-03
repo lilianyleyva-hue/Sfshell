@@ -1,26 +1,26 @@
 #if canImport(SwiftUI)
 import SwiftUI
 
-// VistaAsamblea.swift — la pestaña donde los tres consejos hablan entre sí.
+// VistaAsamblea.swift — el chat de los tres consejos (y tú), con misiones.
 
 struct PantallaAsamblea: View {
     @ObservedObject var nyx: NyxModelo
-    @State private var tema = ""
+    @State private var texto = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("🗣 Asamblea de los tres consejos").font(.title2.bold())
-            Text("El nuevo ✨, el antiguo 🏛 y el lógico ⚖️ hablan por turnos en Resh. Cada uno contesta a lo que oyó: el lógico comprueba lo que dicen y enseña lo que deduce, y se preguntan las palabras que no entienden.")
+            Text("🗣 Los tres consejos").font(.title2.bold())
+            Text("El nuevo ✨, el antiguo 🏛 y el lógico ⚖️ hablan en Resh cuando tienen ganas, a su ritmo, y se callan cuando ya no tienen nada nuevo que decir. Escríbeles cuando quieras, o ponles una misión 🎯.")
                 .font(.caption)
                 .foregroundColor(.gray)
             ControlesAsamblea(nyx: nyx)
+            Marcador(nyx: nyx)
             HStack {
-                TextField("Dales un tema (en español o en Resh)…", text: $tema)
+                TextField("Escríbeles… (o «misión: 2, 4, 8, 16, ?»)", text: $texto)
                     .textFieldStyle(.roundedBorder)
-                    .onSubmit { empieza() }
-                Button("Empezar") { empieza() }
-                    .buttonStyle(.bordered)
-                    .disabled(nyx.puenteOcupado)
+                    .onSubmit { envia() }
+                Button("Enviar") { envia() }
+                    .buttonStyle(.borderedProminent)
             }
             Toggle("Traducir", isOn: $nyx.traducir)
             ListaAsamblea(nyx: nyx)
@@ -28,9 +28,9 @@ struct PantallaAsamblea: View {
         .padding()
     }
 
-    func empieza() {
-        nyx.turnosAsamblea(6, tema: tema)
-        tema = ""
+    func envia() {
+        nyx.escribeAsamblea(texto)
+        texto = ""
     }
 }
 
@@ -39,15 +39,36 @@ struct ControlesAsamblea: View {
 
     var body: some View {
         HStack {
-            Button("1 turno") { nyx.turnosAsamblea(1) }
+            Button(nyx.asambleaViva ? "⏹ Que se callen" : "▶️ Que hablen") { nyx.alternaAsamblea() }
                 .buttonStyle(.borderedProminent)
-            Button("Una ronda (3)") { nyx.turnosAsamblea(3) }
-                .buttonStyle(.bordered)
-            Button("15 turnos") { nyx.turnosAsamblea(15) }
-                .buttonStyle(.bordered)
-            Text(nyx.puenteOcupado ? "hablando…" : "").font(.caption).foregroundColor(.gray)
+            MenuMisiones(nyx: nyx)
+            Text(nyx.estadoAsamblea).font(.caption).foregroundColor(.gray)
         }
-        .disabled(nyx.puenteOcupado)
+    }
+}
+
+struct MenuMisiones: View {
+    @ObservedObject var nyx: NyxModelo
+
+    var body: some View {
+        Menu("🎯 Misión") {
+            Button("🎲 Al azar") { nyx.misionAsamblea(nil) }
+            ForEach(TipoMision.allCases, id: \.rawValue) { (t: TipoMision) in
+                Button(t.icono + " " + t.nombre) { nyx.misionAsamblea(t) }
+            }
+        }
+        .buttonStyle(.bordered)
+    }
+}
+
+struct Marcador: View {
+    @ObservedObject var nyx: NyxModelo
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(nyx.marcador).font(.callout.bold())
+            Text(nyx.resumenMisiones).font(.caption).foregroundColor(.gray)
+        }
     }
 }
 
@@ -73,6 +94,7 @@ struct FilaAsamblea: View {
         case 0: return .blue
         case 1: return .orange
         case 2: return .green
+        case 3: return .red
         default: return .primary
         }
     }
@@ -85,8 +107,8 @@ struct FilaAsamblea: View {
                 Text(l.icono).font(.caption.bold()).foregroundColor(color)
                 Text(l.quien).font(.caption).foregroundColor(.gray)
             }
-            Text(l.resh).font(.body)
-            Text(traduccion).font(.caption).foregroundColor(.gray)
+            Text(l.consejo == 3 ? l.es : l.resh).font(.body)
+            Text(l.consejo == 3 ? "" : traduccion).font(.caption).foregroundColor(.gray)
         }
     }
 }
