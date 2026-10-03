@@ -12,11 +12,20 @@
 #include <deque>
 #include <map>
 #include <memory>
-#include <mutex>
 #include <random>
 #include <set>
 #include <sstream>
+
+// Con hilos (Linux, Termux, iSH): piensan en segundo plano, sin pausa.
+// Sin hilos (Code App en iPad, WebAssembly): piensan entre cada comando,
+// poniéndose al día con todo el tiempo que pasó mientras escribías.
+#if defined(__wasi__) || defined(__EMSCRIPTEN__) || defined(ABLA_SIN_HILOS)
+#define ABLA_HILOS 0
+#else
+#define ABLA_HILOS 1
+#include <mutex>
 #include <thread>
+#endif
 
 #include "conocimiento.hpp"
 #include "lenguaje.hpp"
@@ -24,6 +33,16 @@
 #include "shell.hpp"
 
 namespace abla {
+
+#if ABLA_HILOS
+using Cerrojo = std::mutex;
+using Guardia = std::lock_guard<std::mutex>;
+#else
+struct Cerrojo {};
+struct Guardia {
+  explicit Guardia(Cerrojo&) {}
+};
+#endif
 
 enum class Tribu { LENGUAJE = 0, DATOS = 1, LOGICA = 2 };
 inline const char* nombreTribu(Tribu t) {
@@ -104,33 +123,46 @@ class Especie {
 
   ~Especie() {
     vivo_ = false;
+#if ABLA_HILOS
     if (hilo_.joinable()) hilo_.join();
-    std::lock_guard<std::mutex> l(mtx);
+#endif
+    Guardia l(mtx);
     guardar();
   }
+
+  static constexpr bool conHilos = ABLA_HILOS;
 
   // A partir de aquí no deja de pensar mientras el programa exista.
   void despertar() {
     vivo_ = true;
+    ultimoCiclo_ = ultimoGuardado_ = std::chrono::steady_clock::now();
+#if ABLA_HILOS
     hilo_ = std::thread([this] {
-      auto ultimoGuardado = std::chrono::steady_clock::now();
       while (vivo_) {
         {
-          std::lock_guard<std::mutex> l(mtx);
-          tick++;
-          for (auto& s : seres) pensar(*s);
-          if (std::chrono::steady_clock::now() - ultimoGuardado > std::chrono::seconds(30)) {
-            guardar();
-            ultimoGuardado = std::chrono::steady_clock::now();
-          }
+          Guardia l(mtx);
+          ciclo();
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(ritmo_));
       }
     });
+#endif
   }
 
+  // Sin hilos: piensa todos los ciclos que le tocaban desde la última vez
+  // (como mínimo uno). Con hilos no hace nada: ya están pensando.
+  void ponerseAlDia(int maximo = 200) {
+    if (conHilos) return;
+    auto ahora = std::chrono::steady_clock::now();
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(ahora - ultimoCiclo_).count();
+    int ciclos = std::max<long long>(1, std::min<long long>(maximo, ms / ritmo_));
+    for (int i = 0; i < ciclos; i++) ciclo();
+    ultimoCiclo_ = ahora;
+  }
+  int ritmo() const { return ritmo_; }
+
   // ---------- Acceso para la terminal (con mtx tomado) ----------
-  std::mutex mtx;
+  Cerrojo mtx;
   Idioma idioma;
   std::vector<std::unique_ptr<Ser>> seres;
   uint64_t tick = 0, mensajesAbla = 0, mensajesCpp = 0;
@@ -162,6 +194,16 @@ class Especie {
     auto& b = seres[para]->buzon;
     b.push_back(std::move(m));
     if (b.size() > 256) b.pop_front();
+  }
+
+  // Un ciclo de toda la especie.
+  void ciclo() {
+    tick++;
+    for (auto& s : seres) pensar(*s);
+    if (std::chrono::steady_clock::now() - ultimoGuardado_ > std::chrono::seconds(30)) {
+      guardar();
+      ultimoGuardado_ = std::chrono::steady_clock::now();
+    }
   }
 
   // Un ciclo de pensamiento de un ser. Siempre piensa algo.
@@ -538,8 +580,11 @@ class Especie {
   fs::path mundo_;
   int ritmo_;
   std::mt19937 rng_;
+#if ABLA_HILOS
   std::thread hilo_;
+#endif
   std::atomic<bool> vivo_{false};
+  std::chrono::steady_clock::time_point ultimoCiclo_, ultimoGuardado_;
 };
 
 }  // namespace abla

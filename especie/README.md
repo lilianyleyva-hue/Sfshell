@@ -52,6 +52,18 @@ make
 
 iSH emula x86, así que compila despacio y piensa más lento; si va pesado, usa `./abla --ritmo 2000`.
 
+En **Code App** (iPad): abre `especie/src/main.cpp` y pulsa ▶. O, desde su terminal:
+
+```sh
+cd especie
+clang++ -std=c++17 -O2 src/main.cpp -o abla
+wasm abla
+```
+
+Code App compila a WebAssembly, que no tiene hilos. El programa lo detecta solo y cambia
+al modo sin hilos: los seres piensan entre cada comando que escribes y se ponen al día con
+todo el tiempo que pasó (hasta 200 ciclos de golpe). `escuchar 10` les hace pensar esos 10 segundos al instante.
+
 ## La terminal
 
 Al abrirla tienes un shell estilo bash dentro de `mundo/`: `ls`, `cd`, `cat`, `mkdir`, `echo > archivo`, `tree`, `grep`…

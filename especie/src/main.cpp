@@ -1,6 +1,7 @@
 // Especie Abla — 27 mentes que no dejan de pensar.
 //
 // Compilar:  g++ -std=c++17 -O2 -pthread src/main.cpp -o abla
+// Sin hilos (Code App en iPad): se detecta solo, o con -DABLA_SIN_HILOS
 // Usar:      ./abla [--mundo DIR] [--contexto TOKENS] [--ritmo MS]
 
 #include <cstdlib>
@@ -93,14 +94,22 @@ void cmdSer(Especie& e, Ser& s) {
 void cmdEscuchar(Especie& e, int segundos, const std::string& filtro) {
   uint64_t visto;
   {
-    std::lock_guard<std::mutex> l(e.mtx);
+    Guardia l(e.mtx);
     visto = e.nLinea > 10 ? e.nLinea - 10 : 0;
   }
   std::cout << c("2", "(escuchando " + std::to_string(segundos) + " s…)") << "\n";
+  if (!Especie::conHilos) {  // sin hilos: piensa ahora esos segundos de golpe
+    Guardia l(e.mtx);
+    for (int i = 0, n = std::min(400, segundos * 1000 / e.ritmo()); i < n; i++) e.ciclo();
+    for (auto& ln : e.corriente)
+      if (ln.n > visto && (filtro.empty() || ln.texto.find(filtro) != std::string::npos)) std::cout << ln.texto << "\n";
+    return;
+  }
+#if ABLA_HILOS
   auto fin = std::chrono::steady_clock::now() + std::chrono::seconds(segundos);
   while (std::chrono::steady_clock::now() < fin) {
     {
-      std::lock_guard<std::mutex> l(e.mtx);
+      Guardia l(e.mtx);
       for (auto& ln : e.corriente)
         if (ln.n > visto && (filtro.empty() || ln.texto.find(filtro) != std::string::npos)) std::cout << ln.texto << "\n";
       visto = e.nLinea;
@@ -108,6 +117,7 @@ void cmdEscuchar(Especie& e, int segundos, const std::string& filtro) {
     std::cout.flush();
     std::this_thread::sleep_for(std::chrono::milliseconds(250));
   }
+#endif
 }
 
 }  // namespace
@@ -133,7 +143,7 @@ int main(int argc, char** argv) {
   Shell yo(e.mundo(), e.mundo());
 
   {
-    std::lock_guard<std::mutex> l(e.mtx);
+    Guardia l(e.mtx);
     int hola = e.idioma.deEspanol("despertar"), noso = e.idioma.deEspanol("nosotros"), pens = e.idioma.deEspanol("pensamiento");
     std::cout << "\n  " << c("1", "Especie Abla") << " · 27 seres · " << e.idioma.tamano() << " palabras · contexto "
               << contexto << " tokens por ser\n"
@@ -165,14 +175,15 @@ int main(int argc, char** argv) {
       if (a.size() > 1 && !std::isdigit(static_cast<unsigned char>(a[1][0]))) filtro = a[1];
       if (a.size() > 2) filtro = a[2];
       if (!filtro.empty()) {
-        std::lock_guard<std::mutex> l(e.mtx);
+        Guardia l(e.mtx);
         if (Ser* s = e.buscarSer(filtro)) filtro = s->nombre;
       }
       cmdEscuchar(e, std::max(1, seg), filtro);
       continue;
     }
 
-    std::lock_guard<std::mutex> l(e.mtx);
+    Guardia l(e.mtx);
+    e.ponerseAlDia();
     if (cmd == "seres") { cmdSeres(e); continue; }
     if (cmd == "ser" || cmd == "mente" || cmd == "terminal" || cmd == "recordar") {
       Ser* s = a.size() > 1 ? e.buscarSer(a[1]) : nullptr;
