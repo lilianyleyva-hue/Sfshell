@@ -13,6 +13,8 @@ struct VistaPrincipal: View {
                 .tabItem { Label("Hablar", systemImage: "bubble.left.and.bubble.right") }
             PantallaVivo(nyx: nyx)
                 .tabItem { Label("En vivo", systemImage: "waveform") }
+            PantallaSentidos(nyx: nyx)
+                .tabItem { Label("Sentidos", systemImage: "eye") }
             PantallaMentes(nyx: nyx)
                 .tabItem { Label("Mentes", systemImage: "brain") }
             PantallaTransferencias(nyx: nyx)

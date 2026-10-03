@@ -6,6 +6,7 @@ Su conocimiento se guarda con **SwiftData**, y lo que una mente aprende se lo
 **pasa a las demás** como registros de SwiftData (Transferencias).
 
 Requisitos: iPadOS 17 o más nuevo · Swift Playgrounds con Swift 5.9.
+La primera vez que uses 🎤 te pedirá permiso para el micrófono y el reconocimiento de voz.
 
 ## Abrirla
 En Archivos, toca `NyxCerebro.swiftpm`. Se abre en Swift Playgrounds. ▶
@@ -13,6 +14,7 @@ En Archivos, toca `NyxCerebro.swiftpm`. Se abre en Swift Playgrounds. ▶
 ## Pestañas
 - **Hablar:** pregúntales (a las 18 o a una). 👍/👎 cambia lo que aprendieron.
 - **En vivo:** ▶ Empezar y míralas imaginar, hablar, enseñarse Resh y pasarse conocimiento.
+- **Sentidos:** enséñales una foto (la ven con Vision: qué hay, texto, caras, colores) o háblales con el micrófono (te entienden con el reconocimiento de voz de Apple y notan si suena fuerte/suave, agudo/grave). Cada una se fija en algo distinto.
 - **Mentes:** las 18, y cada una por dentro (qué aprendió a preferir, su foco, sus recuerdos).
 - **Transferencias:** los registros de SwiftData que se pasan entre ellas.
 - **Enseñar:** pega frases y las 18 las aprenden.
@@ -29,5 +31,9 @@ En Archivos, toca `NyxCerebro.swiftpm`. Se abre en Swift Playgrounds. ▶
 | Frases.swift | memoria de frases enteras |
 | Buzon.swift | cómo se pasan conocimiento |
 | Memoria.swift | conocimiento como texto (para SwiftData y respaldo) |
+| Sentidos.swift | cómo percibe cada mente lo que ve y oye |
+| Ojos.swift | ver fotos (Vision) |
+| Oidos.swift | oír (micrófono + reconocimiento de voz) |
+| VistaSentidos.swift | la pestaña Sentidos |
 | Base.swift | azar, las 18, su infancia |
 | ReshDatos.swift | las 3144 palabras Resh |

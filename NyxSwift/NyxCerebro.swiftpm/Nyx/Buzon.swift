@@ -13,12 +13,14 @@ enum TipoEnvio: String {
     case palabra    // "árbol=yuz": cómo se dice en Resh
     case concepto   // "camino⊕tiene⊕historia": una idea cristalizada
     case frase      // una frase entera que vale la pena
+    case percepcion // lo que vio u oyó: "en la foto hay perro cielo · colores azul"
 
     var icono: String {
         switch self {
         case .palabra: return "🔤"
         case .concepto: return "💎"
         case .frase: return "💬"
+        case .percepcion: return "👁"
         }
     }
 }
@@ -28,6 +30,7 @@ struct Envio {
     let para: Int          // -1: para todas
     let tipo: TipoEnvio
     let contenido: String
+    var recogidos: Int = 0  // mentes que ya lo saben (un bit por mente)
 }
 
 protocol Buzon: AnyObject {
@@ -42,7 +45,7 @@ final class BuzonMemoria: Buzon {
     private var envios: [(envio: Envio, recogido: Int)] = []
 
     func envia(_ e: Envio) {
-        envios.append((e, 0))
+        envios.append((e, e.recogidos))
         if envios.count > 500 { envios.removeFirst(envios.count - 500) }
     }
 
@@ -75,6 +78,10 @@ extension Mente {
             return "aprendió a decir «\(p[0])» = \(p[1])"
         case .concepto:
             return adoptaConcepto(e.contenido)
+        case .percepcion:
+            let ids = ingesta(e.contenido, dialogo: true)
+            if ids.isEmpty { return nil }
+            return "supo lo que vio \(Roles.todos[e.de].nombre): «\(e.contenido)»"
         case .frase:
             let ids = ingesta(e.contenido, dialogo: true)
             if ids.isEmpty { return nil }

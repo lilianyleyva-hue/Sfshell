@@ -4,7 +4,7 @@ import Foundation
 // conversaciones y tu opinión. (Versión Swift de consejo.c de NyxC.)
 
 enum TipoEvento {
-    case piensa, dice, aprende, idea, resh, suena, nota, envia, recibe
+    case piensa, dice, aprende, idea, resh, suena, nota, envia, recibe, percibe
 
     var icono: String {
         switch self {
@@ -17,6 +17,7 @@ enum TipoEvento {
         case .nota: return "·"
         case .envia: return "📤"
         case .recibe: return "📥"
+        case .percibe: return "👁"
         }
     }
 }
@@ -99,8 +100,8 @@ final class Consejo {
     // MARK: pasarse conocimiento
 
     /// Una mente comparte algo que aprendió.
-    func comparte(_ de: Int, _ tipo: TipoEnvio, _ contenido: String, para: Int = -1) {
-        buzon.envia(Envio(de: de, para: para, tipo: tipo, contenido: contenido))
+    func comparte(_ de: Int, _ tipo: TipoEnvio, _ contenido: String, para: Int = -1, yaLoSaben: Int = 0) {
+        buzon.envia(Envio(de: de, para: para, tipo: tipo, contenido: contenido, recogidos: yaLoSaben | (1 << de)))
         let destino = para < 0 ? "todas" : mentes[para].nombre
         evento(de, .envia, "\(tipo.icono) envió a \(destino): \(contenido)")
     }

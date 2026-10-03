@@ -55,6 +55,10 @@ final class NyxModelo: ObservableObject {
     @Published var transferencias: [FilaTransferencia] = []
     @Published var version = 0
     @Published var aviso = ""
+    @Published var notasSentidos: [LoQueNoto] = []
+    @Published var ultimaVista = ""
+    @Published var ultimoOido = ""
+    @Published var ultimaRespuesta = ""
     var conSwiftData = false
     var consejo: Consejo
     var puedeOpinar = false
@@ -125,6 +129,7 @@ final class NyxModelo: ObservableObject {
             let quien = r.vocero >= 0 ? consejo.mentes[r.vocero].nombre : "nadie"
             let det = "ganó «\(r.ganador)» · acuerdo \(acuerdo)% · habló \(quien) · " + (r.recordada ? "lo recordó" : "frase propia")
             chat.append(MensajeChat(id: contador, deHumano: false, rol: r.vocero, texto: r.frase, resh: r.resh, detalle: det))
+            ultimaRespuesta = "nyx: " + r.frase
         } else {
             let r = consejo.hablaCon(destino, t)
             let det = "C=\(fmt(r.C)) · " + (r.recordada ? "lo recordó" : "frase propia")
@@ -132,6 +137,17 @@ final class NyxModelo: ObservableObject {
         }
         puedeOpinar = true
         version += 1
+    }
+
+    // MARK: sentidos
+
+    /// Las 18 perciben una foto o un sonido.
+    func percibe(_ p: Percepcion) {
+        notasSentidos = consejo.percibe(p)
+        let d = p.descripcion
+        if p.sentido == .vista { ultimaVista = d } else { ultimoOido = d }
+        version += 1
+        guarda()
     }
 
     func opina(_ bueno: Bool) {

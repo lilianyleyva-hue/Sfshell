@@ -54,7 +54,9 @@ final class BuzonSwiftData: Buzon {
     }
 
     func envia(_ e: Envio) {
-        contexto.insert(Transferencia(de: e.de, para: e.para, tipo: e.tipo.rawValue, contenido: e.contenido))
+        let t = Transferencia(de: e.de, para: e.para, tipo: e.tipo.rawValue, contenido: e.contenido)
+        t.recogidos = e.recogidos
+        contexto.insert(t)
         try? contexto.save()
         alCambiar?()
     }
