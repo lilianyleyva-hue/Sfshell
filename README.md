@@ -3,7 +3,7 @@
 Este repositorio tiene dos partes:
 
 - **Interfaz web** (esta página): un cerebro que ve y escucha de forma diferente.
-- **[Especie Abla](especie/README.md)**: 27 mentes en C++ que hablan su propio idioma de 4000 palabras, guardan su conocimiento en archivos `.cpp`, tienen una terminal estilo bash y no dejan de pensar.
+- **[Especie Abla](especie/README.md)**: 27 mentes con el cerebro en C que hablan su propio idioma de 4000 palabras, guardan su conocimiento como código C, tienen una interfaz visual ([`especie/web/index.html`](especie/web/index.html)) y una terminal estilo bash, y no dejan de pensar.
 
 Una interfaz para un cerebro de IA que **no ve ni escucha como nosotros**.
 
