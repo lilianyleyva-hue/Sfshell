@@ -27,6 +27,11 @@ extension Resh {
         return inverso[t] != nil && lexico[t] == nil && particulas[t] == nil
     }
 
+    /// Español → Resh palabra por palabra (las que no tienen Resh se quedan).
+    static func traduceTexto(_ es: String) -> String {
+        return Palabras.tokens(es, max: 60).map { deEspanol($0) ?? $0 }.joined(separator: " ")
+    }
+
     /// Lo que escribe el humano: sus palabras Resh se traducen (el humano las sabe todas).
     static func traduceHumano(_ texto: String) -> String {
         var out: [String] = []

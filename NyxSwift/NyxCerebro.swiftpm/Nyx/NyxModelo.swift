@@ -25,6 +25,18 @@ struct FilaTransferencia: Identifiable {
     let recogieron: Int
 }
 
+struct LineaLogica: Identifiable {
+    let id: Int
+    let agente: Int
+    let texto: String
+}
+
+struct Aporte: Identifiable {
+    let id: Int
+    let agente: String
+    let texto: String
+}
+
 struct Gusto: Identifiable {
     let id: Int
     let nombre: String
@@ -63,6 +75,13 @@ final class NyxModelo: ObservableObject {
     @Published var ultimaCamara = ""
     @Published var ultimoVideo = ""
     @Published var lineasVideo: [String] = []
+    // el consejo lógico
+    var logico = ConsejoLogico(primer: true)
+    @Published var lineasLogica: [LineaLogica] = []
+    @Published var veredictoLogico = ""
+    @Published var explicacionLogica: [String] = []
+    @Published var aportesLogicos: [Aporte] = []
+    private var contadorLogica = 0
     // el consejo antiguo y el puente
     let puente = Puente()
     @Published var lineasPuente: [LineaPuente] = []
@@ -106,12 +125,18 @@ final class NyxModelo: ObservableObject {
             origen = "nacieron y leyeron su infancia"
         }
         aviso = origen + (conSwiftData ? " · conocimiento en SwiftData" : "")
+        #if canImport(SwiftData)
+        if let ctx = contexto, let t = AlmacenSwiftData.cargaLogico(de: ctx), !t.isEmpty {
+            logico = ConsejoLogico.desde(t)
+        }
+        #endif
         conecta()
         refrescaTransferencias()
     }
 
     private func conecta() {
         consejo.alEvento = { [weak self] e in self?.agrega(e) }
+        logico.alEvento = { [weak self] (a: Int, t: String) in self?.agregaLogica(a, t) }
         #if canImport(SwiftData)
         if let ctx = contexto {
             let b = BuzonSwiftData(contexto: ctx)
@@ -164,6 +189,51 @@ final class NyxModelo: ObservableObject {
         }
         version += 1
         guarda()
+    }
+
+    // MARK: consejo lógico
+
+    private func agregaLogica(_ agente: Int, _ texto: String) {
+        contadorLogica += 1
+        lineasLogica.append(LineaLogica(id: contadorLogica, agente: agente, texto: texto))
+        if lineasLogica.count > 300 { lineasLogica.removeFirst(lineasLogica.count - 300) }
+    }
+
+    /// Le preguntas (o le enseñas un hecho) al consejo lógico.
+    func preguntaLogica(_ texto: String) {
+        let t = texto.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.isEmpty { return }
+        let r = logico.procesa(t)
+        veredictoLogico = r.veredicto
+        explicacionLogica = r.explicacion
+        var n = 0
+        aportesLogicos = r.aportes.map { a -> Aporte in
+            n += 1
+            return Aporte(id: n, agente: a.agente, texto: a.texto)
+        }
+        version += 1
+        guardaLogica()
+    }
+
+    /// Los 18 agentes lógicos razonan 'n' pasos por su cuenta.
+    func razonaLogica(_ n: Int) {
+        for _ in 0 ..< n { logico.razona() }
+        version += 1
+        guardaLogica()
+    }
+
+    /// El consejo lógico lee todo lo que sabe el consejo nuevo y saca hechos.
+    func logicaLeeConsejoNuevo() {
+        logico.encola(consejo.frases.frases.map { $0.texto })
+        for _ in 0 ..< 18 * 12 { logico.razona() }
+        version += 1
+        guardaLogica()
+    }
+
+    private func guardaLogica() {
+        #if canImport(SwiftData)
+        if let ctx = contexto { AlmacenSwiftData.guardaLogico(logico.exporta(), en: ctx) }
+        #endif
     }
 
     // MARK: consejo antiguo
@@ -311,6 +381,8 @@ final class NyxModelo: ObservableObject {
         vivo = false
         tarea?.cancel()
         consejo = Consejo(infancia: true)
+        logico = ConsejoLogico(primer: true)
+        lineasLogica = []
         #if canImport(SwiftData)
         if let ctx = contexto {
             try? ctx.delete(model: Transferencia.self)

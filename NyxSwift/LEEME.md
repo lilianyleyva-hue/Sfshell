@@ -17,6 +17,7 @@ En Archivos, toca `NyxCerebro.swiftpm`. Se abre en Swift Playgrounds. ▶
 - **Hablar:** pregúntales (a las 18 o a una), en español o en Resh. Contestan en Resh; el interruptor "Traducir al español" muestra u oculta la traducción. 👍/👎 cambia lo que aprendieron.
 - **En vivo:** ▶ Empezar y míralas imaginar, hablar, enseñarse Resh y pasarse conocimiento.
 - **Sentidos:** 📷 enciende la cámara y miran el mundo cada pocos segundos (tú eliges cada cuánto); 🎬 mándales un video y lo ven ENTERO (un fotograma por segundo, cada escena con su momento, y escuchan todo el audio en el iPad); enséñales una foto (la ven con Vision: qué hay, texto, caras, colores) o háblales con el micrófono (te entienden con el reconocimiento de voz de Apple y notan si suena fuerte/suave, agudo/grave). Cada una se fija en algo distinto.
+- **Consejo lógico:** 18 agentes que razonan con hechos (silogismo, herencia, negación, causas, comparaciones, contradicciones, inducción, abducción, aritmética…). Pregúntale «¿es la ballena un pez?» y contesta sí/no/no sé con la cadena de pasos. Enséñale hechos («el delfín es un mamífero»). Puede leer todo lo que sabe el consejo nuevo y sacar hechos de ahí.
 - **Consejo antiguo:** el consejo original que hablaba Resh (tal cual, sin terminal). Pregúntale, o pulsa "Que hablen" y los dos consejos conversan en Resh y se enseñan palabras.
 - **Mentes:** las 18, y cada una por dentro (qué aprendió a preferir, su foco, sus recuerdos).
 - **Transferencias:** los registros de SwiftData que se pasan entre ellas.
@@ -41,6 +42,8 @@ En Archivos, toca `NyxCerebro.swiftpm`. Se abre en Swift Playgrounds. ▶
 | Video.swift | ver y oír videos |
 | Comprension.swift | hablar entre ellas en Resh |
 | VistaSentidos.swift | la pestaña Sentidos |
+| Logica.swift | el consejo lógico: hechos, reglas y los 18 agentes |
+| VistaLogica.swift | la pestaña Consejo lógico |
 | Puente.swift | el puente entre el consejo antiguo y el nuevo |
 | VistaAntiguo.swift | la pestaña Consejo antiguo |
 | Antiguo/ | el consejo original (CerebroResonante, ConsejoResonante, LenguaResh) |

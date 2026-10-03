@@ -118,6 +118,23 @@ enum AlmacenSwiftData {
         }
     }
 
+    /// La memoria del consejo lógico (rol 300): sus hechos, reglas y verdades.
+    static func guardaLogico(_ texto: String, en contexto: ModelContext) {
+        let filas = (try? contexto.fetch(FetchDescriptor<SaberMente>())) ?? []
+        if let f = filas.first(where: { $0.rol == 300 }) {
+            f.texto = texto
+            f.actualizado = Date()
+        } else {
+            contexto.insert(SaberMente(rol: 300, texto: texto))
+        }
+        try? contexto.save()
+    }
+
+    static func cargaLogico(de contexto: ModelContext) -> String? {
+        let filas = (try? contexto.fetch(FetchDescriptor<SaberMente>())) ?? []
+        return filas.first(where: { $0.rol == 300 })?.texto
+    }
+
     /// La memoria del consejo antiguo (rol 200).
     static func guardaAntiguo(_ datos: Data, en contexto: ModelContext) {
         let texto = String(decoding: datos, as: UTF8.self)
