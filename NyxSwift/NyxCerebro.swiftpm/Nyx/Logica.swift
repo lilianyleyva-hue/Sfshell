@@ -71,6 +71,33 @@ let agentesLogicos: [String] = [
 
 final class ConsejoLogico {
     private(set) var hechos: [Hecho: Apoyo] = [:]
+    /// Nyx 2: índices de los hechos (antes, cada búsqueda recorría todos):
+    /// sujeto → relación → objetos, objeto → relación → sujetos, y por relación.
+    private var sale: [String: [Rel: [String]]] = [:]
+    private var entra: [String: [Rel: [String]]] = [:]
+    private var porRel: [Rel: [Hecho]] = [:]
+
+    /// Pone (o cambia) un hecho manteniendo los índices.
+    private func guardaHecho(_ h: Hecho, _ ap: Apoyo) {
+        if hechos[h] == nil {
+            sale[h.a, default: [:]][h.rel, default: []].append(h.b)
+            entra[h.b, default: [:]][h.rel, default: []].append(h.a)
+            porRel[h.rel, default: []].append(h)
+        }
+        hechos[h] = ap
+    }
+
+    /// Quita un hecho manteniendo los índices.
+    private func borraHecho(_ h: Hecho) {
+        guard hechos[h] != nil else { return }
+        hechos[h] = nil
+        sale[h.a]?[h.rel]?.removeAll { $0 == h.b }
+        entra[h.b]?[h.rel]?.removeAll { $0 == h.a }
+        porRel[h.rel]?.removeAll { $0 == h }
+    }
+
+    /// Los sujetos que tienen la relación con b ("¿qué es mamífero?" → perro, gato…).
+    private func entrantes(_ b: String, _ rel: Rel) -> [String] { entra[b]?[rel] ?? [] }
     private(set) var reglas: [Regla: Apoyo] = [:]
     private(set) var props: [String: Apoyo] = [:]       // proposiciones verdaderas ("llueve")
     private(set) var contradicciones: [String] = []
@@ -136,7 +163,15 @@ final class ConsejoLogico {
             return nuevos
         }
         let toks = Palabras.tokens(t, max: 30)
-        if let h = hechoDe(toks) {
+        if var h = hechoDe(toks) {
+            // «motores» es el plural de motor: la palabra entre comillas es esa palabra
+            // exacta (no se pasa a singular: si no, saldría «motor es plural de motor»)
+            if t.hasPrefix("«"), let fin = t.firstIndex(of: "»") {
+                let exacta = String(t[t.index(after: t.startIndex) ..< fin]).trimmingCharacters(in: .whitespaces)
+                if !exacta.isEmpty && !exacta.contains(" ") && h.a == ConsejoLogico.singular(exacta) {
+                    h = Hecho(a: exacta, rel: h.rel, b: h.b)
+                }
+            }
             // "la música tiene ritmo y forma" → dos hechos: ritmo, forma
             let partes = h.b.components(separatedBy: " y ").flatMap { $0.components(separatedBy: " e ") }
             for b in partes where !b.isEmpty {
@@ -242,7 +277,7 @@ final class ConsejoLogico {
     @discardableResult
     private func pon(_ h: Hecho, _ ap: Apoyo) -> Bool {
         if let viejo = hechos[h], viejo.confianza >= ap.confianza { return false }
-        hechos[h] = ap
+        guardaHecho(h, ap)
         return true
     }
 
@@ -251,9 +286,7 @@ final class ConsejoLogico {
     // MARK: búsquedas
 
     private func salientes(_ a: String, _ rel: Rel) -> [String] {
-        var out: [String] = []
-        for (h, _) in hechos where h.a == a && h.rel == rel { out.append(h.b) }
-        return out
+        return sale[a]?[rel] ?? []
     }
 
     /// Camino a →rel→ … → b (para es, mayor, causa, parte). nil si no hay.
@@ -511,7 +544,7 @@ final class ConsejoLogico {
     private func queCausa(_ b: String) -> RespuestaLogica {
         var r = RespuestaLogica()
         var causas: [String] = []
-        for (h, _) in hechos where h.rel == .causa && h.b == b { causas.append(h.a) }
+        for a in entrantes(b, .causa) { causas.append(a) }
         for (g, _) in reglas where g.entonces == b { causas.append(g.si) }
         if causas.isEmpty { return r }
         r.veredicto = causas.joined(separator: ", ")
@@ -530,7 +563,8 @@ final class ConsejoLogico {
                 verdades.append(g.entonces)
                 r.explicacion.append("si \(g.si) entonces \(g.entonces)")
             }
-            for (h, _) in hechos where h.rel == .causa && h.a == x && !verdades.contains(h.b) {
+            for b in salientes(x, .causa) where !verdades.contains(b) {
+                let h = Hecho(a: x, rel: .causa, b: b)
                 verdades.append(h.b)
                 r.explicacion.append("\(h.a) causa \(h.b)")
             }
@@ -622,7 +656,7 @@ final class ConsejoLogico {
 
     /// X es A, A es B ⇒ X es B
     private func silogismo() {
-        let es = hechos.filter { $0.key.rel == .es && !$0.value.hipotesis }.map { $0.key }
+        let es = (porRel[.es] ?? []).filter { hechos[$0]?.hipotesis == false }
         for h1 in es.shuffled().prefix(30) {
             for b in salientes(h1.b, .es) {
                 let nuevo = Hecho(a: h1.a, rel: .es, b: b)
@@ -636,7 +670,7 @@ final class ConsejoLogico {
 
     /// X es A, A tiene P ⇒ X tiene P (si nada lo impide)
     private func herencia() {
-        let es = hechos.filter { $0.key.rel == .es }.map { $0.key }
+        let es = porRel[.es] ?? []
         for h1 in es.shuffled().prefix(30) {
             for rel in [Rel.tiene, Rel.puede] {
                 for p in salientes(h1.b, rel) {
@@ -652,7 +686,7 @@ final class ConsejoLogico {
 
     /// A r B, B r C ⇒ A r C (mayor, causa)
     private func transitividad(_ rel: Rel, agente: Int) {
-        let hs = hechos.filter { $0.key.rel == rel }.map { $0.key }
+        let hs = porRel[rel] ?? []
         for h1 in hs.shuffled().prefix(30) {
             for c in salientes(h1.b, rel) where c != h1.a {
                 let nuevo = Hecho(a: h1.a, rel: rel, b: c)
@@ -675,9 +709,10 @@ final class ConsejoLogico {
 
     /// X es A, A no es B ⇒ X no es B
     private func negacion() {
-        let no = hechos.filter { $0.key.rel == .noEs }.map { $0.key }
+        let no = porRel[.noEs] ?? []
         for h1 in no.shuffled().prefix(20) {
-            for (h, _) in hechos where h.rel == .es && h.b == h1.a {
+            for x in entrantes(h1.a, .es) {
+                let h = Hecho(a: x, rel: .es, b: h1.a)
                 let nuevo = Hecho(a: h.a, rel: .noEs, b: h1.b)
                 if hechos[nuevo] == nil && hechos[Hecho(a: h.a, rel: .es, b: h1.b)] == nil {
                     deduce(nuevo, 6, [h.texto, h1.texto], conf: conf(h) * 0.9)
@@ -730,9 +765,10 @@ final class ConsejoLogico {
     /// Busca un caso que refute una generalización inducida.
     private func contraejemplo() {
         for (h, ap) in hechos where ap.hipotesis && h.rel == .tiene {
-            for (m, _) in hechos where m.rel == .es && m.b == h.a {
+            for x in entrantes(h.a, .es) {
+                let m = Hecho(a: x, rel: .es, b: h.a)
                 if hechos[Hecho(a: m.a, rel: .noTiene, b: h.b)] != nil {
-                    hechos[h] = nil
+                    borraHecho(h)
                     evento(10, "refuta «\(h.texto)»: \(m.a) es \(h.a) y no tiene \(h.b)")
                     return
                 }
@@ -746,7 +782,7 @@ final class ConsejoLogico {
             guard let c = h.rel.contraria else { continue }
             let otro = Hecho(a: h.a, rel: c, b: h.b)
             if let ap2 = hechos[otro], ap2.confianza < ap.confianza {
-                hechos[otro] = nil
+                borraHecho(otro)
                 evento(11, "descarta «\(otro.texto)» (confianza \(fmt(ap2.confianza))) y se queda con «\(h.texto)» (\(fmt(ap.confianza)))")
                 return
             }
@@ -755,9 +791,13 @@ final class ConsejoLogico {
 
     /// Comprueba que lo deducido todavía se sostiene.
     private func verificador() {
-        for (h, ap) in hechos.shuffled().prefix(20) where ap.quien == "silogismo" && h.rel == .es {
+        let es = porRel[.es] ?? []
+        if es.isEmpty { return }
+        for _ in 0 ..< 20 {
+            let h = es[Azar.ent(es.count)]
+            guard let ap = hechos[h], ap.quien == "silogismo" else { continue }
             if camino(h.a, .es, h.b, hasta: 8) == nil || demuestraEsSin(h) == nil {
-                hechos[h] = nil
+                borraHecho(h)
                 evento(12, "retira «\(h.texto)»: ya no hay cadena que lo pruebe")
                 return
             }
@@ -766,10 +806,10 @@ final class ConsejoLogico {
 
     /// Prueba a→b sin usar el hecho directo (para verificar deducciones).
     private func demuestraEsSin(_ h: Hecho) -> [String]? {
-        let guardado = hechos[h]
-        hechos[h] = nil
+        guard let guardado = hechos[h] else { return demuestraEs(h.a, h.b) }
+        borraHecho(h)
         let r = demuestraEs(h.a, h.b)
-        hechos[h] = guardado
+        guardaHecho(h, guardado)
         return r
     }
 
@@ -819,7 +859,7 @@ final class ConsejoLogico {
             if p.count >= 8, p[0] == "H", let rel = Rel(rawValue: p[2]) {
                 var ap = Apoyo(confianza: Float(p[4]) ?? 1, quien: p[5], porque: p[7].components(separatedBy: " ¦ "))
                 ap.hipotesis = p[6] == "1"
-                c.hechos[Hecho(a: p[1], rel: rel, b: p[3])] = ap
+                c.guardaHecho(Hecho(a: p[1], rel: rel, b: p[3]), ap)
             } else if p.count >= 4, p[0] == "R" {
                 c.reglas[Regla(si: p[1], entonces: p[2])] = Apoyo(confianza: 1, quien: p[3], porque: [])
             } else if p.count >= 3, p[0] == "P" {

@@ -13,9 +13,43 @@ struct FraseMem {
 }
 
 final class MemoriaFrases {
-    var frases: [FraseMem] = []
+    private(set) var frases: [FraseMem] = []
     var indiceTexto: [String: Int] = [:]
-    let maximo = 1500
+    /// Nyx 2: memoria grande (antes 1500) con índice, como el índice de un
+    /// libro: raíz de palabra → frases donde sale. Buscar ya no recorre todo.
+    let maximo = 40000
+    private var porRaiz: [String: [Int]] = [:]
+
+    private func indexa(_ k: Int) {
+        for r in Set(frases[k].toks.map { MemoriaFrases.raiz($0) }) { porRaiz[r, default: []].append(k) }
+    }
+
+    private func desindexa(_ k: Int) {
+        for r in Set(frases[k].toks.map { MemoriaFrases.raiz($0) }) {
+            porRaiz[r]?.removeAll { $0 == k }
+            if porRaiz[r]?.isEmpty == true { porRaiz[r] = nil }
+        }
+    }
+
+    /// En cuántas frases sale una raíz.
+    func cuantas(_ raiz: String) -> Int { porRaiz[raiz]?.count ?? 0 }
+
+    /// Las frases que contienen alguna de estas raíces.
+    func candidatas(_ raices: Set<String>) -> [Int] {
+        var vistas = Set<Int>()
+        var out: [Int] = []
+        for r in raices {
+            for k in porRaiz[r] ?? [] where !vistas.contains(k) {
+                vistas.insert(k)
+                out.append(k)
+            }
+        }
+        return out
+    }
+
+    func usa(_ k: Int) {
+        if k < frases.count { frases[k].usos += 1 }
+    }
 
     /// Guarda una frase (si no la tenía). Devuelve su índice.
     @discardableResult
@@ -31,13 +65,16 @@ final class MemoriaFrases {
         if frases.count < maximo {
             frases.append(f)
             indiceTexto[limpio] = frases.count - 1
+            indexa(frases.count - 1)
             return frases.count - 1
         }
         var peor = 0
         for k in 1 ..< frases.count where valor(k) < valor(peor) { peor = k }
         indiceTexto[frases[peor].texto] = nil
+        desindexa(peor)
         frases[peor] = f
         indiceTexto[limpio] = peor
+        indexa(peor)
         return peor
     }
 
@@ -50,15 +87,6 @@ final class MemoriaFrases {
         return t.count > 5 ? String(t.prefix(5)) : t
     }
 
-    /// En cuántas frases sale cada raíz (para saber cuáles son raras).
-    private func frecuencias() -> [String: Int] {
-        var df: [String: Int] = [:]
-        for f in frases {
-            for t in Set(f.toks.map { MemoriaFrases.raiz($0) }) { df[t, default: 0] += 1 }
-        }
-        return df
-    }
-
     /// La frase que esta mente diría sobre 'centro'. ctx: lo que se preguntó.
     /// Vale más la frase que reúne MÁS palabras de la pregunta (las raras
     /// pesan más) y la que está más activada en la mente; la idea ganadora suma.
@@ -67,17 +95,20 @@ final class MemoriaFrases {
     func elige(mente m: Mente, centro: Int, ctx: [Int], tema: [String] = [], esEco: (String) -> Bool) -> (Int, Float)? {
         let raicesTema: Set<String> = Set(tema.map { MemoriaFrases.raiz($0) })
         let et = m.s[centro].et
-        let df = frecuencias()
         let n = Float(max(1, frases.count))
         var pesoCtx: [String: Float] = [:]
         for id in ctx where id != centro && !Palabras.vacia(m.s[id].et) {
             let r = MemoriaFrases.raiz(m.s[id].et)
-            pesoCtx[r] = log(1 + n / Float(df[r] ?? 1)) * m.pesoPista(id)
+            pesoCtx[r] = log(1 + n / Float(max(1, cuantas(r)))) * m.pesoPista(id)
         }
+        // solo las frases que tienen algo que ver (por el índice)
+        var buscar = Set(pesoCtx.keys)
+        buscar.insert(MemoriaFrases.raiz(et))
+        for r in raicesTema { buscar.insert(r) }
         let act = m.activaDesde(ctx)
         var mejor: Int? = nil
         var mp: Float = -1e9
-        for k in 0 ..< frases.count {
+        for k in candidatas(buscar) {
             let f = frases[k]
             let tieneCentro = f.toks.contains(et)
             var enCtx: Float = 0

@@ -357,28 +357,33 @@ final class NyxUno {
         let pregunta = Palabras.tokens(t).filter { !Palabras.vacia($0) && !Palabras.ligeras.contains($0) && !NyxUno.interrogativas.contains($0) }
         let q = Set(pregunta.map { MemoriaFrases.raiz($0) })
         if q.isEmpty { return nil }
-        let frases = consejo.frases.frases
-        var df: [String: Int] = [:]
-        for f in frases {
-            for r in Set(f.toks.map { MemoriaFrases.raiz($0) }) where q.contains(r) { df[r, default: 0] += 1 }
-        }
+        let memoria = consejo.frases
+        let frases = memoria.frases
         let n = Float(max(1, frases.count))
         var idf: [String: Float] = [:]
         var total: Float = 0
         for r in q {
-            let v = log(1 + n / Float(df[r] ?? 1))
+            let v = log(1 + n / Float(max(1, memoria.cuantas(r))))
             idf[r] = v
             total += v
         }
+        // ¿pregunta qué es algo? la frase que lo DEFINE («X es …») vale mucho más
+        let palabra: String? = clasifica(t) == .definicion ? pregunta.last : nil
+        let definida: String? = palabra.map { MemoriaFrases.raiz(ConsejoLogico.singular($0)) }
         var mejor: (Int, Float)? = nil
-        for k in 0 ..< frases.count {
+        for k in memoria.candidatas(q) {
             let raices = Set(frases[k].toks.map { MemoriaFrases.raiz($0) })
             var cubre: Float = 0
             for r in q where raices.contains(r) { cubre += idf[r] ?? 0 }
             if cubre == 0 { continue }
             // a igualdad: la que habla DE eso (lo nombra al principio), la más corta y la más valorada
             let alPrincipio = frases[k].toks.prefix(3).contains { q.contains(MemoriaFrases.raiz($0)) }
-            let p = cubre + (alPrincipio ? 0.3 : 0) - 0.01 * Float(frases[k].toks.count) + 0.05 * frases[k].puntos
+            var p = cubre + (alPrincipio ? 0.3 : 0) - 0.01 * Float(frases[k].toks.count) + 0.05 * frases[k].puntos
+            if let d = definida, let primera = frases[k].toks.first(where: { !Palabras.vacia($0) }),
+               MemoriaFrases.raiz(ConsejoLogico.singular(primera)) == d, frases[k].toks.contains("es") {
+                p += total            // «casa es …»: es su definición
+                if primera == palabra { p += total }      // y si es la palabra exacta («negras», no «negra»), más
+            }
             if mejor == nil || p > mejor!.1 { mejor = (k, p) }
         }
         guard let m = mejor else { return nil }

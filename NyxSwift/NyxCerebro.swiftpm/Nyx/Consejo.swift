@@ -137,7 +137,7 @@ final class Consejo {
             for t in frases.frases[k].toks {
                 if let id = m.busca(t) { ids.append(id) }
             }
-            frases.frases[k].usos += 1
+            frases.usa(k)
             return (ids, frases.frases[k].texto, frases.enResh(k, mente: m), k)
         }
         let ids = m.frase(centro, ctx: ctx)
