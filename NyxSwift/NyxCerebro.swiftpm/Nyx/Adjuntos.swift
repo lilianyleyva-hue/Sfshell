@@ -144,6 +144,12 @@ enum Lector {
            let c = s.range(of: "</title>", options: .caseInsensitive, range: b.upperBound ..< s.endIndex) {
             titulo = String(s[b.upperBound ..< c.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
         }
+        // la descripción de la página (muchas páginas se arman con JavaScript y solo traen esto)
+        var resumen: [String] = []
+        for nombre in ["og:description", "description", "twitter:description"] {
+            if let d = meta(html, nombre), !resumen.contains(d) { resumen.append(d) }
+        }
+        if titulo.isEmpty, let t = meta(html, "og:title") { titulo = t }
         for etiqueta in ["head", "script", "style", "noscript", "svg", "nav", "footer", "header", "form"] {
             s = quitaBloques(s, etiqueta)
         }
@@ -175,7 +181,41 @@ enum Lector {
         let lineas = sinNotas.components(separatedBy: "\n").map {
             $0.split(separator: " ", omittingEmptySubsequences: true).joined(separator: " ")
         }
-        return (titulo, lineas.filter { !$0.isEmpty }.joined(separator: "\n"))
+        let utiles = (resumen + lineas).filter { !$0.isEmpty && !esBasura($0) }
+        return (titulo, utiles.joined(separator: "\n"))
+    }
+
+    /// Avisos de la página que no son contenido.
+    static func esBasura(_ l: String) -> Bool {
+        let x = l.lowercased()
+        let avisos = ["navegador está desactualizado", "navegador no es compatible", "browser is out of date",
+                      "unsupported browser", "habilita javascript", "activa javascript", "enable javascript",
+                      "javascript is disabled", "aceptar cookies", "accept cookies", "usamos cookies",
+                      "we use cookies", "iniciar sesión", "inicia sesión", "sign in", "suscríbete", "subscribe"]
+        return avisos.contains { x.contains($0) }
+    }
+
+    /// <meta name="description" content="…"> o <meta property="og:…" content="…">
+    static func meta(_ html: String, _ nombre: String) -> String? {
+        for atributo in ["name", "property"] {
+            for comilla in ["\"", "'"] {
+                let clave = "\(atributo)=\(comilla)\(nombre)\(comilla)"
+                guard let r = html.range(of: clave, options: .caseInsensitive) else { continue }
+                // el content puede ir antes o después dentro de la misma etiqueta
+                let ini = html[..<r.lowerBound].range(of: "<meta", options: [.caseInsensitive, .backwards])?.lowerBound ?? r.lowerBound
+                guard let fin = html.range(of: ">", range: r.upperBound ..< html.endIndex) else { continue }
+                let etiqueta = String(html[ini ..< fin.upperBound])
+                for c2 in ["\"", "'"] {
+                    guard let a = etiqueta.range(of: "content=" + c2, options: .caseInsensitive),
+                          let b = etiqueta.range(of: c2, range: a.upperBound ..< etiqueta.endIndex) else { continue }
+                    var v = String(etiqueta[a.upperBound ..< b.lowerBound])
+                    for (x, y) in [("&amp;", "&"), ("&quot;", "\""), ("&#39;", "'"), ("&nbsp;", " ")] { v = v.replacingOccurrences(of: x, with: y) }
+                    let t = v.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !t.isEmpty { return t }
+                }
+            }
+        }
+        return nil
     }
 
     private static func quitaBloques(_ s: String, _ etiqueta: String) -> String {
@@ -276,7 +316,46 @@ enum Lector {
     // MARK: enlaces
 
     /// Descarga un enlace y lo lee según lo que sea.
+    static let navegador = "Mozilla/5.0 (iPad; CPU OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Mobile/15E148 Safari/604.1"
+
+    static func esYouTube(_ url: URL) -> Bool {
+        let h = (url.host ?? "").lowercased()
+        return h == "youtu.be" || h.hasSuffix("youtube.com")
+    }
+
+    /// YouTube no deja descargar sus videos: Nyx lee el título y el canal
+    /// (con su servicio público oEmbed) y mira la miniatura.
+    static func youtube(_ url: URL, progreso: @escaping (String) -> Void) async -> Contenido {
+        var c = Contenido(titulo: "video de YouTube", clase: .video)
+        progreso("preguntando a YouTube por el video…")
+        let q = url.absoluteString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? url.absoluteString
+        guard let o = URL(string: "https://www.youtube.com/oembed?format=json&url=" + q),
+              let bajado = try? await descarga(o), let d = try? Data(contentsOf: bajado.0),
+              let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else {
+            c.nota = "YouTube no me dio datos de ese video (¿es privado o el enlace está mal?)"
+            return c
+        }
+        try? FileManager.default.removeItem(at: bajado.0)
+        let titulo = (j["title"] as? String) ?? ""
+        let canal = (j["author_name"] as? String) ?? ""
+        if !titulo.isEmpty {
+            c.titulo = titulo
+            c.frases.append("El video de YouTube se llama \(titulo)")
+        }
+        if !canal.isEmpty { c.frases.append("El video de YouTube «\(titulo)» es del canal \(canal)") }
+        // la miniatura: Nyx la mira
+        if let m = j["thumbnail_url"] as? String, let mu = URL(string: m), let foto = try? await descarga(mu) {
+            progreso("mirando la miniatura…")
+            c.percepcion = mira(foto.0)
+            c.percepcion?.origen = "la miniatura"
+            try? FileManager.default.removeItem(at: foto.0)
+        }
+        c.nota = "de YouTube solo puedo leer el título y el canal y mirar la miniatura: el video no se puede descargar"
+        return c
+    }
+
     static func enlace(_ url: URL, progreso: @escaping (String) -> Void) async -> Contenido {
+        if esYouTube(url) { return await youtube(url, progreso: progreso) }
         progreso("descargando…")
         guard let bajado = try? await descarga(url) else {
             return Contenido(titulo: url.absoluteString, clase: .web, nota: "no pude descargar el enlace")
@@ -294,7 +373,10 @@ enum Lector {
     /// Descarga a un archivo temporal con la extensión que le toca.
     static func descarga(_ url: URL) async throws -> (URL, String) {
         var r = URLRequest(url: url)
-        r.setValue("Mozilla/5.0 (iPad) NyxCerebro/1.0", forHTTPHeaderField: "User-Agent")
+        // se presenta como Safari del iPad: con un nombre raro, muchas páginas
+        // (YouTube, por ejemplo) contestan «tu navegador está desactualizado»
+        r.setValue(Lector.navegador, forHTTPHeaderField: "User-Agent")
+        r.setValue("es-ES,es;q=0.9,en;q=0.5", forHTTPHeaderField: "Accept-Language")
         r.timeoutInterval = 60
         return try await withCheckedThrowingContinuation { (c: CheckedContinuation<(URL, String), Error>) in
             let tarea = URLSession.shared.downloadTask(with: r) { lugar, respuesta, error in

@@ -458,8 +458,10 @@ final class NyxModelo: ObservableObject {
             }
         }
         var es = ""
-        if let p = c.percepcion {
+        if let p = c.percepcion, c.frases.isEmpty || c.clase == .foto {
             es = "\(c.clase == .video ? "vi" : "miré") «\(c.titulo)»: " + p.descripcion
+        } else if let p = c.percepcion {
+            es = "leí «\(c.titulo)»: " + c.frases.prefix(2).joined(separator: ". ") + ". En la imagen: " + p.descripcion
         } else if !c.frases.isEmpty {
             es = "leí «\(c.titulo)»: " + c.frases.prefix(2).joined(separator: ". ")
         } else {
@@ -467,6 +469,7 @@ final class NyxModelo: ObservableObject {
         }
         var detalle = "\(c.clase.icono) \(c.clase.rawValue) · \(c.frases.count) frases · \(hechos.count) hechos"
         if !c.escenas.isEmpty { detalle += " · \(c.escenas.count) escenas" }
+        if !c.nota.isEmpty && !c.frases.isEmpty { detalle += " · " + c.nota }
         let pasos = (hechos.prefix(6).map { "⚖️ " + $0 } + c.escenas.prefix(4).map { "🎬 " + $0 }).joined(separator: "\n")
         contadorUno += 1
         chatUno.append(MensajeUno(id: contadorUno, deHumano: false, es: es, resh: Resh.traduceTexto(es), detalle: detalle, pasos: pasos))
