@@ -9,8 +9,12 @@ struct VistaPrincipal: View {
 
     var body: some View {
         TabView {
+            // SwiftUI admite como mucho 10 vistas por bloque: van en dos grupos
+            Group {
             PantallaUno(nyx: nyx)
                 .tabItem { Label("Nyx", systemImage: "sparkles") }
+            PantallaTerminal(nyx: nyx)
+                .tabItem { Label("Terminal", systemImage: "terminal") }
             PantallaHablar(nyx: nyx)
                 .tabItem { Label("Hablar", systemImage: "bubble.left.and.bubble.right") }
             PantallaVivo(nyx: nyx)
@@ -21,6 +25,8 @@ struct VistaPrincipal: View {
                 .tabItem { Label("Consejo lógico", systemImage: "function") }
             PantallaAntiguo(nyx: nyx)
                 .tabItem { Label("Consejo antiguo", systemImage: "building.columns") }
+            }
+            Group {
             PantallaAsamblea(nyx: nyx)
                 .tabItem { Label("Los tres", systemImage: "person.3") }
             PantallaMentes(nyx: nyx)
@@ -29,6 +35,7 @@ struct VistaPrincipal: View {
                 .tabItem { Label("Transferencias", systemImage: "arrow.left.arrow.right") }
             PantallaEnsenar(nyx: nyx)
                 .tabItem { Label("Enseñar", systemImage: "book") }
+            }
         }
         .preferredColorScheme(.dark)
     }
