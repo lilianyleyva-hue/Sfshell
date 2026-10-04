@@ -20,8 +20,11 @@ struct PantallaUno: View {
                 .foregroundColor(.gray)
             ControlesUno(nyx: nyx, verFiabilidad: $verFiabilidad)
             AdjuntarUno(nyx: nyx)
-            Text(nyx.estadoUno).font(.caption).foregroundColor(.gray)
-            Text(nyx.avisoUno).font(.caption)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(nyx.estadoMemoria).font(.caption).foregroundColor(nyx.cargandoMemoria ? .orange : .gray)
+                Text(nyx.estadoUno).font(.caption).foregroundColor(.gray)
+                Text(nyx.avisoUno).font(.caption)
+            }
             FiabilidadUno(nyx: nyx, ver: verFiabilidad)
             HStack {
                 TextField("Pregúntale, enséñale, ponle un reto o escribe un tema y pulsa 🌐…", text: $texto)
@@ -29,6 +32,7 @@ struct PantallaUno: View {
                     .onSubmit { envia() }
                 Button("Enviar") { envia() }
                     .buttonStyle(.borderedProminent)
+                    .disabled(nyx.cargandoMemoria)
                 Button("🌐") { busca() }
                     .buttonStyle(.bordered)
                     .disabled(nyx.buscandoInternet)

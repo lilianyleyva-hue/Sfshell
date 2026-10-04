@@ -171,6 +171,27 @@ enum AlmacenSwiftData {
         return Data(f.texto.utf8)
     }
 
+    /// Guarda textos ya preparados (en segundo plano) de las 18 mentes y las frases.
+    static func guardaTextos(mentes: [String], frases: String, en contexto: ModelContext) {
+        let filas = (try? contexto.fetch(FetchDescriptor<SaberMente>())) ?? []
+        var porRol: [Int: SaberMente] = [:]
+        for f in filas { porRol[f.rol] = f }
+        for (r, t) in mentes.enumerated() { pon(t, rol: r, en: contexto, porRol: porRol) }
+        pon(frases, rol: 100, en: contexto, porRol: porRol)
+        try? contexto.save()
+    }
+
+    /// Los textos guardados (rápido); convertirlos en cerebro se hace aparte.
+    static func textos(de contexto: ModelContext) -> (mentes: [String], frases: String)? {
+        guard let filas = try? contexto.fetch(FetchDescriptor<SaberMente>()), !filas.isEmpty else { return nil }
+        var mentes: [String] = []
+        for r in 0 ..< numRoles {
+            guard let f = filas.first(where: { $0.rol == r }) else { return nil }
+            mentes.append(f.texto)
+        }
+        return (mentes, filas.first(where: { $0.rol == 100 })?.texto ?? "")
+    }
+
     static func carga(de contexto: ModelContext) -> Consejo? {
         guard let filas = try? contexto.fetch(FetchDescriptor<SaberMente>()), !filas.isEmpty else { return nil }
         var mentes: [String] = []

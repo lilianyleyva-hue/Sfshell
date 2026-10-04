@@ -12,31 +12,18 @@ extension Consejo {
     }
 
     /// Lo que sabe una mente, como texto (va a SwiftData o al archivo).
-    func textoMente(_ m: Mente) -> String {
-        var l: [String] = []
-        l.append("MENTE \(m.rol) \(m.s.count) \(m.aciertos) \(m.intentos) \(m.ciclos) \(m.dichos) \(m.ideas) \(m.cristales) \(m.reshAprendidas)")
-        var val = "VAL"
-        for a in 0 ..< numAcciones { val += " \(m.valor[a]) \(m.veces[a])" }
-        l.append(val)
-        l.append("OBJ " + m.obj.map { String($0) }.joined(separator: " "))
-        for x in m.s { l.append(lineaSemion(x)) }
-        return l.joined(separator: "\n")
-    }
+    func textoMente(_ m: Mente) -> String { RetratoMente(m).texto() }
 
     /// Las frases recordadas, como texto.
-    func textoFrases() -> String {
-        var l: [String] = ["FRASES \(frases.frases.count)"]
-        for f in frases.frases { l.append("F \(f.puntos) \(f.usos) \(f.texto)") }
-        return l.joined(separator: "\n")
-    }
+    func textoFrases() -> String { RetratoCerebro.textoFrases(frases.frases) }
 
     /// Texto con todo lo aprendido.
-    func exporta() -> String {
-        var l: [String] = ["NYX 1 \(tick)"]
-        for m in mentes { l.append(textoMente(m)) }
-        l.append(textoFrases())
-        l.append("FIN")
-        return l.joined(separator: "\n") + "\n"
+    func exporta() -> String { foto().todo() }
+
+    /// Una «foto» del cerebro: se saca al instante (los arrays se copian sin
+    /// copiar de verdad) y se convierte en texto en segundo plano, sin parar la app.
+    func foto() -> RetratoCerebro {
+        return RetratoCerebro(tick: tick, mentes: mentes.map { RetratoMente($0) }, frases: frases.frases)
     }
 
     /// Rearma el consejo con el texto de cada mente y el de las frases.
@@ -46,16 +33,71 @@ extension Consejo {
         return desde(t + "FIN\n")
     }
 
+}
+
+/// La foto de una mente (todo valores: se puede pasar a otro hilo).
+struct RetratoMente: @unchecked Sendable {
+    let rol: Int
+    let s: [Semion]
+    let obj: [Int]
+    let cabecera: String
+    let val: String
+
+    init(_ m: Mente) {
+        rol = m.rol
+        s = m.s
+        obj = m.obj
+        cabecera = "MENTE \(m.rol) \(m.s.count) \(m.aciertos) \(m.intentos) \(m.ciclos) \(m.dichos) \(m.ideas) \(m.cristales) \(m.reshAprendidas)"
+        var v = "VAL"
+        for a in 0 ..< numAcciones { v += " \(m.valor[a]) \(m.veces[a])" }
+        val = v
+    }
+
+    func texto() -> String {
+        var l: [String] = [cabecera, val, "OBJ " + obj.map { String($0) }.joined(separator: " ")]
+        l.reserveCapacity(s.count + 3)
+        for x in s { l.append(RetratoMente.lineaSemion(x)) }
+        return l.joined(separator: "\n")
+    }
+
     /// Nyx 2: los números van con 3 decimales, escritos como enteros (×1000):
     /// la línea empieza por "T". Las antiguas ("S") se siguen pudiendo leer.
-    private func lineaSemion(_ x: Semion) -> String {
+    static func lineaSemion(_ x: Semion) -> String {
         func m(_ v: Float) -> String { String(Int((v * 1000).rounded())) }
         var t = "T \(x.et) \(m(x.A)) \(m(x.fase)) \(m(x.frec)) \(x.carga) \(x.fusion ? 1 : 0) \(x.sabe ? 1 : 0) \(x.usos) \(x.dialogo)"
         for v in x.f { t += " " + m(v) }
         t += " \(x.v.count)"
         for a in x.v { t += " \(a.j) " + m(a.w) + " " + m(a.th) + " " + m(a.sec) }
         return t
+    }}
+
+/// La foto de todo el cerebro.
+struct RetratoCerebro: @unchecked Sendable {
+    let tick: Int
+    let mentes: [RetratoMente]
+    let frases: [FraseMem]
+
+    static func textoFrases(_ fs: [FraseMem]) -> String {
+        var l: [String] = ["FRASES \(fs.count)"]
+        l.reserveCapacity(fs.count + 1)
+        for f in fs { l.append("F \(f.puntos) \(f.usos) \(f.texto)") }
+        return l.joined(separator: "\n")
     }
+
+    func textosMentes() -> [String] { mentes.map { $0.texto() } }
+    func textoFrases() -> String { RetratoCerebro.textoFrases(frases) }
+
+    func todo() -> String {
+        var l: [String] = ["NYX 1 \(tick)"]
+        l.append(contentsOf: textosMentes())
+        l.append(textoFrases())
+        l.append("FIN")
+        return l.joined(separator: "\n") + "\n"
+    }
+}
+
+extension Consejo {
+
 
     @discardableResult
     func guarda() -> Bool {
@@ -142,21 +184,42 @@ extension Consejo {
     }
 
     private static func leeSemion(_ linea: String, n: Int) -> Semion? {
-        let p = linea.split(separator: " ").map(String.init)
+        // trozos sin copiar (Substring): cargar miles de ideas es mucho más rápido
+        let p = linea.split(separator: " ")
         guard p.count >= 19, p[0] == "S" || p[0] == "T" else { return nil }
-        let e: Float = p[0] == "T" ? 0.001 : 1          // "T": enteros ×1000
-        func num(_ s: String, _ d: Float) -> Float { (Float(s) ?? d / e) * e }
+        let enteros = p[0] == "T"          // "T": enteros ×1000 (más rápido de leer)
+        func num(_ s: Substring, _ d: Float) -> Float {
+            if enteros { return Int(s).map { Float($0) * 0.001 } ?? d }
+            return Float(s) ?? d
+        }
         var f: [Float] = []
+        f.reserveCapacity(8)
         for k in 0 ..< 8 { f.append(num(p[10 + k], 0)) }
         guard let nv = Int(p[18]), nv >= 0, nv <= maxAcoples, p.count == 19 + 4 * nv else { return nil }
         var v: [Acople] = []
+        v.reserveCapacity(nv)
         for k in 0 ..< nv {
             let b = 19 + 4 * k
             guard let j = Int(p[b]), j >= 0, j < n else { return nil }
             v.append(Acople(j: j, w: num(p[b + 1], 0), th: num(p[b + 2], 0), sec: num(p[b + 3], 0)))
         }
-        return Semion(et: p[1], f: f, A: num(p[2], 0.5), fase: num(p[3], 0), frec: num(p[4], 1),
+        return Semion(et: String(p[1]), f: f, A: num(p[2], 0.5), fase: num(p[3], 0), frec: num(p[4], 1),
                       carga: Int(p[5]) ?? 0, fusion: p[6] == "1", sabe: p[7] == "1",
                       usos: Int(p[8]) ?? 0, dialogo: Int(p[9]) ?? 0, v: v)
     }
+
+}
+
+/// Los textos del cerebro ya preparados (para pasarlos entre hilos).
+struct TextosCerebro: Sendable {
+    let mentes: [String]
+    let frases: String
+}
+
+/// Lo que se carga en segundo plano.
+final class CajaCarga: @unchecked Sendable {
+    var consejo: Consejo? = nil
+    var logico: ConsejoLogico? = nil
+    var saber: SaberMisiones? = nil
+    var origen = ""
 }

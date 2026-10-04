@@ -108,6 +108,9 @@ final class NyxModelo: ObservableObject {
     private var ultimaGuardada = Date.distantPast
     private var guardadoPendiente = false
     @Published var adjuntando = ""
+    @Published var cargandoMemoria = true
+    @Published var estadoMemoria = "🧠 recordando…"
+    private var guardando = false
     @Published var chatUno: [MensajeUno] = []
     @Published var estadoUno = ""
     @Published var avisoUno = ""
@@ -135,46 +138,93 @@ final class NyxModelo: ObservableObject {
     #endif
 
     init() {
-        var cargado: Consejo? = nil
-        var origen = ""
         #if canImport(SwiftData)
         if let cont = try? ModelContainer(for: SaberMente.self, Transferencia.self) {
-            let ctx = ModelContext(cont)
             contenedor = cont
-            contexto = ctx
+            contexto = ModelContext(cont)
             conSwiftData = true
-            cargado = AlmacenSwiftData.carga(de: ctx)
-            if cargado != nil { origen = "recordaron todo (SwiftData)" }
         }
         #endif
-        if cargado == nil, let c = Consejo.carga() {
-            cargado = c
-            origen = "recordaron todo (archivo)"
-        }
-        if let c = cargado {
-            consejo = c
-        } else {
-            consejo = Consejo(infancia: true)
-            origen = "nacieron y leyeron su infancia"
-        }
-        aviso = origen + (conSwiftData ? " · conocimiento en SwiftData" : "")
-        #if canImport(SwiftData)
-        if let ctx = contexto, let t = AlmacenSwiftData.cargaLogico(de: ctx), !t.isEmpty {
-            logico = ConsejoLogico.desde(t)
-        }
-        if let ctx = contexto, let t = AlmacenSwiftData.cargaTexto(rol: 400, de: ctx), !t.isEmpty {
-            asamblea.saber = SaberMisiones.desde(t)
-        }
-        #endif
+        // arranca al instante con un cerebro recién nacido; su memoria se carga
+        // en segundo plano (Swift Playgrounds cierra la app si tarda más de 5 s)
+        consejo = Consejo(infancia: true)
+        aviso = "recordando…"
         uno = NyxUno(consejo: consejo, logica: logico, saber: asamblea.saber)
-        #if canImport(SwiftData)
-        if let ctx = contexto, let t = AlmacenSwiftData.cargaTexto(rol: 500, de: ctx), !t.isEmpty {
-            uno.importa(t)
-        }
-        #endif
         conecta()
         refrescaTransferencias()
+        Task { @MainActor in await self.cargaMemoria() }
     }
+
+    static var rutaLogico: URL {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        return docs.appendingPathComponent("nyx_logica.txt")
+    }
+
+    /// Carga lo aprendido: lee los textos (rápido) y los convierte en cerebro en
+    /// segundo plano. Mientras tanto no se guarda nada (para no pisar la memoria).
+    @MainActor
+    func cargaMemoria() async {
+        cargandoMemoria = true
+        estadoMemoria = "🧠 recordando…"
+        var partes: (mentes: [String], frases: String)? = nil
+        var txtLogico: String? = nil
+        var txtSaber: String? = nil
+        var txtUno: String? = nil
+        #if canImport(SwiftData)
+        if let ctx = contexto {
+            partes = AlmacenSwiftData.textos(de: ctx)
+            txtLogico = AlmacenSwiftData.cargaLogico(de: ctx)
+            txtSaber = AlmacenSwiftData.cargaTexto(rol: 400, de: ctx)
+            txtUno = AlmacenSwiftData.cargaTexto(rol: 500, de: ctx)
+        }
+        #endif
+        let leidas = partes
+        let tl = txtLogico
+        let ts = txtSaber
+        let caja = await Task.detached(priority: .userInitiated) { () -> CajaCarga in
+            let k = CajaCarga()
+            if let p = leidas, let c = Consejo.desdePartes(mentes: p.mentes, frases: p.frases) {
+                k.consejo = c
+                k.origen = "SwiftData"
+            }
+            if k.consejo == nil, let c = Consejo.carga() {
+                k.consejo = c
+                k.origen = "copia de seguridad"
+            }
+            var logica = tl
+            if logica == nil || logica!.isEmpty { logica = try? String(contentsOf: NyxModelo.rutaLogico, encoding: .utf8) }
+            if let t = logica, !t.isEmpty { k.logico = ConsejoLogico.desde(t) }
+            if let t = ts, !t.isEmpty { k.saber = SaberMisiones.desde(t) }
+            return k
+        }.value
+        if let c = caja.consejo {
+            consejo = c
+            aviso = "recordaron todo (\(caja.origen))"
+        } else {
+            aviso = "nacieron y leyeron su infancia"
+        }
+        if let l = caja.logico { logico = l }
+        if let sm = caja.saber { asamblea.saber = sm }
+        uno = NyxUno(consejo: consejo, logica: logico, saber: asamblea.saber)
+        if let t = txtUno, !t.isEmpty { uno.importa(t) }
+        conecta()
+        cargandoMemoria = false
+        let ideas = consejo.mentes.map { $0.s.count }.reduce(0, +)
+        estadoMemoria = caja.consejo != nil
+            ? "🧠 recordó todo (\(caja.origen)): \(ideas) ideas, \(consejo.frases.frases.count) frases, \(logico.hechos.count) hechos"
+            : "🧠 memoria nueva: todavía no había nada guardado"
+        refrescaUno()
+        refrescaTransferencias()
+        version += 1
+    }
+
+    /// Mientras carga la memoria, no se aprende nada (se perdería al terminar de cargar).
+    private func ocupado() -> Bool {
+        if cargandoMemoria { avisoUno = "🧠 espera un momento: estoy recordando todo lo que sé…" }
+        return cargandoMemoria
+    }
+
 
     private func conecta() {
         consejo.alEvento = { [weak self] e in self?.agrega(e) }
@@ -197,6 +247,7 @@ final class NyxModelo: ObservableObject {
     // MARK: hablar
 
     func pregunta(_ texto: String, a destino: Int) {
+        if ocupado() { return }
         let t = texto.trimmingCharacters(in: .whitespacesAndNewlines)
         if t.isEmpty { return }
         contador += 1
@@ -222,6 +273,7 @@ final class NyxModelo: ObservableObject {
 
     /// Las 18 perciben una foto o un sonido.
     func percibe(_ p: Percepcion) {
+        if ocupado() { return }
         notasSentidos = consejo.percibe(p)
         let d = p.descripcion
         if p.sentido == .oido {
@@ -272,11 +324,7 @@ final class NyxModelo: ObservableObject {
         guardaLogica()
     }
 
-    private func guardaLogica() {
-        #if canImport(SwiftData)
-        if let ctx = contexto { AlmacenSwiftData.guardaLogico(logico.exporta(), en: ctx) }
-        #endif
-    }
+    private func guardaLogica() { guarda() }
 
     // MARK: consejo antiguo
 
@@ -288,6 +336,7 @@ final class NyxModelo: ObservableObject {
     }
 
     private func guardaAntiguo() async {
+        if cargandoMemoria { return }
         guard let d = await puente.exporta() else { return }
         #if canImport(SwiftData)
         if let ctx = contexto { AlmacenSwiftData.guardaAntiguo(d, en: ctx) }
@@ -316,6 +365,7 @@ final class NyxModelo: ObservableObject {
 
     /// Le hablas a Nyx Uno: pregunta, enseñanza o corrección («no, es …»).
     func hablaUno(_ texto: String) {
+        if ocupado() { return }
         let todo = texto.trimmingCharacters(in: .whitespacesAndNewlines)
         if todo.isEmpty { return }
         contadorUno += 1
@@ -354,6 +404,7 @@ final class NyxModelo: ObservableObject {
 
     /// Se entrena sola con retos (y las 18 mentes afinan sus estrategias).
     func entrenaUno(_ n: Int) {
+        if ocupado() { return }
         let r = uno.entrena(n)
         avisoUno = "🎓 se entrenó con \(r.total) retos: acertó \(r.bien)"
         refrescaUno()
@@ -362,6 +413,7 @@ final class NyxModelo: ObservableObject {
 
     /// Consolida lo que sabe (como dormir).
     func consolidaUno() {
+        if ocupado() { return }
         let r = uno.consolida()
         avisoUno = "💤 consolidó: \(r.hechos) hechos nuevos deducidos, \(r.pasadas) pasaron a la asociación"
         refrescaUno()
@@ -372,6 +424,7 @@ final class NyxModelo: ObservableObject {
     @Published var buscandoInternet = false
 
     func aprendeDeInternet(_ tema: String) {
+        if ocupado() { return }
         let t = tema.trimmingCharacters(in: .whitespacesAndNewlines)
         if t.isEmpty || buscandoInternet { avisoUno = "escribe un tema en la caja y pulsa 🌐"; return }
         buscandoInternet = true
@@ -404,11 +457,13 @@ final class NyxModelo: ObservableObject {
 
     /// Archivos ya copiados a un sitio propio (nombre para mostrar).
     func adjunta(archivos: [(URL, String)]) {
+        if ocupado() { return }
         for (u, n) in archivos { colaAdjuntos.append(.archivo(u, n)) }
         sigueCola()
     }
 
     func adjunta(enlaces: [URL]) {
+        if ocupado() { return }
         for u in enlaces { colaAdjuntos.append(.enlace(u)) }
         sigueCola()
     }
@@ -442,7 +497,7 @@ final class NyxModelo: ObservableObject {
             self.adjuntando = ""
             self.avisoUno = "📎 leí \(hechas) cosa(s)"
             self.refrescaUno()
-            self.guardaUno()
+            self.guardaYa()
         }
     }
 
@@ -484,6 +539,7 @@ final class NyxModelo: ObservableObject {
 
     /// Nyx imagina sola: junta dos cosas que conoce y se pregunta cómo serían juntas.
     func imaginaUno() {
+        if ocupado() { return }
         let p = uno.sueña()
         contadorUno += 1
         var m = MensajeUno(id: contadorUno, deHumano: false, es: p.es, resh: p.resh, detalle: "🌈 imaginación (no es un hecho)", pasos: "")
@@ -514,16 +570,7 @@ final class NyxModelo: ObservableObject {
         }
     }
 
-    private func guardaUno() {
-        #if canImport(SwiftData)
-        if let ctx = contexto {
-            AlmacenSwiftData.guardaTexto(uno.exporta(), rol: 500, en: ctx)
-            AlmacenSwiftData.guardaTexto(asamblea.saber.exporta(), rol: 400, en: ctx)
-        }
-        #endif
-        guardaLogica()
-        guarda()
-    }
+    private func guardaUno() { guarda() }
 
     // MARK: la asamblea de los tres consejos
 
@@ -539,6 +586,7 @@ final class NyxModelo: ObservableObject {
 
     /// Escribes en el chat de los tres (y si estaban callados, te contestan).
     func escribeAsamblea(_ texto: String) {
+        if ocupado() { return }
         asamblea.escribe(texto, logico: logico)
         refrescaAsamblea()
         if !asambleaViva { arrancaAsamblea() }
@@ -589,11 +637,7 @@ final class NyxModelo: ObservableObject {
         version += 1
     }
 
-    private func guardaMisiones() {
-        #if canImport(SwiftData)
-        if let ctx = contexto { AlmacenSwiftData.guardaTexto(asamblea.saber.exporta(), rol: 400, en: ctx) }
-        #endif
-    }
+    private func guardaMisiones() { guarda() }
 
     /// Le preguntas al consejo antiguo (deliberan y votan, a su manera).
     func preguntaAntiguo(_ texto: String) {
@@ -679,6 +723,7 @@ final class NyxModelo: ObservableObject {
     // MARK: enseñar y memoria
 
     func ensena(_ texto: String) -> Int {
+        if ocupado() { return 0 }
         var lineas = 0
         for l in texto.split(whereSeparator: { $0 == "\n" || $0 == "." }) {
             // puede venir en Resh: se traduce (los números y signos se quedan)
@@ -689,34 +734,63 @@ final class NyxModelo: ObservableObject {
             lineas += 1
         }
         version += 1
-        guarda()
+        guardaYa()
         return lineas
     }
 
     /// Guardar todo el cerebro es pesado (miles de ideas): se guarda como mucho
-    /// una vez por minuto, y siempre al salir de la app (guardaYa).
+    /// cada 20 s cuando aprendió algo, en segundo plano, y al salir de la app.
     func guarda() {
+        if cargandoMemoria { return }
         let pasado = Date().timeIntervalSince(ultimaGuardada)
-        if pasado >= 60 { guardaYa(); return }
+        if pasado >= 20 { guardaYa(); return }
         if guardadoPendiente { return }
         guardadoPendiente = true
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: UInt64(max(1, 60 - pasado) * 1_000_000_000))
+            try? await Task.sleep(nanoseconds: UInt64(max(1, 20 - pasado) * 1_000_000_000))
             if self.guardadoPendiente { self.guardaYa() }
         }
     }
 
+    /// Guarda ya: saca una foto del cerebro (al instante), la pasa a texto en
+    /// segundo plano, escribe una copia de seguridad en un archivo y la mete en SwiftData.
     func guardaYa() {
+        if cargandoMemoria { return }          // nunca pisar la memoria con un cerebro a medio cargar
+        if guardando { guardadoPendiente = true; return }
+        guardando = true
         guardadoPendiente = false
         ultimaGuardada = Date()
-        #if canImport(SwiftData)
-        if let ctx = contexto {
-            AlmacenSwiftData.guarda(consejo, en: ctx)
-            buzonSD?.limpia(dejando: 400)
-            return
+        let foto = consejo.foto()
+        let txtLogico = logico.exporta()
+        let txtSaber = asamblea.saber.exporta()
+        let txtUno = uno.exporta()
+        Task { @MainActor in
+            let hecho = await Task.detached(priority: .utility) { () -> TextosCerebro in
+                let t = TextosCerebro(mentes: foto.textosMentes(), frases: foto.textoFrases())
+                // copia de seguridad en archivos (por si SwiftData falla)
+                let todo = "NYX 1 \(foto.tick)\n" + t.mentes.joined(separator: "\n") + "\n" + t.frases + "\nFIN\n"
+                try? todo.write(to: Consejo.rutaMemoria, atomically: true, encoding: .utf8)
+                try? txtLogico.write(to: NyxModelo.rutaLogico, atomically: true, encoding: .utf8)
+                return t
+            }.value
+            #if canImport(SwiftData)
+            if let ctx = self.contexto {
+                AlmacenSwiftData.guardaTextos(mentes: hecho.mentes, frases: hecho.frases, en: ctx)
+                AlmacenSwiftData.guardaLogico(txtLogico, en: ctx)
+                AlmacenSwiftData.guardaTexto(txtSaber, rol: 400, en: ctx)
+                AlmacenSwiftData.guardaTexto(txtUno, rol: 500, en: ctx)
+                self.buzonSD?.limpia(dejando: 400)
+            }
+            #endif
+            self.guardando = false
+            let f = DateFormatter()
+            f.dateFormat = "HH:mm:ss"
+            self.estadoMemoria = "💾 guardado a las " + f.string(from: Date())
+            if self.guardadoPendiente {
+                self.guardadoPendiente = false
+                self.guarda()
+            }
         }
-        #endif
-        consejo.guarda()
     }
 
     func olvidaTodo() {
@@ -740,7 +814,10 @@ final class NyxModelo: ObservableObject {
         conecta()
         chat = []
         eventos = []
-        guarda()
+        // también la copia de seguridad (si no, «olvidar» la resucitaría)
+        try? FileManager.default.removeItem(at: Consejo.rutaMemoria)
+        try? FileManager.default.removeItem(at: NyxModelo.rutaLogico)
+        guardaYa()
         refrescaTransferencias()
         version += 1
     }
