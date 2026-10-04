@@ -8,7 +8,8 @@ import Foundation
 // Cada acople guarda la asociación (w), el desfase preferido (th: 0 acuerdo,
 // π oposición) y la secuencia (sec: cuánto "esta va seguida de aquella").
 
-let maxSemiones = 900
+/// Nyx 2: 8000 ideas por mente (antes 900): casi 9 veces más palabras.
+let maxSemiones = 8000
 let maxAcoples = 16
 let NYX_PI: Float = 3.14159265
 let NYX_2PI: Float = 6.28318531
@@ -532,7 +533,11 @@ final class Mente {
     private func antecesor(_ actual: Int, centro: Int, ya: [Int], ctx: [Int]) -> Int? {
         var mejor: Int? = nil
         var mp: Float = 0.04
-        for i in 0 ..< s.count {
+        // solo las ideas enlazadas con la actual (al leer, los enlaces van en los dos
+        // sentidos) y las del contexto: antes se miraban TODAS las ideas
+        var candidatas = Set(s[actual].v.map { $0.j })
+        for c in ctx { candidatas.insert(c) }
+        for i in candidatas {
             if i == actual || i == centro || s[i].fusion || ya.contains(i) { continue }
             guard let k = posAcople(i, actual), s[i].v[k].sec > 0 else { continue }
             var p: Float = s[i].v[k].sec * (0.5 + s[i].A) + Azar.rango(0, ruido * 2)

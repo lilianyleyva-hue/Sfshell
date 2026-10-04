@@ -10,6 +10,7 @@ struct PantallaUno: View {
     @ObservedObject var nyx: NyxModelo
     @State private var texto = ""
     @State private var verFiabilidad = false
+    @State private var verPensamiento = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -34,10 +35,11 @@ struct PantallaUno: View {
             }
             HStack {
                 Toggle("Traducir", isOn: $nyx.traducir)
+                Toggle("💭 Ver cómo piensa", isOn: $verPensamiento)
                 Button("👍") { nyx.opinaUno(true) }.buttonStyle(.bordered)
                 Button("👎") { nyx.opinaUno(false) }.buttonStyle(.bordered)
             }
-            ListaUno(nyx: nyx)
+            ListaUno(nyx: nyx, verPensamiento: verPensamiento)
         }
         .padding()
         .onAppear { nyx.refrescaUno() }
@@ -130,6 +132,8 @@ struct ControlesUno: View {
                 .buttonStyle(.bordered)
             Button("❓ Curiosidad") { nyx.curiosidadUno() }
                 .buttonStyle(.bordered)
+            Button("🌈 Imaginar") { nyx.imaginaUno() }
+                .buttonStyle(.bordered)
             Button(verFiabilidad ? "Ocultar en qué se fía" : "¿De quién se fía?") { verFiabilidad.toggle() }
                 .buttonStyle(.bordered)
         }
@@ -153,11 +157,12 @@ struct FiabilidadUno: View {
 
 struct ListaUno: View {
     @ObservedObject var nyx: NyxModelo
+    let verPensamiento: Bool
 
     var body: some View {
         List {
             ForEach(nyx.chatUno.reversed()) { (m: MensajeUno) in
-                FilaUno(m: m, traducir: nyx.traducir)
+                FilaUno(m: m, traducir: nyx.traducir, verPensamiento: verPensamiento)
             }
         }
         .listStyle(.plain)
@@ -167,12 +172,16 @@ struct ListaUno: View {
 struct FilaUno: View {
     let m: MensajeUno
     let traducir: Bool
+    let verPensamiento: Bool
+
+    var pensado: String { verPensamiento && !m.pensamiento.isEmpty ? "💭 Pensando…\n" + m.pensamiento : "" }
 
     var principal: String { m.deHumano ? "🙂 " + m.es : "🌌 " + m.resh }
     var traduccion: String { !m.deHumano && traducir ? "«" + m.es + "»" : "" }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
+            Text(pensado).font(.caption).foregroundColor(.purple)
             Text(principal).font(.body)
             Text(traduccion).font(.callout).foregroundColor(.blue)
             Text(m.detalle).font(.caption).foregroundColor(.gray)

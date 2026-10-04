@@ -28,7 +28,7 @@ import Foundation
 //   · se entrena sola con retos y consolida lo que sabe (como dormir).
 
 enum Clase: Int, CaseIterable {
-    case cuenta, serie, ecuacion, problema, siNo, definicion, causa, comparacion, intruso, abierta
+    case cuenta, serie, ecuacion, problema, siNo, definicion, causa, comparacion, intruso, abierta, imagina
 
     var nombre: String {
         switch self {
@@ -42,6 +42,7 @@ enum Clase: Int, CaseIterable {
         case .comparacion: return "comparar"
         case .intruso: return "cuál sobra"
         case .abierta: return "pregunta abierta"
+        case .imagina: return "imaginar"
         }
     }
 
@@ -72,7 +73,7 @@ enum Clase: Int, CaseIterable {
 }
 
 enum Sistema: Int, CaseIterable {
-    case logico, asociativo, estrategias, recuerdo, busqueda
+    case logico, asociativo, estrategias, recuerdo, busqueda, imaginacion
 
     var nombre: String {
         switch self {
@@ -81,6 +82,7 @@ enum Sistema: Int, CaseIterable {
         case .estrategias: return "estrategias"
         case .recuerdo: return "recuerdo"
         case .busqueda: return "búsqueda"
+        case .imaginacion: return "imaginación"
         }
     }
 
@@ -91,6 +93,7 @@ enum Sistema: Int, CaseIterable {
         case .estrategias: return "🎯"
         case .recuerdo: return "📌"
         case .busqueda: return "🔎"
+        case .imaginacion: return "🌈"
         }
     }
 }
@@ -116,6 +119,8 @@ struct Pensamiento {
     var es = ""
     var resh = ""
     var aprendio = ""           // si era algo que le enseñaste
+    /// Nyx 2 piensa en voz alta: los pasos de su razonamiento.
+    var pensamiento: [String] = []
 }
 
 final class NyxUno {
@@ -132,6 +137,8 @@ final class NyxUno {
     private(set) var pendiente: String? = nil
     var entrenadas = 0
     var entrenadasBien = 0
+    /// Lo que ha imaginado (no son hechos).
+    var imaginadas: [String] = []
 
     init(consejo: Consejo, logica: ConsejoLogico, saber: SaberMisiones) {
         self.consejo = consejo
@@ -167,6 +174,7 @@ final class NyxUno {
         case .asociativo: return c == .abierta ? (6, 2) : ([.definicion, .causa, .siNo].contains(c) ? (2, 2) : (1, 4))
         case .estrategias: return c.tipoMision != nil || c == .siNo ? (2, 2) : (0.5, 4)
         case .busqueda: return c == .abierta ? (5, 2) : ([.definicion, .causa].contains(c) ? (3, 2) : (0.5, 4))
+        case .imaginacion: return c == .imagina ? (9, 1) : (0.5, 4)
         }
     }
 
@@ -186,6 +194,7 @@ final class NyxUno {
     private static let interrogativas: Set<String> = ["qué", "que", "quién", "quien", "cómo", "como", "dónde", "donde", "cuándo", "cuál", "cual", "por", "para", "cuánto", "cuántos", "cuántas", "de"]
 
     func clasifica(_ texto: String) -> Clase {
+        if NyxUno.esImaginar(texto) { return .imagina }
         let t = texto.lowercased()
         let toks = Palabras.tokens(t, max: 60)
         let numeros = Resuelve.numerosDe(t)
@@ -249,6 +258,10 @@ final class NyxUno {
             p.confianza = 1
             return p
         }
+        if NyxUno.esImaginar(t) {
+            ultimo = nil
+            return imagina(t)
+        }
         let retos: [Clase] = [.cuenta, .serie, .ecuacion, .problema, .intruso, .comparacion]
         if !esPregunta(t) && !retos.contains(clasifica(t)), let p = aprende(t) { return p }
         let p = piensa(t)
@@ -273,25 +286,139 @@ final class NyxUno {
         var p = Pensamiento()
         p.pregunta = texto
         p.clase = mision.map { Clase.de($0.tipo) } ?? clasifica(texto)
+        if p.clase == .imagina { return imagina(texto) }
         let m = mision ?? misionDe(texto, p.clase)
+        // 1. entender
+        let claves = palabrasClave(texto)
+        entiende(&p, claves)
+        // 2. recordar lo que sabe de cada palabra clave
+        let definiciones = m == nil ? recuerda(&p, claves) : []
         var veces = 1
         let usaAsociacion = m == nil && [.abierta, .definicion, .causa, .siNo].contains(p.clase)
         var asociativa = usaAsociacion ? proponeAsociativo(texto) : []
         if usaAsociacion, let b = proponeBusqueda(texto) { asociativa.append(b) }
         while true {
+            // 3. cada forma de pensar propone; 4. el crítico y la verificación comprueban
             p.candidatos = proponen(texto, p.clase, m, asociativa: asociativa)
             for i in 0 ..< p.candidatos.count { critica(&p.candidatos[i], m, p.clase, texto) }
             decide(&p)
+            anotaPropuestas(&p)
             let reñida = p.candidatos.count > 1 && margen(p) < 0.12
             if veces >= 3 || (p.confianza >= 0.55 && !reñida) { break }
-            // pensar más: deduce más cosas y la asociación piensa varias veces
+            // 5. dudo: pienso más
             veces += 1
-            for _ in 0 ..< 36 { logica.razona() }
+            piensaMas(&p, reñida: reñida, ronda: veces, usaAsociacion: usaAsociacion,
+                      texto: texto, definiciones: definiciones, asociativa: &asociativa)
         }
         p.rondas = veces
         redacta(&p)
+        // 6. concluir (y si no lo sabe, imaginar una posibilidad, dicha como tal)
+        concluye(&p, claves, conMision: m != nil)
         return p
     }
+
+    private func entiende(_ p: inout Pensamiento, _ claves: [String]) {
+        let sobre = claves.isEmpty ? "." : " sobre «" + claves.joined(separator: "», «") + "»."
+        p.pensamiento.append("🧩 Entiendo: es " + descripcion(p.clase) + sobre)
+    }
+
+    private func recuerda(_ p: inout Pensamiento, _ claves: [String]) -> [String] {
+        var definiciones: [String] = []
+        for w in claves.prefix(3) {
+            guard let d = definicion(w) else { continue }
+            definiciones.append(d)
+            p.pensamiento.append("📖 Recuerdo: " + d + ".")
+        }
+        return definiciones
+    }
+
+    /// Dudo: me lo pregunto de otra forma (con lo que recordé) o deduzco más.
+    private func piensaMas(_ p: inout Pensamiento, reñida: Bool, ronda: Int, usaAsociacion: Bool,
+                           texto: String, definiciones: [String], asociativa: inout [Candidato]) {
+        let pct = Int(p.confianza * 100)
+        let duda = reñida ? "Está reñido" : "No estoy segura (\(pct) %)"
+        p.pensamiento.append("🤔 " + duda + ". Pienso más.")
+        if ronda == 2, usaAsociacion, let otra = preguntaDeOtraForma(texto, definiciones) {
+            p.pensamiento.append("🔁 Me lo pregunto de otra forma: «\(otra)».")
+            if var b = proponeBusqueda(otra) {
+                b.pasos.append("pensado de otra forma: «\(otra)»")
+                asociativa.append(b)
+            }
+        } else {
+            p.pensamiento.append("⚖️ Deduzco más cosas de lo que sé.")
+            for _ in 0 ..< 36 { logica.razona() }
+        }
+    }
+
+    /// Lo que propone cada forma de pensar (sin repetir lo ya anotado).
+    private func anotaPropuestas(_ p: inout Pensamiento) {
+        for c in p.candidatos.sorted(by: { $0.puntos > $1.puntos }).prefix(3) {
+            let nota = c.nota.isEmpty ? "" : " — " + c.nota
+            let pct = Int(c.puntos * 100)
+            let linea = "💡 \(c.sistema.icono) \(c.sistema.nombre) propone «\(String(c.frase.prefix(90)))» (\(pct) %)" + nota
+            if !p.pensamiento.contains(linea) { p.pensamiento.append(linea) }
+        }
+    }
+
+    private func concluye(_ p: inout Pensamiento, _ claves: [String], conMision: Bool) {
+        if p.elegido == nil, !conMision, p.clase != .siNo {
+            let idea = imagina("imagina " + claves.joined(separator: " "))
+            let recordo = idea.pensamiento.contains { $0.hasPrefix("📖") }
+            if recordo {
+                p.pensamiento.append("🌈 No lo sé, así que imagino una posibilidad.")
+                p.es = "no lo sé seguro. " + idea.es
+                p.resh = Resh.traduceTexto(p.es)
+            }
+        }
+        if let e = p.elegido {
+            let pct = Int(p.confianza * 100)
+            p.pensamiento.append("✅ Concluyo con \(e.sistema.icono) \(e.sistema.nombre): \(pct) % de confianza.")
+        } else {
+            p.pensamiento.append("❓ No llego a una respuesta segura.")
+        }
+    }
+
+    /// Las palabras importantes de la pregunta.
+    func palabrasClave(_ t: String) -> [String] {
+        var out: [String] = []
+        for w in Palabras.tokens(t) where !Palabras.vacia(w) && !Palabras.ligeras.contains(w) && !NyxUno.interrogativas.contains(w) && w.count > 2 {
+            if !out.contains(w) { out.append(w) }
+        }
+        return out
+    }
+
+    private func descripcion(_ c: Clase) -> String {
+        switch c {
+        case .cuenta: return "una cuenta"
+        case .serie: return "una serie"
+        case .ecuacion: return "una ecuación"
+        case .problema: return "un problema"
+        case .siNo: return "una pregunta de sí o no"
+        case .definicion: return "una pregunta de qué es algo"
+        case .causa: return "una pregunta de causas"
+        case .comparacion: return "una comparación"
+        case .intruso: return "un «¿cuál sobra?»"
+        case .abierta: return "una pregunta abierta"
+        case .imagina: return "algo para imaginar"
+        }
+    }
+
+
+    /// La pregunta con lo que recuerda de sus palabras clave (para buscar de otra forma).
+    private func preguntaDeOtraForma(_ t: String, _ definiciones: [String]) -> String? {
+        let meta: Set<String> = ["verbo", "forma", "plural", "femenino", "masculino", "adjetivo", "sustantivo", "palabra",
+                                 "significa", "usa", "persona", "cosa", "algo", "alguien", "presente", "pasado"]
+        var extra: [String] = []
+        for d in definiciones {
+            for w in Palabras.tokens(d).dropFirst() where !Palabras.vacia(w) && !meta.contains(w) && w.count > 3 && !t.lowercased().contains(w) {
+                if !extra.contains(w) { extra.append(w) }
+                if extra.count >= 3 { break }
+            }
+        }
+        if extra.isEmpty { return nil }
+        return t.replacingOccurrences(of: "?", with: "") + " " + extra.joined(separator: " ")
+    }
+
 
     private func misionDe(_ t: String, _ c: Clase) -> Mision? {
         guard c.tipoMision != nil || (c == .siNo && (t.lowercased().contains("todos") || t.lowercased().contains("ningún"))) else { return nil }
@@ -441,7 +568,9 @@ final class NyxUno {
         for i in 0 ..< p.candidatos.count {
             let c = p.candidatos[i]
             p.candidatos[i].puntos = fiabilidad(p.clase, c.sistema) * c.confianza
-            let k = clave(c)
+            var k = clave(c)
+            // si dice lo mismo que otro grupo con otras palabras, va con él
+            for (otra, idx) in grupos where acuerdan(c, p.candidatos[idx[0]]) { k = otra; break }
             grupos[k, default: []].append(i)
         }
         var mejor: (String, Float)? = nil
@@ -465,6 +594,16 @@ final class NyxUno {
         let i = idx.max { p.candidatos[$0].puntos < p.candidatos[$1].puntos }!
         p.elegido = p.candidatos[i]
         p.confianza = g.1
+    }
+
+    /// ¿Dicen lo mismo con otras palabras? («motor es máquina…» y «motor es la máquina que…»)
+    private func acuerdan(_ a: Candidato, _ b: Candidato) -> Bool {
+        if a.sistema == b.sistema { return false }
+        let x = Set(Palabras.tokens(a.frase).filter { !Palabras.vacia($0) }.map { MemoriaFrases.raiz($0) })
+        let y = Set(Palabras.tokens(b.frase).filter { !Palabras.vacia($0) }.map { MemoriaFrases.raiz($0) })
+        let menor = min(x.count, y.count)
+        if menor < 2 { return false }
+        return Float(x.intersection(y).count) >= 0.6 * Float(menor)
     }
 
     private func clave(_ c: Candidato) -> String {

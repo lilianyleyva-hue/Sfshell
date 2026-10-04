@@ -46,11 +46,14 @@ extension Consejo {
         return desde(t + "FIN\n")
     }
 
+    /// Nyx 2: los números van con 3 decimales, escritos como enteros (×1000):
+    /// la línea empieza por "T". Las antiguas ("S") se siguen pudiendo leer.
     private func lineaSemion(_ x: Semion) -> String {
-        var t = "S \(x.et) \(x.A) \(x.fase) \(x.frec) \(x.carga) \(x.fusion ? 1 : 0) \(x.sabe ? 1 : 0) \(x.usos) \(x.dialogo)"
-        for v in x.f { t += " \(v)" }
+        func m(_ v: Float) -> String { String(Int((v * 1000).rounded())) }
+        var t = "T \(x.et) \(m(x.A)) \(m(x.fase)) \(m(x.frec)) \(x.carga) \(x.fusion ? 1 : 0) \(x.sabe ? 1 : 0) \(x.usos) \(x.dialogo)"
+        for v in x.f { t += " " + m(v) }
         t += " \(x.v.count)"
-        for a in x.v { t += " \(a.j) \(a.w) \(a.th) \(a.sec)" }
+        for a in x.v { t += " \(a.j) " + m(a.w) + " " + m(a.th) + " " + m(a.sec) }
         return t
     }
 
@@ -140,17 +143,19 @@ extension Consejo {
 
     private static func leeSemion(_ linea: String, n: Int) -> Semion? {
         let p = linea.split(separator: " ").map(String.init)
-        guard p.count >= 19, p[0] == "S" else { return nil }
+        guard p.count >= 19, p[0] == "S" || p[0] == "T" else { return nil }
+        let e: Float = p[0] == "T" ? 0.001 : 1          // "T": enteros ×1000
+        func num(_ s: String, _ d: Float) -> Float { (Float(s) ?? d / e) * e }
         var f: [Float] = []
-        for k in 0 ..< 8 { f.append(Float(p[10 + k]) ?? 0) }
+        for k in 0 ..< 8 { f.append(num(p[10 + k], 0)) }
         guard let nv = Int(p[18]), nv >= 0, nv <= maxAcoples, p.count == 19 + 4 * nv else { return nil }
         var v: [Acople] = []
         for k in 0 ..< nv {
             let b = 19 + 4 * k
             guard let j = Int(p[b]), j >= 0, j < n else { return nil }
-            v.append(Acople(j: j, w: Float(p[b + 1]) ?? 0, th: Float(p[b + 2]) ?? 0, sec: Float(p[b + 3]) ?? 0))
+            v.append(Acople(j: j, w: num(p[b + 1], 0), th: num(p[b + 2], 0), sec: num(p[b + 3], 0)))
         }
-        return Semion(et: p[1], f: f, A: Float(p[2]) ?? 0.5, fase: Float(p[3]) ?? 0, frec: Float(p[4]) ?? 1,
+        return Semion(et: p[1], f: f, A: num(p[2], 0.5), fase: num(p[3], 0), frec: num(p[4], 1),
                       carga: Int(p[5]) ?? 0, fusion: p[6] == "1", sabe: p[7] == "1",
                       usos: Int(p[8]) ?? 0, dialogo: Int(p[9]) ?? 0, v: v)
     }

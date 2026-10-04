@@ -32,6 +32,7 @@ struct MensajeUno: Identifiable {
     let resh: String
     let detalle: String
     let pasos: String
+    var pensamiento: String = ""     // cómo lo pensó, paso a paso
 }
 
 struct LineaLogica: Identifiable {
@@ -104,6 +105,8 @@ final class NyxModelo: ObservableObject {
         case enlace(URL)
     }
     private var colaAdjuntos: [Adjunto] = []
+    private var ultimaGuardada = Date.distantPast
+    private var guardadoPendiente = false
     @Published var adjuntando = ""
     @Published var chatUno: [MensajeUno] = []
     @Published var estadoUno = ""
@@ -335,7 +338,9 @@ final class NyxModelo: ObservableObject {
             if let e = p.elegido { pasos.append(contentsOf: e.pasos.prefix(4).map { "   " + $0 }) }
         }
         contadorUno += 1
-        chatUno.append(MensajeUno(id: contadorUno, deHumano: false, es: p.es, resh: p.resh, detalle: detalle, pasos: pasos.joined(separator: "\n")))
+        var m = MensajeUno(id: contadorUno, deHumano: false, es: p.es, resh: p.resh, detalle: detalle, pasos: pasos.joined(separator: "\n"))
+        m.pensamiento = p.pensamiento.joined(separator: "\n")
+        chatUno.append(m)
         if chatUno.count > 200 { chatUno.removeFirst(chatUno.count - 200) }
         refrescaUno()
         guardaUno()
@@ -473,6 +478,17 @@ final class NyxModelo: ObservableObject {
         let pasos = (hechos.prefix(6).map { "⚖️ " + $0 } + c.escenas.prefix(4).map { "🎬 " + $0 }).joined(separator: "\n")
         contadorUno += 1
         chatUno.append(MensajeUno(id: contadorUno, deHumano: false, es: es, resh: Resh.traduceTexto(es), detalle: detalle, pasos: pasos))
+        if chatUno.count > 200 { chatUno.removeFirst(chatUno.count - 200) }
+        version += 1
+    }
+
+    /// Nyx imagina sola: junta dos cosas que conoce y se pregunta cómo serían juntas.
+    func imaginaUno() {
+        let p = uno.sueña()
+        contadorUno += 1
+        var m = MensajeUno(id: contadorUno, deHumano: false, es: p.es, resh: p.resh, detalle: "🌈 imaginación (no es un hecho)", pasos: "")
+        m.pensamiento = p.pensamiento.joined(separator: "\n")
+        chatUno.append(m)
         if chatUno.count > 200 { chatUno.removeFirst(chatUno.count - 200) }
         version += 1
     }
@@ -677,7 +693,22 @@ final class NyxModelo: ObservableObject {
         return lineas
     }
 
+    /// Guardar todo el cerebro es pesado (miles de ideas): se guarda como mucho
+    /// una vez por minuto, y siempre al salir de la app (guardaYa).
     func guarda() {
+        let pasado = Date().timeIntervalSince(ultimaGuardada)
+        if pasado >= 60 { guardaYa(); return }
+        if guardadoPendiente { return }
+        guardadoPendiente = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(max(1, 60 - pasado) * 1_000_000_000))
+            if self.guardadoPendiente { self.guardaYa() }
+        }
+    }
+
+    func guardaYa() {
+        guardadoPendiente = false
+        ultimaGuardada = Date()
         #if canImport(SwiftData)
         if let ctx = contexto {
             AlmacenSwiftData.guarda(consejo, en: ctx)

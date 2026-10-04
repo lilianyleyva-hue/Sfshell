@@ -13,7 +13,7 @@ struct NyxApp: App {
             VistaPrincipal(nyx: nyx)
         }
         .onChange(of: fase) { (f: ScenePhase) in
-            if f != .active { nyx.guarda() }     // al salir, guarda lo aprendido
+            if f != .active { nyx.guardaYa() }     // al salir, guarda lo aprendido (ya)
         }
     }
 }

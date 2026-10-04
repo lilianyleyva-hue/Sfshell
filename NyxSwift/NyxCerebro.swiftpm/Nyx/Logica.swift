@@ -98,6 +98,27 @@ final class ConsejoLogico {
 
     /// Los sujetos que tienen la relación con b ("¿qué es mamífero?" → perro, gato…).
     private func entrantes(_ b: String, _ rel: Rel) -> [String] { entra[b]?[rel] ?? [] }
+
+    /// Para la imaginación: quiénes tienen esta relación con b ("¿quién puede volar?").
+    func quienes(_ b: String, _ rel: Rel) -> [String] { entrantes(b, rel) }
+
+    /// Los rasgos de algo, también los heredados: "es pájaro", "tiene pluma", "puede volar".
+    func rasgos(_ a: String, maximo: Int = 8) -> [(rel: Rel, b: String)] {
+        var out: [(rel: Rel, b: String)] = []
+        var vistos = Set<String>()
+        for x in [a] + ancestros(a).prefix(4) {
+            for rel in [Rel.es, .tiene, .puede, .noPuede, .noTiene] {
+                for b in salientes(x, rel) where !vistos.contains("\(rel.rawValue) \(b)") && b != a {
+                    if rel == .puede, hechos[Hecho(a: a, rel: .noPuede, b: b)] != nil { continue }
+                    if rel == .tiene, hechos[Hecho(a: a, rel: .noTiene, b: b)] != nil { continue }
+                    vistos.insert("\(rel.rawValue) \(b)")
+                    out.append((rel, b))
+                    if out.count >= maximo { return out }
+                }
+            }
+        }
+        return out
+    }
     private(set) var reglas: [Regla: Apoyo] = [:]
     private(set) var props: [String: Apoyo] = [:]       // proposiciones verdaderas ("llueve")
     private(set) var contradicciones: [String] = []
