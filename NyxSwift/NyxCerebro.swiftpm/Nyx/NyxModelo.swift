@@ -198,6 +198,20 @@ final class NyxModelo: ObservableObject {
             if let t = ts, !t.isEmpty { k.saber = SaberMisiones.desde(t) }
             return k
         }.value
+        aplica(caja, txtUno: txtUno)
+        cargandoMemoria = false
+        let ideas = consejo.mentes.map { $0.s.count }.reduce(0, +)
+        estadoMemoria = caja.consejo != nil
+            ? "🧠 recordó todo (\(caja.origen)): \(ideas) ideas, \(consejo.frases.frases.count) frases, \(logico.hechos.count) hechos"
+            : "🧠 memoria nueva: todavía no había nada guardado"
+        refrescaUno()
+        refrescaTransferencias()
+        version += 1
+    }
+
+    /// Pone en marcha el cerebro que se cargó.
+    @MainActor
+    private func aplica(_ caja: CajaCarga, txtUno: String?) {
         if let c = caja.consejo {
             consejo = c
             aviso = "recordaron todo (\(caja.origen))"
@@ -209,14 +223,62 @@ final class NyxModelo: ObservableObject {
         uno = NyxUno(consejo: consejo, logica: logico, saber: asamblea.saber)
         if let t = txtUno, !t.isEmpty { uno.importa(t) }
         conecta()
-        cargandoMemoria = false
-        let ideas = consejo.mentes.map { $0.s.count }.reduce(0, +)
-        estadoMemoria = caja.consejo != nil
-            ? "🧠 recordó todo (\(caja.origen)): \(ideas) ideas, \(consejo.frases.frases.count) frases, \(logico.hechos.count) hechos"
-            : "🧠 memoria nueva: todavía no había nada guardado"
-        refrescaUno()
-        refrescaTransferencias()
-        version += 1
+    }
+
+    // MARK: guardar y cargar con un archivo tuyo
+
+    /// Todo lo que sabe, en un solo archivo de texto (para el botón 💾).
+    @MainActor
+    func preparaArchivo() async -> Data? {
+        if ocupado() { return nil }
+        avisoUno = "💾 preparando el archivo…"
+        let foto = consejo.foto()
+        let txtLogico = logico.exporta()
+        let txtSaber = asamblea.saber.exporta()
+        let txtUno = uno.exporta()
+        let datos = await Task.detached(priority: .userInitiated) { () -> Data in
+            let partes = ArchivoNyx.Partes(cerebro: foto.todo(), logica: txtLogico, misiones: txtSaber, uno: txtUno)
+            return Data(ArchivoNyx.junta(partes).utf8)
+        }.value
+        let kb = datos.count / 1024
+        avisoUno = "💾 archivo listo (\(kb) KB): elige dónde guardarlo"
+        return datos
+    }
+
+    /// Carga un archivo guardado con 💾 (el botón 📂): recuerda todo lo que había.
+    func cargaArchivo(_ url: URL) {
+        if ocupado() { return }
+        guard let copia = Lector.copiaDeArchivos(url) else {
+            avisoUno = "📂 no pude abrir ese archivo"
+            return
+        }
+        cargandoMemoria = true
+        estadoMemoria = "📂 cargando «\(url.lastPathComponent)»…"
+        Task { @MainActor in
+            let caja = await Task.detached(priority: .userInitiated) { () -> CajaCarga in
+                let k = CajaCarga()
+                guard let texto = try? String(contentsOf: copia, encoding: .utf8), let p = ArchivoNyx.separa(texto) else { return k }
+                k.consejo = Consejo.desde(p.cerebro)
+                k.origen = "archivo"
+                if !p.logica.isEmpty { k.logico = ConsejoLogico.desde(p.logica) }
+                if !p.misiones.isEmpty { k.saber = SaberMisiones.desde(p.misiones) }
+                k.uno = p.uno
+                return k
+            }.value
+            try? FileManager.default.removeItem(at: copia)
+            guard caja.consejo != nil else {
+                self.cargandoMemoria = false
+                self.estadoMemoria = "📂 ese archivo no es una memoria de Nyx (o está dañado): no cambié nada"
+                return
+            }
+            self.aplica(caja, txtUno: caja.uno)
+            self.cargandoMemoria = false
+            let ideas = self.consejo.mentes.map { $0.s.count }.reduce(0, +)
+            self.estadoMemoria = "📂 recordó todo del archivo: \(ideas) ideas, \(self.consejo.frases.frases.count) frases, \(self.logico.hechos.count) hechos"
+            self.refrescaUno()
+            self.version += 1
+            self.guardaYa()                      // y queda también en la memoria de la app
+        }
     }
 
     /// Mientras carga la memoria, no se aprende nada (se perdería al terminar de cargar).

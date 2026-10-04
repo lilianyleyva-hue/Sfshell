@@ -20,6 +20,7 @@ struct PantallaUno: View {
                 .foregroundColor(.gray)
             ControlesUno(nyx: nyx, verFiabilidad: $verFiabilidad)
             AdjuntarUno(nyx: nyx)
+            MemoriaUno(nyx: nyx)
             VStack(alignment: .leading, spacing: 2) {
                 Text(nyx.estadoMemoria).font(.caption).foregroundColor(nyx.cargandoMemoria ? .orange : .gray)
                 Text(nyx.estadoUno).font(.caption).foregroundColor(.gray)
@@ -58,6 +59,70 @@ struct PantallaUno: View {
     func busca() {
         nyx.aprendeDeInternet(texto)
         texto = ""
+    }
+}
+
+/// El archivo de memoria (para guardar en Archivos y volver a cargarlo).
+struct DocumentoNyx: FileDocument {
+    static var readableContentTypes: [UTType] { [.plainText] }
+    var datos: Data
+
+    init(datos: Data = Data()) {
+        self.datos = datos
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        datos = configuration.file.regularFileContents ?? Data()
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        return FileWrapper(regularFileWithContents: datos)
+    }
+}
+
+/// 💾 guardar todo lo que sabe en un archivo tuyo · 📂 cargarlo y recordar todo.
+struct MemoriaUno: View {
+    @ObservedObject var nyx: NyxModelo
+    @State private var documento = DocumentoNyx()
+    @State private var exportando = false
+    @State private var importando = false
+    @State private var preparando = false
+
+    var nombre: String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd_HH-mm"
+        return "Nyx_memoria_" + f.string(from: Date())
+    }
+
+    var body: some View {
+        HStack {
+            Button(preparando ? "💾 Preparando…" : "💾 Guardar en archivo") { guarda() }
+                .buttonStyle(.borderedProminent)
+                .disabled(preparando || nyx.cargandoMemoria)
+            Button("📂 Cargar archivo") { importando = true }
+                .buttonStyle(.bordered)
+                .disabled(nyx.cargandoMemoria)
+        }
+        .fileExporter(isPresented: $exportando, document: documento, contentType: .plainText, defaultFilename: nombre) { (r: Result<URL, Error>) in
+            switch r {
+            case .success(let u): nyx.avisoUno = "💾 guardado en «\(u.lastPathComponent)». Para recordar, pulsa 📂 y elígelo."
+            case .failure: nyx.avisoUno = "💾 no se guardó el archivo"
+            }
+        }
+        .fileImporter(isPresented: $importando, allowedContentTypes: [.plainText, .item], allowsMultipleSelection: false) { (r: Result<[URL], Error>) in
+            if case .success(let us) = r, let u = us.first { nyx.cargaArchivo(u) }
+        }
+    }
+
+    private func guarda() {
+        preparando = true
+        Task { @MainActor in
+            if let d = await nyx.preparaArchivo() {
+                documento = DocumentoNyx(datos: d)
+                exportando = true
+            }
+            preparando = false
+        }
     }
 }
 

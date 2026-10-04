@@ -221,5 +221,56 @@ final class CajaCarga: @unchecked Sendable {
     var consejo: Consejo? = nil
     var logico: ConsejoLogico? = nil
     var saber: SaberMisiones? = nil
+    var uno: String? = nil
     var origen = ""
+}
+
+/// El archivo de memoria de Nyx: todo lo que sabe en un solo texto.
+enum ArchivoNyx {
+    struct Partes {
+        let cerebro: String
+        let logica: String
+        let misiones: String
+        let uno: String
+    }
+
+    static let marcas = ["§§NYX-CEREBRO§§", "§§NYX-LOGICA§§", "§§NYX-MISIONES§§", "§§NYX-UNO§§", "§§NYX-FIN§§"]
+
+    static func junta(_ p: Partes) -> String {
+        let cuerpos = [p.cerebro, p.logica, p.misiones, p.uno]
+        var out = "MEMORIA DE NYX · versión 1\n"
+        for (k, c) in cuerpos.enumerated() { out += marcas[k] + "\n" + c + "\n" }
+        return out + marcas[4] + "\n"
+    }
+
+    static func separa(_ texto: String) -> Partes? {
+        // se busca byte a byte: con 25 MB de texto, buscar como String tardaba segundos
+        let bytes = Array(texto.utf8)
+        func busca(_ marca: String, desde: Int) -> Int? {
+            let m = Array(marca.utf8)
+            guard let primero = m.first, bytes.count >= m.count else { return nil }
+            var i = desde
+            let fin = bytes.count - m.count
+            while i <= fin {
+                if bytes[i] == primero {
+                    var k = 1
+                    while k < m.count && bytes[i + k] == m[k] { k += 1 }
+                    if k == m.count { return i }
+                }
+                i += 1
+            }
+            return nil
+        }
+        var trozos: [String] = []
+        var pos = 0
+        for k in 0 ..< 4 {
+            guard let a = busca(marcas[k] + "\n", desde: pos) else { return nil }
+            let ini = a + (marcas[k] + "\n").utf8.count
+            guard let b = busca("\n" + marcas[k + 1], desde: ini - 1) else { return nil }
+            trozos.append(b > ini ? String(decoding: bytes[ini ..< b], as: UTF8.self) : "")
+            pos = b
+        }
+        return Partes(cerebro: trozos[0], logica: trozos[1], misiones: trozos[2], uno: trozos[3])
+    }
+
 }
