@@ -118,6 +118,36 @@ Mientras el taller está abierto se turnan, sin parar:
 Cada pieza es código Go escrito así. Si les enseñas vídeos (`ven …`), lo que
 ven entra en lo que dicen y piensan, y de ahí en lo que construyen.
 
+## Modo estudio: una lista de vídeos para perfeccionar
+
+```text
+taller› estudia https://www.youtube.com/watch?v=… https://www.youtube.com/watch?v=…
+taller› estudia ~/videos.txt          (un vídeo por línea)
+taller› estudio                       cómo va (y lo que salió de cada vídeo)
+taller› estudio para                  que paren al acabar el vídeo de ahora
+```
+
+Con cada vídeo de la lista:
+
+1. **Lo ven las dos.** Nyx lo recuerda como sitio; Abla mira sus fotogramas.
+   El taller espera a que Abla termine.
+2. **Hablan de lo que vieron**, y lo que dicen se construye.
+3. **Perfeccionan.** Cada una repasa sus piezas y mide cuánto se parecen al
+   vídeo: sus colores, si es alto o ancho y cuánta luz tiene. Prueba cambios
+   con sus manos:
+   - teñir con los colores del vídeo;
+   - poner de textura un fotograma;
+   - un material parecido;
+   - estirar;
+   - dar luz.
+
+   Solo se queda con los cambios que hacen que la pieza se parezca **más**. Si
+   un cambio no mejora el parecido, lo deshace. En la charla lo ves: «Parecido
+   35% → 77%».
+
+Mientras estudian, los turnos de siempre esperan. La lista se guarda: si
+cierras el taller, al volver siguen por donde iban.
+
 ## Tú también: crear con texto
 
 ```text
@@ -190,6 +220,7 @@ Todo eso también sirve en las entidades.
 | `taller_materiales.go` | materiales y texturas (con nombre, de cualquier palabra, de fotos o tuyas) |
 | `taller_formas_propias.go` | las formas que guardan con nombre |
 | `taller_godot.go` | el proyecto de Godot que muestra su mundo en vivo |
+| `taller_estudio.go` | el modo estudio: ver una lista de vídeos y perfeccionar lo hecho |
 | `taller_motor.go` | el motor: partes, scripts, eventos, sonidos, física exacta, juegos |
 | `taller_motor.js` | en la ventana: caminar con física, dibujar lo que se mueve, sonido 3D |
 | `taller_abla.go` | el puente con Abla (el programa en C) |

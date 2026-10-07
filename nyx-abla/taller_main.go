@@ -52,6 +52,10 @@ func init() {
 }
 
 const tallerAyuda = `TALLER DE NYX Y ABLA — construyen un mundo en 3D con lo que recuerdan
+  estudia <vídeos…> | lista.txt  una lista de vídeos: los ven uno a uno y, con
+                               cada uno, perfeccionan lo que construyeron (solo
+                               se quedan con los cambios que se parecen más)
+  estudio · estudio para        cómo va la lista · que paren al acabar el vídeo
   godot                        su mundo en Godot 4 (luz, sombras y física de Godot):
                                escribe el proyecto y lo abre si tienes Godot
   camina                       abre el mundo (las ves trabajar mientras paseas)
@@ -197,6 +201,7 @@ func tallerMain(args []string) {
 		np, len(m.ListaRecuerdos()), o.abla.Estado())
 	fmt.Println("Ya están trabajando. Escribe 'camina' para verlas, 'ven <vídeo>' para enseñarles algo, 'ayuda' para más.")
 	go o.Trabajar(s.parar)
+	o.SeguirEstudiando(func(l string) { s.decir("%s", l) })
 	lector := bufio.NewReader(os.Stdin)
 	for {
 		fmt.Print("taller› ")
@@ -426,6 +431,33 @@ func (s *tallerSesion) ejecutar(linea string) bool {
 		s.decir("Y cualquier palabra es una textura: «textura zela» (siempre el mismo dibujo para la misma palabra).")
 		s.decir("Con un color delante se tiñe: «rojo madera». «foto:<nombre>» es una foto que vio Abla.")
 		s.decir("Tus imágenes: ponlas en %s (png o jpg) y úsalas por su nombre.", filepath.Join(o.dir, "texturas"))
+	case "estudia", "estudiad", "estudiar":
+		f := strings.Fields(resto)
+		if len(f) == 0 {
+			s.decir("uso: estudia <vídeo> <vídeo> …   o   estudia lista.txt (un vídeo por línea)")
+			break
+		}
+		n := o.Estudiar(f, func(l string) { s.decir("%s", l) })
+		s.decir("taller: %d vídeo(s) a la lista. Los ven uno a uno y perfeccionan lo que hicieron ('estudio' para ver cómo va).", n)
+	case "estudio":
+		if strings.HasPrefix(strings.ToLower(resto), "para") {
+			o.mu.Lock()
+			o.Estudio.parar = true
+			o.mu.Unlock()
+			s.decir("taller: paran al acabar el vídeo de ahora (la lista se queda guardada; 'estudia' para seguir).")
+			break
+		}
+		o.mu.Lock()
+		actual, quedan := o.Estudio.Actual, len(o.Estudio.Pendientes)
+		hechos := append([]string(nil), o.Estudio.Hechos...)
+		o.mu.Unlock()
+		if actual != "" {
+			s.decir("Ahora: %s", actual)
+		}
+		s.decir("Quedan %d vídeo(s).", quedan)
+		for _, h := range hechos[max(0, len(hechos)-10):] {
+			s.decir("  · %s", h)
+		}
 	case "godot":
 		s.abrirGodot()
 	case "pasillos":

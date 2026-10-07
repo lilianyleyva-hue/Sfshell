@@ -42,7 +42,10 @@ func (o *tallerObra) Trabajar(parar <-chan struct{}) {
 			return
 		case <-time.After(espera):
 		}
-		if pausa {
+		o.mu.Lock()
+		estudiando := o.estudiando
+		o.mu.Unlock()
+		if pausa || estudiando {
 			o.recogerVistas() // aunque descansen, lo que Abla ve se apunta
 			continue
 		}
@@ -384,22 +387,33 @@ func (m *tallerManos) Deshacer(base string) bool {
 	}
 	m.o.mu.Lock()
 	defer m.o.mu.Unlock()
-	if p.Version <= 1 {
+	n := len(p.Historia)
+	if n == 0 {
 		return false
 	}
-	v := p.Version - 1
-	id := p.Base
-	if v > 1 {
-		id = fmt.Sprintf("%s-v%d", p.Base, v)
+	p.Ultima = max(p.Ultima, p.Version)
+	p.ID = p.Historia[n-1]
+	p.Historia = p.Historia[:n-1]
+	p.Version = len(p.Historia) + 1
+	if c, err := os.ReadFile(filepath.Join(m.o.m.dir, "objetos", p.ID+".go")); err == nil {
+		if comp, err := tallerCompilar(string(c)); err == nil {
+			_, p.Alto = medirCuerpo(comp.entero)
+			p.Radio = tallerRadio(comp.entero)
+		}
 	}
-	if _, err := os.Stat(filepath.Join(m.o.m.dir, "objetos", id+".go")); err != nil {
-		return false
-	}
-	p.ID, p.Version = id, v
 	p.Cambios = append(p.Cambios, m.quien+": deshace su último cambio")
 	m.o.cambio(p.X, p.Z)
 	go func() { _ = m.o.Guardar() }()
 	return true
+}
+
+// Estirar: más alto, más ancho o más fondo (cada eje por su lado).
+func (m *tallerManos) Estirar(base string, kx, ky, kz float64) {
+	if p := m.o.Pieza(base); p != nil {
+		_ = m.o.Cambiar(p, m.quien, "lo estira", func(c string) (string, error) {
+			return tallerAnadir(c, m.quien, fmt.Sprintf("c.EscalarEjes(%s, %s, %s)", f3(kx), f3(ky), f3(kz)))
+		})
+	}
 }
 
 func (m *tallerManos) Origen(base string) ([3]float64, bool) {

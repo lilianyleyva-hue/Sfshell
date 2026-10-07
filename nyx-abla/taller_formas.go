@@ -338,6 +338,17 @@ func (c *Cuerpo) Copiar(desde int, dx, dy, dz, giro float64) {
 	}
 }
 
+// EscalarEjes: estira (o encoge) todo el cuerpo, cada eje por su lado.
+func (c *Cuerpo) EscalarEjes(kx, ky, kz float64) {
+	if kx <= 0 || ky <= 0 || kz <= 0 {
+		return
+	}
+	c.transformar(0, func(p, n [3]float64) ([3]float64, [3]float64) {
+		return [3]float64{p[0] * kx, p[1] * ky, p[2] * kz}, normalizar([3]float64{n[0] / kx, n[1] / ky, n[2] / kz})
+	})
+	tallerTransformarExtra(c, func(p [3]float64) [3]float64 { return [3]float64{p[0] * kx, p[1] * ky, p[2] * kz} })
+}
+
 // Escalar, Girar, Mover: todo el cuerpo (con sus pivotes y huecos).
 func (c *Cuerpo) Escalar(k float64) {
 	if k > 0 && k != 1 {

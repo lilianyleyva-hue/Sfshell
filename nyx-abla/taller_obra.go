@@ -34,22 +34,24 @@ import (
 )
 
 type tallerPieza struct {
-	ID      string             `json:"id"`   // el modelo que se ve ahora (objetos/<id>.go)
-	Base    string             `json:"base"` // el nombre de la pieza, sin versión
-	Version int                `json:"version"`
-	Autor   string             `json:"autor"` // nyx, abla o tú
-	Titulo  string             `json:"titulo"`
-	De      string             `json:"de"` // el recuerdo del que salió
-	X       float64            `json:"x"`
-	Y       float64            `json:"y"`
-	Z       float64            `json:"z"`
-	Rumbo   float64            `json:"rumbo"`
-	RotX    float64            `json:"rotX,omitempty"` // inclinada (las manos)
-	Radio   float64            `json:"radio"`
-	Alto    float64            `json:"alto"`
-	Cambios []string           `json:"cambios,omitempty"` // quién la cambió y cómo
-	Memoria map[string]float64 `json:"memoria,omitempty"` // lo que guardan sus scripts
-	Cuando  time.Time          `json:"cuando"`
+	ID       string             `json:"id"`   // el modelo que se ve ahora (objetos/<id>.go)
+	Base     string             `json:"base"` // el nombre de la pieza, sin versión
+	Version  int                `json:"version"`
+	Autor    string             `json:"autor"` // nyx, abla o tú
+	Titulo   string             `json:"titulo"`
+	De       string             `json:"de"` // el recuerdo del que salió
+	X        float64            `json:"x"`
+	Y        float64            `json:"y"`
+	Z        float64            `json:"z"`
+	Rumbo    float64            `json:"rumbo"`
+	RotX     float64            `json:"rotX,omitempty"`     // inclinada (las manos)
+	Historia []string           `json:"historia,omitempty"` // las versiones de antes (para deshacer)
+	Ultima   int                `json:"ultima,omitempty"`   // el número de la última versión que se hizo
+	Radio    float64            `json:"radio"`
+	Alto     float64            `json:"alto"`
+	Cambios  []string           `json:"cambios,omitempty"` // quién la cambió y cómo
+	Memoria  map[string]float64 `json:"memoria,omitempty"` // lo que guardan sus scripts
+	Cuando   time.Time          `json:"cuando"`
 }
 
 type tallerFrase struct {
@@ -73,8 +75,10 @@ type tallerObra struct {
 	Tortugas map[string]*tallerTortuga `json:"tortugas,omitempty"`
 	// Pasillos: si el fondo es el mundo de Nyx Mundo (sus pasillos y sitios).
 	// Si no, es el vacío: todo lo que hay lo hacen ellas.
-	Pasillos      bool `json:"pasillos,omitempty"`
-	Turno         int  `json:"turno"`
+	Pasillos bool `json:"pasillos,omitempty"`
+	// Estudio: la lista de vídeos que estudian (y lo que salió de cada uno)
+	Estudio       tallerEstudio `json:"estudio"`
+	Turno         int           `json:"turno"`
 	charla        []tallerFrase
 	nfrase        int
 	version       int            // sube con cada cambio de la obra
@@ -87,6 +91,7 @@ type tallerObra struct {
 	motorVivo     bool   // la ventana está abierta y el motor corre
 	instruida     bool   // ya se les dio la instrucción en esta sesión
 	codigoVentana string // el código que pide el servidor del mundo
+	estudiando    bool   // perfeccionan con un vídeo: los turnos de siempre esperan
 	ultimoNyx     string
 	ultimoAbla    string
 }
@@ -298,8 +303,10 @@ func (o *tallerObra) Cambiar(p *tallerPieza, quien, que string, f func(codigo st
 	if err != nil {
 		return err
 	}
+	// cada versión con su propio nombre, aunque se haya deshecho otra antes
+	// (la ventana y Godot guardan los modelos por su nombre)
 	o.mu.Lock()
-	v := p.Version + 1
+	v := max(p.Version, p.Ultima) + 1
 	o.mu.Unlock()
 	id := fmt.Sprintf("%s-v%d", p.Base, v)
 	nuevo = strings.Replace(nuevo, "\npackage objeto", fmt.Sprintf("\n// v%d: %s %s.\npackage objeto", v, quien, que), 1)
@@ -309,7 +316,9 @@ func (o *tallerObra) Cambiar(p *tallerPieza, quien, que string, f func(codigo st
 	}
 	_, alto := medirCuerpo(c)
 	o.mu.Lock()
-	p.ID, p.Version, p.Alto, p.Radio = id, v, alto, tallerRadio(c)
+	p.Historia = append(p.Historia, p.ID)
+	p.ID, p.Ultima, p.Alto, p.Radio = id, v, alto, tallerRadio(c)
+	p.Version = len(p.Historia) + 1
 	p.Cambios = append(p.Cambios, quien+": "+que)
 	o.cambio(p.X, p.Z)
 	o.mu.Unlock()
