@@ -28,7 +28,7 @@ typedef struct {
   } hist[MAX_HIST];
   int nhist;
   float habilidad[NUM_SERES][NOPS];
-  char logros[MAX_LOGROS][128];
+  char logros[MAX_LOGROS][256];
   int nlogros;
   uint64_t celebrar_hasta; /* tick hasta el que se celebra la subida de nivel */
   long humano_a, humano_b;
