@@ -20,7 +20,10 @@ const char* nombre_tribu(int t) {
   return n[t];
 }
 
-const char* nombre_de(int id) { return id == DE_HUMANO ? "Humano" : E.seres[id].nombre; }
+/* Quien les habla desde fuera: el humano (o Nyx, cuando hablan por el puente). */
+static char hablante[32] = "Humano";
+void abla_fijar_hablante(const char* nombre) { snprintf(hablante, sizeof hablante, "%s", nombre && *nombre ? nombre : "Humano"); }
+const char* nombre_de(int id) { return id == DE_HUMANO ? hablante : E.seres[id].nombre; }
 
 const char* glosa_hecho(const struct hecho* h) {
   static Texto anillo[6];

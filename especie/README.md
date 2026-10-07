@@ -118,6 +118,7 @@ humano@abla:/$ decir 19 sol causa luz pregunta
 - **← →** eligen un ser · **↑ ↓** historial · **RePág / AvPág** desplazan la salida · **Esc** borra la línea · `salir` o **Ctrl+C** para salir.
 - Abajo escribes cualquier comando (`decir`, `enseñar`, `ls`, `cat`…). Mientras escribes, siguen pensando.
 - `./abla --consola` usa la consola de líneas de siempre (también se usa sola si la entrada no es una terminal).
+- `./abla --puente` es para que otro programa hable con la especie: cada línea que entra devuelve una línea JSON. Lo usa el [taller de Nyx y Abla](../nyx-abla/LEEME.md). Lo que ven en cada foto queda además en `fotos/vistas.jsonl`.
 
 Dónde funciona:
 

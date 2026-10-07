@@ -213,6 +213,38 @@ static void terminar_foto(int guardar) {
     tx_printf(&t, "%s\nEn Abla: %s\n", V.descripcion, V.abla);
     arch_escribir(r, t.p, t.n, 0);
     tx_liberar(&t);
+    /* y una línea por foto en fotos/vistas.jsonl: así otros programas (Nyx)
+     * saben qué vieron, con qué colores reales y qué conceptos les evocó */
+    tx_iniciar(&t);
+    tx_add(&t, "{\"foto\":");
+    tx_json(&t, base);
+    tx_printf(&t, ",\"mini\":\"fotos/vistas/%s.ppm\",\"descripcion\":", base);
+    tx_json(&t, V.descripcion);
+    tx_add(&t, ",\"abla\":");
+    tx_json(&t, V.abla);
+    tx_printf(&t, ",\"brillo\":%.3f,\"contraste\":%.3f,\"bordes\":%.3f,\"bordes_h\":%.3f,\"bordes_v\":%.3f,\"arriba\":",
+              V.brillo, V.contraste, V.bordes, V.bordes_h, V.bordes_v);
+    tx_json(&t, V.arriba);
+    tx_add(&t, ",\"abajo\":");
+    tx_json(&t, V.abajo);
+    tx_add(&t, ",\"paleta\":[");
+    for (int i = 0; i < V.npaleta; i++) {
+      tx_printf(&t, "%s{\"nombre\":", i ? "," : "");
+      tx_json(&t, V.paleta[i].nombre);
+      tx_printf(&t, ",\"rgb\":[%d,%d,%d],\"frac\":%.3f}", V.paleta[i].r, V.paleta[i].g, V.paleta[i].b, V.paleta[i].frac);
+    }
+    tx_add(&t, "],\"conceptos\":[");
+    for (int i = 0; i < V.nconceptos; i++) {
+      tx_add(&t, i ? ",{\"abla\":" : "{\"abla\":");
+      tx_json(&t, idioma_forma(V.conceptos[i]));
+      tx_add(&t, ",\"es\":");
+      tx_json(&t, idioma_glosa_tmp(V.conceptos[i]));
+      tx_printf(&t, ",\"peso\":%.3f}", V.pesos[i]);
+    }
+    tx_add(&t, "]}\n");
+    ruta(r, "fotos/vistas.jsonl");
+    arch_escribir(r, t.p, t.n, 1);
+    tx_liberar(&t);
   }
   char rel[300];
   snprintf(rel, sizeof rel, "fotos/entrada/%s", V.nombre);

@@ -30,3 +30,7 @@ Para que aparezcan palabras al escuchar, el **Dictado** debe estar activado (Aju
 python3 -m http.server 8000
 # abre http://localhost:8000
 ```
+
+## Taller de Nyx y Abla
+
+En [`nyx-abla/`](nyx-abla/LEEME.md), Abla trabaja junto a Nyx (Debian) sin cambiar el cerebro de Nyx. Las dos ven vídeos de YouTube, escriben código Go que construye objetos 3D (exportables a Blender) y crean juntas un mundo con sus recuerdos. Cada una puede cambiar lo que hizo la otra.

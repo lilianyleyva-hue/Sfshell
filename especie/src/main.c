@@ -71,22 +71,88 @@ static void escuchar_en_vivo(int segundos, const char* filtro) {
 }
 #endif
 
+/* Modo puente: para que otro programa (Nyx) hable con la especie.
+ * Por cada línea que entra sale exactamente UNA línea JSON:
+ *   @estado            el estado de los 27 (abla_estado_json)
+ *   @corriente N       lo que han pensado desde la línea N
+ *   @guardar           guarda la memoria
+ *   @ritmo MS          cuánto tarda cada ciclo de pensamiento
+ *   @hablante NOMBRE   quién les habla desde fuera (Nyx, tú…)
+ *   cualquier otra     se ejecuta como en la consola: {"salida": "..."}
+ * Mientras tanto siguen pensando en su hilo, sin parar. */
+static int puente_ejecutar(const char* mundo, unsigned contexto, int ritmo) {
+  abla_iniciar(mundo, contexto, 0);
+  abla_fijar_ritmo(ritmo);
+  setvbuf(stdout, NULL, _IOLBF, 0);
+  Texto t;
+  tx_iniciar(&t);
+  printf("{\"listo\":true,\"palabras\":%d,\"seres\":%d}\n", idioma_tamano(), NUM_SERES);
+#if ABLA_HILOS
+  pthread_t hilo;
+  pthread_create(&hilo, NULL, pensar_siempre, NULL);
+#endif
+  char linea[8192];
+  while (fgets(linea, sizeof linea, stdin)) {
+    linea[strcspn(linea, "\r\n")] = 0;
+    char* c = linea;
+    while (*c == ' ') c++;
+    if (!strcmp(c, "@salir")) break;
+    TOMAR();
+#if !ABLA_HILOS
+    abla_ciclos_atrasados(200);
+#endif
+    if (!strcmp(c, "@estado")) fputs(abla_estado_json(), stdout);
+    else if (!strncmp(c, "@corriente", 10)) fputs(abla_corriente_json(strtod(c + 10, NULL)), stdout);
+    else if (!strcmp(c, "@guardar")) {
+      abla_guardar();
+      fputs("{\"ok\":true}", stdout);
+    } else if (!strncmp(c, "@hablante", 9)) {
+      const char* n = c + 9;
+      while (*n == ' ') n++;
+      abla_fijar_hablante(n);
+      fputs("{\"ok\":true}", stdout);
+    } else if (!strncmp(c, "@ritmo", 6)) {
+      abla_fijar_ritmo(atoi(c + 6));
+      printf("{\"ritmo\":%d}", abla_ritmo());
+    } else {
+      tx_vaciar(&t);
+      tx_add(&t, "{\"salida\":");
+      tx_json(&t, abla_ejecutar(c));
+      tx_add(&t, "}");
+      fputs(t.p, stdout);
+    }
+    fputs("\n", stdout);
+    fflush(stdout);
+    SOLTAR();
+  }
+#if ABLA_HILOS
+  vivo = 0;
+  pthread_join(hilo, NULL);
+#endif
+  abla_guardar();
+  tx_liberar(&t);
+  return 0;
+}
+
 int main(int argc, char** argv) {
   const char* mundo = "mundo";
   unsigned contexto = 1000000;
-  int ritmo = 800, consola = 0;
+  int ritmo = 800, consola = 0, puente = 0;
   for (int i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "--mundo") && i + 1 < argc) mundo = argv[++i];
     else if (!strcmp(argv[i], "--contexto") && i + 1 < argc) contexto = (unsigned)strtoul(argv[++i], NULL, 10);
     else if (!strcmp(argv[i], "--ritmo") && i + 1 < argc) ritmo = atoi(argv[++i]);
     else if (!strcmp(argv[i], "--consola")) consola = 1;
+    else if (!strcmp(argv[i], "--puente")) puente = 1;
     else {
-      printf("uso: %s [--mundo DIR] [--contexto TOKENS] [--ritmo MS] [--consola]\n", argv[0]);
+      printf("uso: %s [--mundo DIR] [--contexto TOKENS] [--ritmo MS] [--consola | --puente]\n", argv[0]);
       return strcmp(argv[i], "-h") && strcmp(argv[i], "--help");
     }
   }
   setvbuf(stdout, NULL, _IONBF, 0); /* sin búfer: si algo falla, se ve hasta dónde llegó */
   color = getenv("NO_COLOR") == NULL;
+
+  if (puente) return puente_ejecutar(mundo, contexto, ritmo);
 
   en_color("1;32", "Despertando a la especie…");
   printf(" (%s, carpeta %s)\n", ABLA_HILOS ? "con hilos" : "sin hilos", mundo);
