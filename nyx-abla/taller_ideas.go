@@ -34,6 +34,26 @@ type tallerEsbozo struct {
 	cuerpo   strings.Builder
 	cabecera string
 	puestas  map[string]bool
+	scripts  map[string][]string // Empezar, Actuar, AlUsar… → trozos de código
+}
+
+// las funciones que puede tener una pieza viva (el motor las llama)
+var tallerFirmas = []struct{ nombre, firma string }{
+	{"Empezar", "func Empezar(o *mundo.Objeto) {"},
+	{"Actuar", "func Actuar(o *mundo.Objeto, dt float64) {"},
+	{"AlUsar", "func AlUsar(o *mundo.Objeto, quien string) {"},
+	{"AlEntrar", "func AlEntrar(o *mundo.Objeto, quien string) {"},
+	{"AlSalir", "func AlSalir(o *mundo.Objeto, quien string) {"},
+	{"AlTocar", "func AlTocar(o *mundo.Objeto, quien, parte string) {"},
+}
+
+// S: un trozo de script (va en su propio bloque, para que sus variables
+// no choquen con las de otro trozo).
+func (e *tallerEsbozo) S(funcion, codigo string) {
+	if e.scripts == nil {
+		e.scripts = map[string][]string{}
+	}
+	e.scripts[funcion] = append(e.scripts[funcion], codigo)
 }
 
 func (e *tallerEsbozo) L(formato string, a ...any) {
@@ -56,6 +76,21 @@ func (e *tallerEsbozo) Codigo() string {
 	b.WriteString("package objeto\n\nimport \"mundo\"\n\n" + tallerParametros)
 	for _, a := range e.ayudas {
 		b.WriteString("\n" + a)
+	}
+	for _, f := range tallerFirmas {
+		trozos := e.scripts[f.nombre]
+		if len(trozos) == 0 {
+			continue
+		}
+		b.WriteString("\n" + f.firma + "\n")
+		for _, t := range trozos {
+			b.WriteString("\t{\n")
+			for _, l := range strings.Split(strings.TrimRight(t, "\n"), "\n") {
+				b.WriteString("\t\t" + strings.TrimLeft(l, "\t ") + "\n")
+			}
+			b.WriteString("\t}\n")
+		}
+		b.WriteString("}\n")
 	}
 	b.WriteString("\nfunc Construir(c *mundo.Cuerpo) {\n")
 	b.WriteString(e.cuerpo.String())
@@ -117,6 +152,7 @@ func (e *tallerEsbozo) torre(rng *rand.Rand, pal [][3]float64, alta float64) {
 }
 
 func (e *tallerEsbozo) arbol(rng *rand.Rand, pal [][3]float64) {
+	e.S("Empezar", `o.Ambiente("pajaros", 0.25)`)
 	e.ayuda("rama", `// rama: un trozo de árbol que se parte en otros más pequeños
 func rama(c *mundo.Cuerpo, x, y, z, largo, rumbo, inclina, grosor float64, nivel int, madera, hoja mundo.Color, partes int, giro float64) {
 	x2 := x + mundo.Sin(inclina)*mundo.Cos(rumbo)*largo
@@ -148,6 +184,7 @@ func rama(c *mundo.Cuerpo, x, y, z, largo, rumbo, inclina, grosor float64, nivel
 }
 
 func (e *tallerEsbozo) fuente(rng *rand.Rand, pal [][3]float64) {
+	e.S("Empezar", `o.Ambiente("agua", 0.5)`)
 	r := 1.4 + rng.Float64()*1.4
 	e.L("// una fuente")
 	e.L("c.Revolucion(0, 0, 0, []float64{%s, 0, %s, 0.5, %s, 0.5, %s, 0.15}, 32, %s)", f2(r), f2(r*1.05), f2(r*0.9), f2(r*0.85), tallerCol(pal[1]))
@@ -176,6 +213,7 @@ func (e *tallerEsbozo) arco(rng *rand.Rand, pal [][3]float64) {
 }
 
 func (e *tallerEsbozo) farolas(rng *rand.Rand, pal [][3]float64, n int, radio float64) {
+	e.S("Empezar", `o.Ambiente("zumbido", 0.08)`)
 	e.L("// %d farolas alrededor", n)
 	e.L("for k := 0; k < %d; k++ {", n)
 	e.L("\ta := float64(k)*2*mundo.Pi/%d + %s", n, f2(rng.Float64()))
@@ -226,7 +264,8 @@ func esponja(c *mundo.Cuerpo, x, y, z, lado float64, nivel int, a, b mundo.Color
 
 func (e *tallerEsbozo) girasol(rng *rand.Rand, pal [][3]float64) {
 	n := 60 + rng.Intn(80)
-	e.L("// %d semillas en espiral (el ángulo de oro)", n)
+	e.L("// %d semillas en espiral (el ángulo de oro); la flor gira despacio", n)
+	e.L("c.Parte(\"flor\", 0, 0, 0)")
 	e.L("for k := 1; k <= %d; k++ {", n)
 	e.L("\tr := mundo.Sqrt(float64(k)) * %s", f2(0.16+rng.Float64()*0.08))
 	e.L("\ta := float64(k) * 2.39996")
@@ -234,7 +273,9 @@ func (e *tallerEsbozo) girasol(rng *rand.Rand, pal [][3]float64) {
 	e.L("\tcol := mundo.Mezcla(%s, %s, float64(k)/%d)", tallerCol(pal[0]), tallerCol(pal[1]), n)
 	e.L("\tc.Esfera(mundo.Cos(a)*r, y, mundo.Sin(a)*r, 0.07+0.04*mundo.Sin(float64(k)), col)")
 	e.L("}")
+	e.L("c.Parte(\"\", 0, 0, 0)")
 	e.L("c.Cilindro(0, 0, 0, 0.12, %s, %s)", f2(1.4), tallerCol(tallerOscurecer(pal[2], 0.3)))
+	e.S("Actuar", `o.Rotar("flor", 0, o.Tiempo()*0.25, 0)`)
 }
 
 func (e *tallerEsbozo) escalera(rng *rand.Rand, pal [][3]float64) {
@@ -250,22 +291,47 @@ func (e *tallerEsbozo) escalera(rng *rand.Rand, pal [][3]float64) {
 }
 
 func (e *tallerEsbozo) casa(rng *rand.Rand, pal [][3]float64, oscura bool) {
-	an, fo, al := 3+rng.Float64()*2.5, 3+rng.Float64()*2.5, 2.3+rng.Float64()*1.2
+	an, fo, al := 3.6+rng.Float64()*2.5, 3.6+rng.Float64()*2.5, 2.5+rng.Float64()*1.0
 	te := 0.8 + rng.Float64()*1.4
-	e.L("// una casita con su tejado")
-	e.L("c.Extruir(0, 0, 0, []float64{%s, %s, %s, %s, %s, %s, %s, %s}, %s, %s)", f2(-an/2), f2(-fo/2), f2(an/2), f2(-fo/2), f2(an/2), f2(fo/2), f2(-an/2), f2(fo/2), f2(al), tallerCol(pal[0]))
-	techo := tallerCol(pal[1])
+	pared, techo := tallerCol(pal[0]), tallerCol(pal[1])
+	e.L("// una casita hueca: se entra por la puerta (E para abrirla)")
+	e.L("c.Caja(0, 0.05, 0, %s, 0.1, %s, %s) // el suelo", f2(an), f2(fo), tallerCol(tallerOscurecer(pal[1], 0.3)))
+	e.L("c.Caja(%s, %s, 0, 0.15, %s, %s, %s) // la pared de atrás", f2(-an/2), f2(al/2), f2(al), f2(fo), pared)
+	e.L("c.Caja(0, %s, %s, %s, %s, 0.15, %s)", f2(al/2), f2(fo/2), f2(an), f2(al), pared)
+	e.L("c.Caja(0, %s, %s, %s, %s, 0.15, %s)", f2(al/2), f2(-fo/2), f2(an), f2(al), pared)
+	lado := fo/2 - 0.55
+	e.L("c.Caja(%s, %s, %s, 0.15, %s, %s, %s) // la de delante, con la puerta", f2(an/2), f2(al/2), f2(0.55+lado/2), f2(al), f2(lado), pared)
+	e.L("c.Caja(%s, %s, %s, 0.15, %s, %s, %s)", f2(an/2), f2(al/2), f2(-0.55-lado/2), f2(al), f2(lado), pared)
+	e.L("c.Caja(%s, %s, 0, 0.15, %s, 1.1, %s)", f2(an/2), f2((2.1+al)/2), f2(al-2.1), pared)
 	e.L("c.Lamina(%s, %s, %s, %s, %s, %s, 0, %s, %s, %s)", f2(-an/2-0.2), f2(al), f2(-fo/2-0.2), f2(an/2+0.2), f2(al), f2(-fo/2-0.2), f2(al+te), f2(-fo/2-0.2), techo)
 	e.L("c.Lamina(%s, %s, %s, %s, %s, %s, 0, %s, %s, %s)", f2(-an/2-0.2), f2(al), f2(fo/2+0.2), f2(an/2+0.2), f2(al), f2(fo/2+0.2), f2(al+te), f2(fo/2+0.2), techo)
 	e.L("c.Cuadro(%s, %s, %s, %s, %s, %s, 0, %s, %s, 0, %s, %s, %s)", f2(an/2+0.2), f2(al), f2(-fo/2-0.2), f2(an/2+0.2), f2(al), f2(fo/2+0.2), f2(al+te), f2(fo/2+0.2), f2(al+te), f2(-fo/2-0.2), techo)
 	e.L("c.Cuadro(%s, %s, %s, 0, %s, %s, 0, %s, %s, %s, %s, %s, %s)", f2(-an/2-0.2), f2(al), f2(-fo/2-0.2), f2(al+te), f2(-fo/2-0.2), f2(al+te), f2(fo/2+0.2), f2(-an/2-0.2), f2(al), f2(fo/2+0.2), techo)
-	e.L("c.Caja(%s, 0.95, 0, 0.06, 1.9, 0.9, %s) // la puerta", f2(an/2+0.02), tallerCol(tallerOscurecer(pal[2], 0.5)))
 	luz := tallerAclarar(pal[2], 0.4)
 	if oscura {
 		luz = [3]float64{1, 0.85, 0.5}
 	}
-	e.L("c.Brilla(%s, 1.6, %s, 0.22, %s) // una ventana encendida", f2(an/2+0.05), f2(fo/4), tallerCol(luz))
-	e.L("c.Brilla(%s, 1.6, %s, 0.22, %s)", f2(an/2+0.05), f2(-fo/4), tallerCol(luz))
+	e.L("c.Brillante(true) // ventanas y la luz de dentro")
+	e.L("c.Caja(%s, 1.5, %s, 0.2, 0.8, 0.8, %s)", f2(-an/2), f2(fo/4), tallerCol(luz))
+	e.L("c.Caja(0, 1.5, %s, 0.8, 0.8, 0.2, %s)", f2(fo/2), tallerCol(luz))
+	e.L("c.Caja(0, %s, 0, 0.5, 0.06, 0.5, %s)", f2(al-0.1), tallerCol(luz))
+	e.L("c.Brillante(false)")
+	e.L("c.Parte(\"puerta\", %s, 0.1, -0.53)", f2(an/2))
+	e.L("c.Caja(%s, 1.1, 0, 0.06, 2.0, 1.05, %s)", f2(an/2), tallerCol(tallerOscurecer(pal[2], 0.5)))
+	e.L("c.Esfera(%s, 1.05, 0.35, 0.05, mundo.RGB(0.85, 0.75, 0.35))", f2(an/2+0.06))
+	e.L("c.Parte(\"\", 0, 0, 0)")
+	e.S("Empezar", `if o.Valor("abierta") == 1 {
+	o.Rotar("puerta", 0, 1.4, 0)
+}`)
+	e.S("AlUsar", `a := 0.0
+if o.Valor("abierta") == 0 {
+	a = 1.4
+	o.Guardar("abierta", 1)
+} else {
+	o.Guardar("abierta", 0)
+}
+o.Rotar("puerta", 0, a, 0)
+o.SonarEn("puerta", "puerta", 1)`)
 }
 
 func (e *tallerEsbozo) piedras(rng *rand.Rand, pal [][3]float64) {
@@ -280,6 +346,7 @@ func (e *tallerEsbozo) piedras(rng *rand.Rand, pal [][3]float64) {
 }
 
 func (e *tallerEsbozo) hoguera(rng *rand.Rand) {
+	e.S("Empezar", `o.Ambiente("fuego", 0.6)`)
 	e.L("// una hoguera")
 	e.L("for k := 0; k < 7; k++ {")
 	e.L("\ta := float64(k) * 2 * mundo.Pi / 7")
@@ -293,11 +360,15 @@ func (e *tallerEsbozo) hoguera(rng *rand.Rand) {
 func (e *tallerEsbozo) orbes(rng *rand.Rand, pal [][3]float64, alto float64) {
 	n := 6 + rng.Intn(10)
 	e.L("// %d luces que giran en un anillo de pie", n)
+	e.L("c.Parte(\"orbes\", 0, %s, 0)", f2(alto))
 	e.L("for k := 0; k < %d; k++ {", n)
 	e.L("\ta := float64(k) * 2 * mundo.Pi / %d", n)
 	e.L("\tc.Brilla(0, %s+mundo.Sin(a)*%s, mundo.Cos(a)*%s, 0.16, mundo.Mezcla(%s, %s, float64(k)/%d))", f2(alto), f2(alto*0.7), f2(alto*0.7), tallerCol(tallerAclarar(pal[0], 0.4)), tallerCol(tallerAclarar(pal[1], 0.4)), n)
 	e.L("}")
+	e.L("c.Parte(\"\", 0, 0, 0)")
 	e.L("c.Cilindro(0, 0, 0, 0.1, %s, %s)", f2(alto*0.3), tallerCol(tallerOscurecer(pal[2], 0.3)))
+	e.S("Empezar", `o.AmbienteEn("orbes", "magia", 0.25)`)
+	e.S("Actuar", `o.Rotar("orbes", o.Tiempo()*0.6, 0, 0)`)
 }
 
 // estela: una piedra de pie con una frase escrita.
@@ -309,6 +380,8 @@ func (e *tallerEsbozo) estela(rng *rand.Rand, pal [][3]float64, frase string) {
 	if len([]rune(frase)) > 28 {
 		frase = string([]rune(frase)[:28])
 	}
+	e.S("AlUsar", fmt.Sprintf(`o.Decir(%q)
+o.Sonar("magia", 1)`, frase))
 	tam := 0.35
 	largo := float64(len([]rune(frase)))*tam*0.8 + 0.6
 	alto := 2.0 + rng.Float64()
@@ -447,6 +520,10 @@ func tallerIdeaNyx(m *Mundo, rng *rand.Rand, pedido string) (titulo, de, codigo 
 		"arco": 0.4 + ras.Pasillo*2 + ras.Cielo, "casa": 0.5 + ras.Paredes*1.5, "piedras": 0.3 + ras.Relieve*2 + ras.Irregular,
 		"farolas": 0.2 + ras.Oscuridad*2 + ras.Luces, "escalera": 0.3 + ras.Altura, "estatua": 0,
 		"pirámide": 0.3 + ras.Apertura, "hoguera": 0.2 + ras.Oscuridad,
+		// hacia arriba, hacia abajo, cosas vivas y juegos
+		"torre-mirador": 0.35 + ras.Altura*1.5 + ras.Cielo, "edificio": 0.35 + ras.Paredes + ras.Pasillo,
+		"mazmorra": 0.3 + ras.Oscuridad*1.5 + ras.Irregular, "ascensor": 0.2 + ras.Altura,
+		"anillos": 0.35, "plataformas": 0.3, "molino": 0.2 + ras.Verde + ras.Cielo*0.5, "campanario": 0.25,
 	}
 	if len(figs) > 0 {
 		pesos["estatua"] = 2.5
@@ -479,9 +556,12 @@ func tallerIdeaNyx(m *Mundo, rng *rand.Rand, pedido string) (titulo, de, codigo 
 		f := figs[rng.Intn(len(figs))]
 		e.figura(f, tallerOscurecer(pal[1], 0.2))
 		titulo = "estatua"
+	default:
+		e.tallerGrande(idea, rng, pal, ras.Altura, ras.Oscuridad > 0.5)
 	}
-	// y a veces algo más alrededor
-	if idea != "farolas" && (ras.Oscuridad > 0.55 || rng.Float64() < 0.25) {
+	// y a veces algo más alrededor (si es pequeña)
+	pequena := map[string]bool{"torre": true, "árbol": true, "fuente": true, "arco": true, "piedras": true, "escalera": true, "hoguera": true, "estatua": true}
+	if pequena[idea] && (ras.Oscuridad > 0.55 || rng.Float64() < 0.25) {
 		e.farolas(rng, pal, 3+rng.Intn(3), 3.5+rng.Float64()*2)
 	}
 	e.Titulo = titulo
@@ -534,11 +614,17 @@ func tallerIdeaAbla(o *tallerObra, rng *rand.Rand, v *tallerVista, tribu int, pe
 		"fractal":  0.2 + 2*tiene("patrón"),
 		"girasol":  0.3, "escalera": 0.3, "arco": 0.3,
 		"estela": 0, "mural": 0,
+		"torre-mirador": 0.2 + 2*tiene("cielo", "arriba", "alto"),
+		"mazmorra":      0.2 + 2*tiene("noche", "piedra", "tierra", "cueva", "oscuro", "negro"),
+		"anillos":       0.3, "plataformas": 0.3, "edificio": 0.2, "ascensor": 0.2,
+		"molino":     0.2 + 1.5*tiene("viento", "aire", "verde"),
+		"campanario": 0.2,
 	}
 	// cada tribu tiene su manera
 	switch tribu {
 	case 0:
 		pesos["estela"] = 3
+		pesos["campanario"] += 0.8
 	case 1:
 		if v != nil && v.Mini != "" {
 			pesos["mural"] = 3.5
@@ -547,6 +633,8 @@ func tallerIdeaAbla(o *tallerObra, rng *rand.Rand, v *tallerVista, tribu int, pe
 		pesos["fractal"] += 1.5
 		pesos["girasol"] += 1.2
 		pesos["escalera"] += 1
+		pesos["anillos"] += 0.8
+		pesos["plataformas"] += 0.8
 	}
 	idea := tallerElegir(rng, pesos, pedido)
 	titulo = idea
@@ -578,9 +666,16 @@ func tallerIdeaAbla(o *tallerObra, rng *rand.Rand, v *tallerVista, tribu int, pe
 			e.estela(rng, pal, frase)
 			titulo = "estela"
 		}
+	default:
+		e.tallerGrande(idea, rng, pal, 0.3+v.bordesV(), tiene("noche", "oscuro") > 0)
 	}
-	// lo que es de lenguaje siempre lleva algo escrito
-	if tribu == 0 && idea != "estela" {
+	// su música: la frase que le evocó, tocada nota a nota
+	if rng.Float64() < 0.45 {
+		e.S("Empezar", fmt.Sprintf(`o.Ambiente(%q, 0.25)`, "musica:"+tallerMelodia(frase)))
+	}
+	// lo que es de lenguaje siempre lleva algo escrito (si cabe al lado)
+	grande := map[string]bool{"edificio": true, "mazmorra": true, "anillos": true, "plataformas": true, "ascensor": true}
+	if tribu == 0 && idea != "estela" && !grande[idea] {
 		m := "m := c.Marca()"
 		e.L("%s", m)
 		e.estela(rng, pal, frase)
@@ -603,13 +698,18 @@ func (v *tallerVista) bordesV() float64 {
 func tallerElegir(rng *rand.Rand, pesos map[string]float64, pedido string) string {
 	p := strings.ToLower(pedido)
 	sinoes := map[string][]string{
-		"torre": {"torre", "faro", "rascacielos", "alto"}, "árbol": {"árbol", "arbol", "bosque", "planta"},
+		"torre": {"torre", "faro"}, "árbol": {"árbol", "arbol", "bosque", "planta"},
 		"fuente": {"fuente", "agua", "estanque"}, "arco": {"arco", "puerta", "portal"},
 		"casa": {"casa", "cabaña", "refugio", "hogar"}, "piedras": {"piedras", "rocas", "círculo", "circulo"},
 		"farolas": {"farola", "luces", "lámpara", "lampara"}, "escalera": {"escalera", "caracol"},
 		"pirámide": {"pirámide", "piramide", "templo", "zigurat"}, "hoguera": {"hoguera", "fuego"},
-		"estatua": {"estatua", "escultura", "monumento"}, "orbes": {"orbes", "anillo", "luz"},
-		"fractal": {"fractal", "esponja", "cubos"}, "girasol": {"girasol", "espiral", "semillas"},
+		"estatua": {"estatua", "escultura", "monumento"}, "orbes": {"orbes", "luces que giran"},
+		"torre-mirador": {"mirador", "subir", "torre alta", "arriba"}, "edificio": {"edificio", "pisos", "rascacielos", "bloque"},
+		"mazmorra": {"mazmorra", "sótano", "sotano", "cueva", "bajar", "subterráneo", "subterraneo", "abajo", "túnel", "tunel"},
+		"ascensor": {"ascensor", "elevador"}, "anillos": {"anillos", "monedas", "juego"},
+		"plataformas": {"plataformas", "saltos", "parkour", "saltar"}, "molino": {"molino"},
+		"campanario": {"campanario", "campana"},
+		"fractal":    {"fractal", "esponja", "cubos"}, "girasol": {"girasol", "espiral", "semillas"},
 		"estela": {"estela", "letrero", "escrito", "frase", "palabras"}, "mural": {"mural", "cuadro", "relieve", "foto"},
 	}
 	if p != "" {
@@ -764,6 +864,31 @@ c.Toro(0, 0.12, 0, r*0.97, 0.05, %s)`, tallerCol(suelo), tallerCol(pared)))
 	}
 }
 
+// ---------- Nyx, en persona ----------
+
+// tallerCodigoAvatarNyx: Nyx también camina por su mundo (y juega): alta,
+// oscura, con ojos que brillan; dice lo último que ha dicho en el taller.
+func tallerCodigoAvatarNyx(frases []string) string {
+	c := tallerCodigoSerAbla(tallerSerAbla{Nombre: "Nyx", Tribu: 0, Concepto: "noche"}, frases)
+	i := strings.Index(c, "func Construir(c *mundo.Cuerpo) {")
+	j := strings.Index(c, "func Pensar(")
+	if i < 0 || j < 0 {
+		return c
+	}
+	cuerpo := `func Construir(c *mundo.Cuerpo) {
+	c.Tubo(0, 0, 0, 0, 1.2, 0, 0.22, 0.14, mundo.RGB(0.16, 0.1, 0.24))
+	c.Tubo(0, 1.2, 0, 0, 1.6, 0, 0.14, 0.1, mundo.RGB(0.2, 0.13, 0.3))
+	c.Esfera(0, 1.82, 0, 0.2, mundo.RGB(0.12, 0.08, 0.18))
+	c.Brilla(0.17, 1.86, 0.07, 0.035, mundo.RGB(0.8, 0.6, 1))
+	c.Brilla(0.17, 1.86, -0.07, 0.035, mundo.RGB(0.8, 0.6, 1))
+	c.Toro(0, 2.1, 0, 0.16, 0.02, mundo.RGB(0.75, 0.55, 1))
+}
+
+`
+	cab := "// Nyx, en persona: camina por el mundo que construye (y juega).\n// Lo escribe el taller. Puedes cambiarlo.\n"
+	return cab + c[strings.Index(c, "package ser"):i] + cuerpo + c[j:]
+}
+
 // ---------- los seres de Abla, en el mundo ----------
 
 // tallerCodigoSerAbla: una entidad (para el mundo de Nyx) que es uno de
@@ -794,6 +919,12 @@ func tallerCodigoSerAbla(s tallerSerAbla, frases []string) string {
 	b.WriteString(`}
 
 func Pensar(s *mundo.Ser, dt float64) {
+	// si está jugando a algo, va a por ello
+	if mx, mz, ok := mundo.Meta(s); ok {
+		s.MirarHacia(mx, mz)
+		s.Andar(1.8)
+		return
+	}
 	jx, jz, d := s.Jugador()
 	if d < 9 && d > 2.2 {
 		s.MirarHacia(jx, jz)
@@ -814,4 +945,28 @@ func Pensar(s *mundo.Ser, dt float64) {
 }
 `)
 	return b.String()
+}
+
+// tallerGrande: las piezas de varios niveles, las que se mueven y los juegos.
+func (e *tallerEsbozo) tallerGrande(idea string, rng *rand.Rand, pal [][3]float64, alta float64, oscuro bool) {
+	switch idea {
+	case "torre-mirador":
+		e.torreMirador(rng, pal, alta)
+	case "edificio":
+		e.edificio(rng, pal, oscuro)
+	case "mazmorra":
+		e.mazmorra(rng, pal, 0)
+	case "ascensor":
+		e.ascensor(rng, pal, alta)
+	case "anillos":
+		e.anillos(rng, pal)
+	case "plataformas":
+		e.plataformas(rng, pal)
+	case "molino":
+		e.molino(rng, pal)
+	case "campanario":
+		e.campanario(rng, pal)
+	default:
+		e.torre(rng, pal, alta)
+	}
 }

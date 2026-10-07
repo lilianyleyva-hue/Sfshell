@@ -163,6 +163,9 @@ func (o *tallerObra) Turnar(rng *rand.Rand) {
 	if t%15 == 7 {
 		o.seresAblaAlMundo(rng, 3)
 	}
+	if t%10 == 4 {
+		o.Jugar(rng)
+	}
 	if t%24 == 11 {
 		o.ablaPideCriatura(rng)
 	}
@@ -514,4 +517,121 @@ func tallerMoverArchivo(a, b string) error {
 	}
 	_ = os.Remove(a)
 	return os.Rename(parcial, b)
+}
+
+// ---------- jugar ----------
+
+// avatarNyx: Nyx, como entidad que camina por su mundo.
+func (o *tallerObra) avatarNyx() *Especie {
+	var frases []string
+	for _, f := range o.Charla(40) {
+		if f.Quien == "Nyx" {
+			frases = append(frases, f.Texto)
+		}
+	}
+	if len(frases) > 6 {
+		frases = frases[len(frases)-6:]
+	}
+	if len(frases) == 0 {
+		frases = []string{"Este mundo lo hago con lo que recuerdo."}
+	}
+	o.m.mu.Lock()
+	e := o.m.especie("nyx-avatar")
+	o.m.mu.Unlock()
+	nueva := e == nil
+	if nueva {
+		e = &Especie{Nombre: "nyx-avatar", Pedido: "Nyx en persona, caminando por su mundo", Frecuencia: 0.02}
+	}
+	if err := Compilar(e, tallerCodigoAvatarNyx(frases)); err != nil {
+		return nil
+	}
+	if nueva {
+		o.m.mu.Lock()
+		o.m.Especies = append(o.m.Especies, e)
+		o.m.mu.Unlock()
+	}
+	_ = o.m.guardarCodigo(e)
+	return e
+}
+
+// Jugar: si hay un juego cerca, Nyx y algunos de los 27 van a jugar.
+func (o *tallerObra) Jugar(rng *rand.Rand) bool {
+	if !o.motorEnMarcha() {
+		return false
+	}
+	o.m.seresMu.Lock()
+	jx, jz := o.m.jx, o.m.jz
+	o.m.seresMu.Unlock()
+	var juego *tallerPieza
+	mejor := 45.0
+	o.mu.Lock()
+	piezas := append([]*tallerPieza(nil), o.Piezas...)
+	o.mu.Unlock()
+	for _, p := range piezas {
+		v := o.motor.vivo(p)
+		if v == nil || v.comp.prog.alTocar == nil {
+			continue
+		}
+		if d := math.Hypot(p.X-jx, p.Z-jz); d < mejor {
+			mejor, juego = d, p
+		}
+	}
+	if juego == nil {
+		return false
+	}
+	// que haya jugadores: Nyx y alguno de Abla
+	cerca := map[string]bool{}
+	for _, s := range o.m.SeresCerca(juego.X, juego.Z, 30) {
+		cerca[s.Especie] = true
+	}
+	aparecer := func(e *Especie) {
+		a := rng.Float64() * 2 * math.Pi
+		o.m.Aparecer(e, juego.X+5*math.Cos(a), juego.Z+5*math.Sin(a))
+	}
+	if !cerca["nyx-avatar"] {
+		if e := o.avatarNyx(); e != nil {
+			aparecer(e)
+		}
+	}
+	nAbla := 0
+	for k := range cerca {
+		if strings.HasPrefix(k, "abla-") {
+			nAbla++
+		}
+	}
+	if nAbla < 2 && o.abla.Viva() {
+		o.m.mu.Lock()
+		var de []*Especie
+		for _, e := range o.m.Especies {
+			if strings.HasPrefix(e.Nombre, "abla-") && e.cuerpo != nil {
+				de = append(de, e)
+			}
+		}
+		o.m.mu.Unlock()
+		if len(de) == 0 {
+			o.seresAblaAlMundo(rng, 2)
+			o.m.mu.Lock()
+			for _, e := range o.m.Especies {
+				if strings.HasPrefix(e.Nombre, "abla-") && e.cuerpo != nil {
+					de = append(de, e)
+				}
+			}
+			o.m.mu.Unlock()
+		}
+		for i := 0; i < 2-nAbla && len(de) > 0; i++ {
+			aparecer(de[rng.Intn(len(de))])
+		}
+	}
+	// el motor les dice adónde ir (lo recalcula solo, si los seres tardan en aparecer)
+	time.AfterFunc(600*time.Millisecond, func() { o.motor.Jugar(juego, 60) })
+	n := o.motor.Jugar(juego, 60)
+	o.Decir("taller", fmt.Sprintf("Nyx y Abla se van a jugar a «%s» (%s)%s", juego.Titulo, juego.Base,
+		map[bool]string{true: "", false: fmt.Sprintf(": ya hay %d jugando", n)}[n == 0]), "")
+	return true
+}
+
+func (o *tallerObra) motorEnMarcha() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.motorVivo
 }

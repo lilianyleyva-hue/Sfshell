@@ -17,6 +17,7 @@ import (
 	"bufio"
 	"crypto/rand"
 	"crypto/subtle"
+	_ "embed"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -51,8 +52,10 @@ func init() {
 }
 
 const tallerAyuda = `TALLER DE NYX Y ABLA — construyen un mundo en 3D con lo que recuerdan
-  camina                       abre el mundo (las ves trabajar mientras paseas;
-                               en la ventana: Y muestra/oculta la charla)
+  camina                       abre el mundo (las ves trabajar mientras paseas)
+                               en la ventana: WASD andar · Espacio saltar ·
+                               V volar (Espacio sube, C baja) · E usar (puertas,
+                               ascensores, cofres, campanas) · Y la charla
   ven <fuente>                 que vean algo juntas: un vídeo de YouTube u otra
                                web, un archivo de vídeo o una carpeta de fotos
   charla [n]                   lo que se han dicho
@@ -63,10 +66,16 @@ const tallerAyuda = `TALLER DE NYX Y ABLA — construyen un mundo en 3D con lo q
   LA OBRA
   obra                         todas las piezas (quién las hizo y qué cambiaron)
   codigo <pieza>               su código en Go (y dónde está)
-  nyx crea [idea]              que Nyx haga algo (torre, árbol, fuente, casa,
-                               arco, escalera, pirámide, estatua, farolas…)
+  nyx crea [idea]              que Nyx haga algo: torre, árbol, fuente, casa,
+                               arco, escalera, pirámide, estatua, farolas…
+                               hacia arriba: mirador, edificio, ascensor
+                               hacia abajo: mazmorra (sótano, cueva, bajar)
+                               que se mueve y suena: molino, campanario
+                               juegos: anillos, plataformas
   abla crea [idea]             que Abla haga algo (también estela, mural,
                                fractal, girasol, orbes…)
+  jugad                        que Nyx y los de Abla jueguen al juego que tengas
+                               cerca (con la ventana abierta)
   nyx retoca <pieza>           que Nyx cambie algo (suya o de Abla)
   abla retoca <pieza>          que Abla cambie algo
   retoca <pieza> escala <k> | giro <grados> | tinte <r> <g> <b> <fuerza>
@@ -106,6 +115,30 @@ const tallerFormas = `Para construir (paquete "mundo"), en objetos y entidades:
   c.GirarDesde(m, a) · c.EscalarDesde(m, k) · c.LevantarDesde(m)
   c.Escalar(k) · c.Girar(a) · c.Mover(dx,dy,dz) · c.Tenir(col, fuerza)
   c.Alto() · c.Ancho() · c.MallaCodificada(datos)
+  c.Parte("nombre", px,py,pz)  lo que venga es una parte que se mueve y gira
+                               alrededor de ese pivote · c.Parte("", 0,0,0) vuelve
+  c.Hueco(x0,z0, x1,z1)        ahí el suelo del mundo se abre (para bajar)
+  c.Fantasma(true/false)       lo que venga se ve pero no choca
+  c.Brillante(true/false)      lo que venga da luz (ventanas, botones)
+
+Scripts (funciones que puede tener una pieza; todas opcionales):
+  func Empezar(o *mundo.Objeto)                      al aparecer
+  func Actuar(o *mundo.Objeto, dt float64)           10 veces por segundo
+  func AlUsar(o *mundo.Objeto, quien string)         alguien pulsa E cerca
+  func AlEntrar(o *mundo.Objeto, quien string)       alguien entra en su zona
+  func AlSalir(o *mundo.Objeto, quien string)        … y sale
+  func AlTocar(o *mundo.Objeto, quien, parte string) alguien toca una parte
+  o.Mover(parte, x,y,z) · o.Rotar(parte, x,y,z) · o.Escalar(parte, k)
+  o.Mostrar(parte, si) · o.Visible(parte) · o.Partes() · o.Zona(radio)
+  o.Sonar(sonido, tono) · o.SonarEn(parte, sonido, tono)
+       campana nota moneda tambor puerta magia victoria golpe paso
+       o un archivo tuyo de ~/.local/share/nyx-mundo/taller/sonidos/
+  o.Ambiente(sonido, volumen) · o.AmbienteEn(parte, sonido, volumen)
+       agua fuego viento zumbido pajaros magia  o  "musica:60 62 64 - 67"
+  o.Decir(texto) · o.Llevar(x,y,z) (te lleva: ascensores, trampillas)
+  o.Puntos(quien, n) · o.PuntosDe(quien) · o.Guardar(clave, v) · o.Valor(clave)
+  o.Tiempo() · o.Azar() · o.Jugador() (x, y, z, distancia) · o.Nombre() · o.Autor()
+  Y los seres: mundo.Meta(s) dice adónde ir si están jugando.
   mundo.RGB(r,g,b) · mundo.HSV(h,s,v) · mundo.Mezcla(a,b,t) · mundo.Ruido(x,y,semilla)
   mundo.Pi Sin Cos Tan Asin Acos Atan Atan2 Sqrt Pow Exp Log Abs Min Max Hypot
         Floor Ceil Round Mod Tanh
@@ -379,6 +412,14 @@ func (s *tallerSesion) ejecutar(linea string) bool {
 			break
 		}
 		s.decir("taller: %d piezas en %s (ábrelo en Blender: Archivo → Importar → Wavefront .obj)", n, ruta)
+	case "jugad", "jugar", "juega":
+		if !o.motorEnMarcha() {
+			s.decir("taller: primero abre el mundo (camina): se juega allí")
+			break
+		}
+		if !o.Jugar(rng) {
+			s.decir("taller: no hay ningún juego cerca de ti. Pide uno: «nyx crea anillos» o «abla crea plataformas»")
+		}
 	case "seres":
 		if !o.abla.Viva() {
 			s.decir("Abla está dormida: %s", o.abla.Estado())
@@ -552,21 +593,19 @@ func tallerServir(o *tallerObra, puerto int, listo chan<- string) error {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'unsafe-inline'; img-src 'self' data:")
 		pag := strings.Replace(paginaMundo, "{{CODIGO}}", srv.codigo, 1)
 		if i := strings.LastIndex(pag, "</body>"); i >= 0 {
-			pag = pag[:i] + tallerPanel + pag[i:]
+			pag = pag[:i] + tallerPanel + "<script>\n" + tallerMotorJS + "\n</script>\n" + pag[i:]
 		} else {
-			pag += tallerPanel
+			pag += tallerPanel + "<script>\n" + tallerMotorJS + "\n</script>\n"
 		}
 		_, _ = io.WriteString(w, pag)
 	})
-	mux.HandleFunc("/api/chunk", func(w http.ResponseWriter, r *http.Request) {
-		x, e1 := strconv.Atoi(r.URL.Query().Get("x"))
-		z, e2 := strconv.Atoi(r.URL.Query().Get("z"))
-		if e1 != nil || e2 != nil {
-			http.Error(w, "x y z", http.StatusBadRequest)
-			return
-		}
-		responder(w, o.ConObra(o.m.Construir(x, z)), nil)
-	})
+	// el motor: partes que se mueven, física exacta, sonidos, juegos
+	o.motor.rutas(mux, suyo, srv.codigo)
+	parar := make(chan struct{})
+	go o.motor.Correr(parar)
+	o.mu.Lock()
+	o.motorVivo = true
+	o.mu.Unlock()
 	mux.HandleFunc("/api/taller", func(w http.ResponseWriter, r *http.Request) {
 		o.mu.Lock()
 		trozos := map[string]int{}
@@ -618,6 +657,17 @@ func tallerServir(o *tallerObra, puerto int, listo chan<- string) error {
 	return (&http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}).Serve(ln)
 }
 
+// tallerMotorJS: lo que el taller añade a la ventana (caminar con física,
+// las piezas que se mueven, el sonido en 3D). Está en taller_motor.js.
+//
+//go:embed taller_motor.js
+var tallerMotorJS string
+
+// tallerMismoCodigo: la petición viene de la ventana (lleva su código).
+func tallerMismoCodigo(r *http.Request, codigo string) bool {
+	return subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Nyx-Codigo")), []byte(codigo)) == 1
+}
+
 // tallerPanel: la charla encima del mundo (Y la muestra u oculta) y, al
 // cambiar una pieza, se vuelve a pedir solo su trozo.
 const tallerPanel = `
@@ -635,16 +685,10 @@ const tallerPanel = `
 (() => {
   const panel = document.getElementById("taller"), lista = document.getElementById("taller-l");
   const colores = {"Nyx": "#c9a6ff", "tú": "#9fe0b0", "taller": "#9aa"};
-  let visto = null, ultima = -1;
+  let ultima = -1;
   async function tick() {
     try {
       const d = await (await fetch("/api/taller")).json();
-      if (visto === null) visto = d.version;
-      else if (d.version !== visto) {
-        for (const [k, v] of Object.entries(d.trozos || {}))
-          if (v > visto && typeof trozos !== "undefined" && trozos.has(k)) soltarTrozo(k);
-        visto = d.version;
-      }
       document.getElementById("taller-e").textContent = d.piezas + " piezas" + (d.viendo ? " · viendo «" + d.viendo + "»" : "") + (d.pausa ? " · en pausa" : "");
       const c = d.charla || [];
       if (c.length && c[c.length - 1].n !== ultima) {

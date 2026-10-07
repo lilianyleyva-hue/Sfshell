@@ -34,20 +34,21 @@ import (
 )
 
 type tallerPieza struct {
-	ID      string    `json:"id"`   // el modelo que se ve ahora (objetos/<id>.go)
-	Base    string    `json:"base"` // el nombre de la pieza, sin versión
-	Version int       `json:"version"`
-	Autor   string    `json:"autor"` // nyx, abla o tú
-	Titulo  string    `json:"titulo"`
-	De      string    `json:"de"` // el recuerdo del que salió
-	X       float64   `json:"x"`
-	Y       float64   `json:"y"`
-	Z       float64   `json:"z"`
-	Rumbo   float64   `json:"rumbo"`
-	Radio   float64   `json:"radio"`
-	Alto    float64   `json:"alto"`
-	Cambios []string  `json:"cambios,omitempty"` // quién la cambió y cómo
-	Cuando  time.Time `json:"cuando"`
+	ID      string             `json:"id"`   // el modelo que se ve ahora (objetos/<id>.go)
+	Base    string             `json:"base"` // el nombre de la pieza, sin versión
+	Version int                `json:"version"`
+	Autor   string             `json:"autor"` // nyx, abla o tú
+	Titulo  string             `json:"titulo"`
+	De      string             `json:"de"` // el recuerdo del que salió
+	X       float64            `json:"x"`
+	Y       float64            `json:"y"`
+	Z       float64            `json:"z"`
+	Rumbo   float64            `json:"rumbo"`
+	Radio   float64            `json:"radio"`
+	Alto    float64            `json:"alto"`
+	Cambios []string           `json:"cambios,omitempty"` // quién la cambió y cómo
+	Memoria map[string]float64 `json:"memoria,omitempty"` // lo que guardan sus scripts
+	Cuando  time.Time          `json:"cuando"`
 }
 
 type tallerFrase struct {
@@ -59,22 +60,25 @@ type tallerFrase struct {
 }
 
 type tallerObra struct {
-	mu       sync.Mutex
-	m        *Mundo
-	dir      string
-	abla     *tallerAbla
-	Piezas   []*tallerPieza `json:"piezas"`
-	Sig      int            `json:"sig"`
-	Vistas   []tallerVista  `json:"vistas"` // los recuerdos de Abla (lo que vio)
-	Turno    int            `json:"turno"`
-	charla   []tallerFrase
-	nfrase   int
-	version  int            // sube con cada cambio de la obra
-	trozos   map[string]int // trozo "cx,cz" → versión en que cambió
-	pausa    bool
-	ritmo    time.Duration
-	viendo   string // el vídeo que están viendo ahora
-	avisarFn func(string)
+	mu        sync.Mutex
+	m         *Mundo
+	dir       string
+	abla      *tallerAbla
+	Piezas    []*tallerPieza `json:"piezas"`
+	Sig       int            `json:"sig"`
+	Vistas    []tallerVista  `json:"vistas"`           // los recuerdos de Abla (lo que vio)
+	Puntos    map[string]int `json:"puntos,omitempty"` // el marcador de los juegos
+	Turno     int            `json:"turno"`
+	charla    []tallerFrase
+	nfrase    int
+	version   int            // sube con cada cambio de la obra
+	trozos    map[string]int // trozo "cx,cz" → versión en que cambió
+	pausa     bool
+	ritmo     time.Duration
+	viendo    string // el vídeo que están viendo ahora
+	avisarFn  func(string)
+	motor     *tallerMotor
+	motorVivo bool // la ventana está abierta y el motor corre
 }
 
 func tallerNuevaObra(m *Mundo) *tallerObra {
@@ -88,6 +92,7 @@ func tallerNuevaObra(m *Mundo) *tallerObra {
 		o.Sig = 1
 	}
 	o.abla = tallerNuevaAbla(filepath.Join(m.dir, "abla"))
+	o.motor = tallerNuevoMotor(o)
 	// lo último que se dijeron, para seguir la conversación
 	if f, err := os.Open(filepath.Join(o.dir, "charla.txt")); err == nil {
 		sc := bufio.NewScanner(f)
@@ -195,9 +200,9 @@ func (o *tallerObra) Pieza(id string) *tallerPieza {
 }
 
 // compilarYGuardar: escribe el código, lo compila encerrado (como todo lo
-// de Nyx Mundo) y guarda el modelo para Blender.
+// de Nyx Mundo, con sus partes y scripts) y guarda el modelo para Blender.
 func (o *tallerObra) compilarYGuardar(id, codigo string) (*Cuerpo, error) {
-	c, err := CompilarObjeto(codigo)
+	comp, err := tallerCompilar(codigo)
 	if err != nil {
 		return nil, err
 	}
@@ -205,8 +210,8 @@ func (o *tallerObra) compilarYGuardar(id, codigo string) (*Cuerpo, error) {
 	if err := os.WriteFile(ruta+".go", []byte(codigo), 0o644); err != nil {
 		return nil, err
 	}
-	_ = tallerGuardarOBJ(c, ruta, id)
-	return c, nil
+	_ = tallerGuardarOBJ(comp.entero, ruta, id)
+	return comp.entero, nil
 }
 
 // Crear: una pieza nueva en el mundo. Si x, z son NaN, busca un sitio
@@ -299,28 +304,6 @@ func (o *tallerObra) cambio(x, z float64) {
 
 func tallerClave(x, z float64) string {
 	return fmt.Sprintf("%d,%d", int(math.Floor(x/ladoChunk)), int(math.Floor(z/ladoChunk)))
-}
-
-// ConObra: el trozo tal como lo hizo Nyx Mundo, con las piezas del taller
-// encima (una copia: lo de Nyx no se toca).
-func (o *tallerObra) ConObra(ch *Chunk) *Chunk {
-	cx, cz := ch.CX, ch.CZ
-	var extra []Colocada
-	o.mu.Lock()
-	for _, p := range o.Piezas {
-		if int(math.Floor(p.X/ladoChunk)) == cx && int(math.Floor(p.Z/ladoChunk)) == cz {
-			extra = append(extra, Colocada{Modelo: p.ID, X: p.X, Y: p.Y, Z: p.Z, Rumbo: p.Rumbo, Radio: p.Radio})
-		}
-	}
-	o.mu.Unlock()
-	if len(extra) == 0 {
-		return ch
-	}
-	o.m.mu.Lock()
-	copia := *ch
-	copia.Figuras = append(append([]Colocada(nil), ch.Figuras...), extra...)
-	o.m.mu.Unlock()
-	return &copia
 }
 
 // suelo: la altura del suelo en (x, z).
@@ -463,10 +446,15 @@ func (o *tallerObra) ExportarEscena() (string, int, error) {
 	todos := map[string][4]float64{}
 	base := 0
 	for _, p := range piezas {
-		c, err := o.m.CuerpoDeFigura(p.ID)
+		d, err := os.ReadFile(filepath.Join(o.m.dir, "objetos", p.ID+".go"))
 		if err != nil {
 			continue
 		}
+		comp, err := tallerCompilar(string(d))
+		if err != nil {
+			continue
+		}
+		c := comp.entero
 		s, co := math.Sin(p.Rumbo), math.Cos(p.Rumbo)
 		px, py, pz := p.X, p.Y, p.Z
 		fmt.Fprintf(&b, "o %s\n", p.ID)
@@ -781,7 +769,7 @@ func tallerAnadir(codigo, quien, lineas string) (string, error) {
 		}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "\t{ // %s\n", quien)
+	fmt.Fprintf(&b, "\t{ // %s\n\t\tc.Parte(\"\", 0, 0, 0)\n", quien)
 	for _, l := range strings.Split(strings.TrimRight(lineas, "\n"), "\n") {
 		b.WriteString("\t\t" + strings.TrimLeftFunc(l, unicode.IsSpace) + "\n")
 	}

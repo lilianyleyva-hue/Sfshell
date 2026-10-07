@@ -37,6 +37,39 @@ taller› obra                                    lo que han construido
 En la ventana del mundo, la tecla **Y** muestra u oculta la charla. Desde la
 ventana también puedes escribirles a las dos.
 
+## En la ventana (como un pequeño Unity)
+
+| Tecla | Qué hace |
+|---|---|
+| **W A S D** | andar (Mayús para correr) |
+| **Espacio** | saltar |
+| **V** | volar (Espacio sube, C baja); otra vez V para dejar de volar |
+| **E** | usar lo que tengas cerca: puertas, ascensores, cofres, campanas |
+| **Y** | mostrar u ocultar la charla |
+
+- **Hacia arriba y hacia abajo.** Las escaleras se suben de verdad, los pisos
+  y azoteas se pisan, y hay torres y edificios que atraviesan el techo. Las
+  mazmorras bajan bajo tierra por escaleras, nivel a nivel, y los ascensores
+  te suben con ellos.
+- **Choques exactos.** La física sale de la forma real de cada cosa, medida en
+  celdas de 20 cm a cada altura. Nada choca más de lo que mide (un poste fino
+  te deja acercarte hasta tocarlo), y por debajo de un arco se pasa.
+- **Partes que se mueven, scripts y eventos.** Cada pieza puede tener partes
+  (una puerta, unas aspas, un ascensor, un anillo) y funciones que el motor
+  llama: `Empezar`, `Actuar` (10 veces por segundo), `AlUsar` (tecla E),
+  `AlEntrar`, `AlSalir` y `AlTocar`.
+- **Sonido en 3D.** Cada cosa suena desde donde está: agua, fuego, viento,
+  pájaros, campanas, puertas, monedas… y música. Abla toca sus frases como
+  melodías. También puedes poner tus propios sonidos en
+  `~/.local/share/nyx-mundo/taller/sonidos/`.
+- **Juegos.** Anillos que se cogen, plataformas para saltar hasta una corona
+  y un cofre con tesoro al fondo de la mazmorra, con marcador. Nyx y los seres
+  de Abla también juegan: van a por los anillos. La orden `jugad` los manda a
+  jugar.
+
+Todo eso lo escriben Nyx y Abla en Go (puedes leerlo y cambiarlo); `formas`
+en el taller enseña todo lo que pueden usar.
+
 ## Qué hacen solas
 
 Mientras el taller está abierto trabajan por turnos, sin parar:
@@ -97,6 +130,9 @@ Todo eso también sirve en las entidades.
 | `taller_ideas.go` | cómo escriben código Nyx y Abla, y cómo retocan lo de la otra |
 | `taller_obra.go` | las piezas, sus versiones, Blender (exportar e importar) |
 | `taller_formas.go` | las herramientas nuevas para construir |
+| `taller_niveles.go` | torres, edificios, mazmorras, ascensores, juegos, molinos, campanarios |
+| `taller_motor.go` | el motor: partes, scripts, eventos, sonidos, física exacta, juegos |
+| `taller_motor.js` | en la ventana: caminar con física, dibujar lo que se mueve, sonido 3D |
 | `taller_abla.go` | el puente con Abla (el programa en C) |
 | `instalar-abla.sh` | compila Abla, añade el taller a Nyx y recompila |
 

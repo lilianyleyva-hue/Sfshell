@@ -38,7 +38,7 @@ mkdir -p "$HOME/.local/share/nyx-mundo/abla"
 install -m 755 "$aqui/../especie/abla" "$HOME/.local/share/nyx-mundo/abla/abla"
 
 echo "2/3 Añadiendo el taller a Nyx ($nyx)…"
-for f in "$aqui"/taller_*.go; do
+for f in "$aqui"/taller_*.go "$aqui"/taller_*.js; do
     install -m 644 "$f" "$nyx/"
 done
 

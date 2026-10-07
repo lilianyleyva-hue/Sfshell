@@ -338,18 +338,24 @@ func (c *Cuerpo) Copiar(desde int, dx, dy, dz, giro float64) {
 	}
 }
 
-// Escalar, Girar, Mover: todo el cuerpo.
+// Escalar, Girar, Mover: todo el cuerpo (con sus pivotes y huecos).
 func (c *Cuerpo) Escalar(k float64) {
 	if k > 0 && k != 1 {
 		c.EscalarDesde(0, k)
+		tallerTransformarExtra(c, func(p [3]float64) [3]float64 { return [3]float64{p[0] * k, p[1] * k, p[2] * k} })
 	}
 }
 func (c *Cuerpo) Girar(angulo float64) {
 	if angulo != 0 {
 		c.GirarDesde(0, angulo)
+		g := giroY(angulo)
+		tallerTransformarExtra(c, func(p [3]float64) [3]float64 { q, _ := g(p, p); return q })
 	}
 }
-func (c *Cuerpo) Mover(dx, dy, dz float64) { c.MoverDesde(0, dx, dy, dz) }
+func (c *Cuerpo) Mover(dx, dy, dz float64) {
+	c.MoverDesde(0, dx, dy, dz)
+	tallerTransformarExtra(c, func(p [3]float64) [3]float64 { return [3]float64{p[0] + dx, p[1] + dy, p[2] + dz} })
+}
 
 // Tenir: tiñe todo el cuerpo hacia un color (fuerza de 0 a 1). Lo que
 // brilla solo también cambia de color.
