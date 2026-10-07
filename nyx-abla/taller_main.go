@@ -66,18 +66,10 @@ const tallerAyuda = `TALLER DE NYX Y ABLA — construyen un mundo en 3D con lo q
   LA OBRA
   obra                         todas las piezas (quién las hizo y qué cambiaron)
   codigo <pieza>               su código en Go (y dónde está)
-  nyx crea [idea]              que Nyx haga algo: torre, árbol, fuente, casa,
-                               arco, escalera, pirámide, estatua, farolas…
-                               hacia arriba: mirador, edificio, ascensor
-                               hacia abajo: mazmorra (sótano, cueva, bajar)
-                               que se mueve y suena: molino, campanario
-                               juegos: anillos, plataformas
-  abla crea [idea]             que Abla haga algo (también estela, mural,
-                               fractal, girasol, orbes…)
-  jugad                        que Nyx y los de Abla jueguen al juego que tengas
-                               cerca (con la ventana abierta)
-  nyx retoca <pieza>           que Nyx cambie algo (suya o de Abla)
-  abla retoca <pieza>          que Abla cambie algo
+  nyx [lo que quieras]         que Nyx hable ahora (contesta a eso, o a Abla) y
+                               construya con lo que dice
+  abla                         que uno de los 27 hable ahora y construya
+  abla di <texto>              decirle algo a Abla (contesta y construye)
   retoca <pieza> escala <k> | giro <grados> | tinte <r> <g> <b> <fuerza>
   mueve <pieza> aqui | <x> <z> llevarla a otro sitio
   quita <pieza>                sacarla del mundo (su código se queda)
@@ -95,7 +87,8 @@ const tallerAyuda = `TALLER DE NYX Y ABLA — construyen un mundo en 3D con lo q
   ABLA
   abla <orden>                 una orden para la consola de Abla (seres, mision,
                                fotos, dic buscar <palabra>, decir <ser> <texto>…)
-  seres                        que algunos de los 27 salgan a caminar por el mundo
+  pasillos on | off            el fondo: el mundo de Nyx Mundo (on) o el vacío
+                               (off, como empiezan: todo lo hacen ellas)
   estado · ayuda · sale
   Lo demás va a Nyx Mundo tal cual (aprende, recuerdos, entidades, crea una
   entidad…, autoentrena…): escribe «ayuda mundo» para ver sus órdenes.
@@ -412,75 +405,50 @@ func (s *tallerSesion) ejecutar(linea string) bool {
 			break
 		}
 		s.decir("taller: %d piezas en %s (ábrelo en Blender: Archivo → Importar → Wavefront .obj)", n, ruta)
-	case "jugad", "jugar", "juega":
-		if !o.motorEnMarcha() {
-			s.decir("taller: primero abre el mundo (camina): se juega allí")
-			break
+	case "pasillos":
+		on := strings.HasPrefix(strings.ToLower(resto), "on") || strings.HasPrefix(strings.ToLower(resto), "si") || strings.HasPrefix(strings.ToLower(resto), "sí")
+		o.mu.Lock()
+		o.Pasillos = on
+		o.mu.Unlock()
+		_ = o.Guardar()
+		if on {
+			s.decir("taller: el fondo vuelve a ser el mundo de Nyx Mundo (sus pasillos y sitios). Vuelve a abrir la ventana.")
+		} else {
+			s.decir("taller: el fondo es el vacío: todo lo que hay lo hacen ellas. Vuelve a abrir la ventana.")
 		}
-		if !o.Jugar(rng) {
-			s.decir("taller: no hay ningún juego cerca de ti. Pide uno: «nyx crea anillos» o «abla crea plataformas»")
-		}
-	case "seres":
-		if !o.abla.Viva() {
-			s.decir("Abla está dormida: %s", o.abla.Estado())
-			break
-		}
-		o.seresAblaAlMundo(rng, 5)
-		s.decir("taller: algunos de los 27 caminan ya por el mundo (salen en 'entidades')")
 	default:
 		ejecutaMundo(o.m, linea)
 	}
 	return false
 }
 
-// ordenDeUna: «nyx crea …», «abla retoca …», «abla <orden de su consola>».
+// ordenDeUna: «nyx …» o «abla …»: que hable (y construya) ahora, o una
+// orden para la consola de Abla.
 func (s *tallerSesion) ordenDeUna(quien, resto string, rng *mrand.Rand) {
 	o := s.o
-	f := strings.Fields(resto)
 	sub := ""
-	if len(f) > 0 {
+	if f := strings.Fields(resto); len(f) > 0 {
 		sub = strings.ToLower(f[0])
 	}
-	arg := strings.TrimSpace(strings.TrimPrefix(resto, sub))
-	if len(f) > 0 {
-		arg = strings.TrimSpace(resto[len(f[0]):])
+	if quien == "nyx" {
+		// lo que le digas es lo que contesta (y lo que contesta, lo construye)
+		if sub == "crea" || sub == "habla" || sub == "turno" {
+			resto = ""
+		}
+		o.TurnoNyx(rng, resto)
+		return
 	}
-	switch {
-	case sub == "crea" || sub == "haz" || sub == "construye":
-		if quien == "nyx" {
-			_, _ = o.creaNyx(rng, arg)
-		} else {
-			if !o.abla.Viva() {
-				s.decir("Abla está dormida: %s", o.abla.Estado())
-				return
-			}
-			tribu := -1
-			for i, t := range tallerTribus {
-				if strings.Contains(strings.ToLower(arg), t) {
-					tribu = i
-				}
-			}
-			_, _ = o.creaAbla(rng, arg, tribu)
-		}
-	case sub == "retoca" || sub == "cambia":
-		p := o.Pieza(arg)
-		if p == nil {
-			s.decir("¿qué pieza? (las ves en 'obra')")
-			return
-		}
-		if quien == "nyx" {
-			o.retocaNyx(rng, p.Autor, p)
-		} else {
-			o.retocaAbla(rng, p.Autor, p)
-		}
-	case quien == "abla":
-		if resto == "" {
-			s.decir("Abla: %s", o.abla.Estado())
-			return
-		}
-		fmt.Println(o.abla.Ejecutar(resto))
+	if !o.abla.Viva() {
+		s.decir("Abla está dormida: %s", o.abla.Estado())
+		return
+	}
+	switch sub {
+	case "", "crea", "habla", "turno":
+		o.TurnoAbla(rng, "")
+	case "di", "dile":
+		o.TurnoAbla(rng, strings.TrimSpace(resto[len(sub):]))
 	default:
-		fmt.Println("nyx-mundo:", o.m.Responder(resto))
+		fmt.Println(o.abla.Ejecutar(resto))
 	}
 }
 
@@ -599,6 +567,19 @@ func tallerServir(o *tallerObra, puerto int, listo chan<- string) error {
 		}
 		_, _ = io.WriteString(w, pag)
 	})
+	// el vacío: sin los pasillos de Nyx Mundo, todo lo hacen ellas
+	mux.HandleFunc("/api/chunk", func(w http.ResponseWriter, r *http.Request) {
+		o.mu.Lock()
+		pasillos := o.Pasillos
+		o.mu.Unlock()
+		if pasillos {
+			suyo.ServeHTTP(w, r)
+			return
+		}
+		x, _ := strconv.Atoi(r.URL.Query().Get("x"))
+		z, _ := strconv.Atoi(r.URL.Query().Get("z"))
+		responder(w, tallerTrozoVacio(x, z), nil)
+	})
 	// el motor: partes que se mueven, física exacta, sonidos, juegos
 	o.motor.rutas(mux, suyo, srv.codigo)
 	parar := make(chan struct{})
@@ -640,13 +621,20 @@ func tallerServir(o *tallerObra, puerto int, listo chan<- string) error {
 	listo <- dir
 	go abrirNavegador(dir)
 	// lo mismo que hace la ventana de Nyx Mundo: se entrena, los seres viven
-	go o.m.Entrenar(make(chan struct{}), false, 3*time.Second)
+	o.mu.Lock()
+	pasillos := o.Pasillos
+	o.mu.Unlock()
+	if pasillos { // en el vacío no hay nada que entrenar ni que acontezca
+		go o.m.Entrenar(make(chan struct{}), false, 3*time.Second)
+	}
 	go func() {
 		t := time.NewTicker(50 * time.Millisecond)
 		vueltas := 0
 		for range t.C {
 			o.m.Vivir(0.05)
-			o.m.Acontecer(0.05)
+			if pasillos {
+				o.m.Acontecer(0.05)
+			}
 			if vueltas++; vueltas%40 == 0 {
 				for _, l := range o.m.Recargar() {
 					o.Decir("taller", l, "")
@@ -662,6 +650,23 @@ func tallerServir(o *tallerObra, puerto int, listo chan<- string) error {
 //
 //go:embed taller_motor.js
 var tallerMotorJS string
+
+// tallerTrozoVacio: un trozo de mundo sin nada (ni suelo: el de la
+// ventana queda muy abajo, donde no se ve). Lo que haya, lo hacen ellas.
+func tallerTrozoVacio(cx, cz int) map[string]any {
+	alturas := make([]float32, 33*33)
+	for i := range alturas {
+		alturas[i] = -100000
+	}
+	vacio := []any{}
+	return map[string]any{
+		"cx": cx, "cz": cz, "altura": 3.0, "paredes": vacio, "luces": vacio, "suelo": "vacio", "techo": "vacio",
+		"sinTecho": true, "tipo": "vacio", "alturas": alturas, "agua": vacio, "objetos": vacio, "portales": vacio,
+		"figuras": vacio, "densidad": 0.012, "sol": 0.55, "cielo": [3]float64{0.05, 0.06, 0.1},
+		"niebla": [3]float64{0.05, 0.06, 0.1}, "colorLuz": [3]float64{1, 1, 1}, "ambiente": 0.55,
+		"recuerdo": "el vacío: lo que hay aquí lo hacen ellas", "rid": 0,
+	}
+}
 
 // tallerMismoCodigo: la petición viene de la ventana (lleva su código).
 func tallerMismoCodigo(r *http.Request, codigo string) bool {

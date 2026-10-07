@@ -3,16 +3,15 @@ package main
 // ============================================================
 //  TALLER · CHARLA — Nyx y Abla trabajando juntas
 // ------------------------------------------------------------
-//  Por turnos, sin parar (mientras el taller está abierto):
-//    · Abla cuenta lo que vio (en Abla y en español) y construye algo
-//      con ello; Nyx le contesta (con su propia cabeza, que no se toca).
-//    · Nyx construye algo con lo que recuerda y se lo cuenta a Abla;
-//      uno de los 27 le contesta.
-//    · Cada una retoca lo que hizo la otra.
-//    · De vez en cuando Abla le pide a Nyx una criatura, y los seres de
-//      Abla salen a caminar por el mundo diciendo lo que piensan.
-//  Y las dos ven vídeos: «ven <dirección>» se lo enseña a las dos a la
-//  vez (Nyx lo recuerda como sitio; Abla mira sus fotogramas).
+//  Empiezan sin nada: solo sus idiomas y una instrucción, «crea un mundo
+//  infinito con lo que sabes». Por turnos, sin parar:
+//    · Nyx contesta (con su cabeza, que no se toca) a lo que dijo Abla;
+//    · uno de los 27 de Abla contesta a lo que dijo Nyx (o se oye lo que
+//      han estado pensando);
+//    · y lo que dice cada una se convierte en mundo, palabra a palabra
+//      (taller_lengua.go): formas, suelos, luces, música, movimiento, y
+//      con las manos cogen y cambian lo que ya hay, suyo o de la otra.
+//  Y ven vídeos: «ven <dirección>» se lo enseña a las dos a la vez.
 // ============================================================
 
 import (
@@ -76,25 +75,6 @@ func (o *tallerObra) recogerVistas() []tallerVista {
 	return nuevas
 }
 
-// vistaParaCrear: una foto que Abla no haya usado todavía (o, si ya las
-// usó todas, cualquiera: los recuerdos vuelven).
-func (o *tallerObra) vistaParaCrear(rng *rand.Rand) *tallerVista {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	for i := len(o.Vistas) - 1; i >= 0; i-- {
-		if !o.Vistas[i].Usada {
-			o.Vistas[i].Usada = true
-			v := o.Vistas[i]
-			return &v
-		}
-	}
-	if len(o.Vistas) == 0 {
-		return nil
-	}
-	v := o.Vistas[rng.Intn(len(o.Vistas))]
-	return &v
-}
-
 // serDeTribu: uno de los 27 de esa tribu.
 func (o *tallerObra) serDeTribu(rng *rand.Rand, tribu int) (tallerSerAbla, bool) {
 	var de []tallerSerAbla
@@ -109,192 +89,257 @@ func (o *tallerObra) serDeTribu(rng *rand.Rand, tribu int) (tallerSerAbla, bool)
 	return de[rng.Intn(len(de))], true
 }
 
-// ultimaDe: la última pieza que hizo alguien (para que la otra la retoque).
-func (o *tallerObra) ultimaDe(autor string, rng *rand.Rand) *tallerPieza {
+// tortuga: por dónde va construyendo cada una.
+func (o *tallerObra) tortuga(quien string) *tallerTortuga {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	var de []*tallerPieza
-	for _, p := range o.Piezas {
-		if p.Autor == autor {
-			de = append(de, p)
+	if o.Tortugas == nil {
+		o.Tortugas = map[string]*tallerTortuga{}
+	}
+	t := o.Tortugas[quien]
+	if t == nil {
+		x := 0.0
+		if quien == "abla" {
+			x = 6
 		}
+		t = tallerNuevaTortuga(x, 0, [3]float64{0.8, 0.8, 0.8})
+		o.Tortugas[quien] = t
 	}
-	if len(de) == 0 {
-		return nil
-	}
-	// casi siempre una reciente; a veces una vieja
-	if rng.Float64() < 0.7 {
-		return de[len(de)-1]
-	}
-	return de[rng.Intn(len(de))]
+	return t
 }
 
-// Turnar: un turno de trabajo.
+// Turnar: un turno de trabajo. Se turnan: lo que dice una le llega a la
+// otra, y cada una construye (y cambia cosas con las manos) con lo suyo.
 func (o *tallerObra) Turnar(rng *rand.Rand) {
 	nuevas := o.recogerVistas()
 	o.mu.Lock()
 	o.Turno++
 	t := o.Turno
 	o.mu.Unlock()
-	abla := o.abla.Viva()
+	o.darInstruccion()
 	if len(nuevas) > 0 {
 		v := nuevas[len(nuevas)-1]
-		o.Decir("Abla", fmt.Sprintf("ha mirado %d foto(s) más. La última: %s", len(nuevas), v.Descripcion), "")
+		o.Decir("Abla", fmt.Sprintf("ha mirado %d foto(s) más. La última: %s", len(nuevas), v.Descripcion), v.Glosa())
 	}
-	if !abla {
-		// Nyx sola: construye y retoca lo suyo
-		if t%3 == 2 {
-			o.retocaNyx(rng, "nyx", nil)
-		} else {
-			o.creaNyx(rng, "")
-		}
-		return
-	}
-	switch t % 6 {
-	case 0, 3:
-		o.creaAbla(rng, "", -1)
-	case 1, 4:
-		o.creaNyx(rng, "")
-	case 2:
-		o.retocaAbla(rng, "nyx", nil)
-	case 5:
-		o.retocaNyx(rng, "abla", nil)
-	}
-	if t%15 == 7 {
-		o.seresAblaAlMundo(rng, 3)
-	}
-	if t%10 == 4 {
-		o.Jugar(rng)
-	}
-	if t%24 == 11 {
-		o.ablaPideCriatura(rng)
+	if o.abla.Viva() && t%2 == 0 {
+		o.TurnoAbla(rng, "")
+	} else {
+		o.TurnoNyx(rng, "")
 	}
 	_ = o.Guardar()
 }
 
-func (o *tallerObra) creaNyx(rng *rand.Rand, pedido string) (*tallerPieza, error) {
-	titulo, de, codigo := tallerIdeaNyx(o.m, rng, pedido)
-	p, err := o.Crear("nyx", titulo, de, codigo, math.NaN(), math.NaN())
-	if err != nil {
-		o.Decir("Nyx", "quise hacer "+titulo+" pero mi código no compiló: "+err.Error(), "")
-		return nil, err
+// darInstruccion: la única instrucción, una vez por sesión.
+func (o *tallerObra) darInstruccion() {
+	o.mu.Lock()
+	ya := o.instruida
+	o.instruida = true
+	o.mu.Unlock()
+	if ya {
+		return
 	}
-	frase := fmt.Sprintf("He hecho %s (%s) con lo que recuerdo de «%s».", titulo, p.ID, de)
-	o.Decir("Nyx", frase, "")
+	o.Decir("taller", "La única instrucción: «"+tallerInstruccion+"»", "")
 	if o.abla.Viva() {
-		// se lo cuenta a Abla, con palabras que ella conoce
-		o.m.mu.Lock()
-		palabras := []string{titulo}
-		for _, r := range o.m.Recuerdos {
-			if r.Nombre == de {
-				palabras = append(palabras, describirRasgosPalabras(r.Rasgos)...)
+		_, _ = o.abla.pedir("@hablante Humano")
+		o.abla.Ejecutar("decir todos " + tallerInstruccion)
+	}
+	o.mu.Lock()
+	o.ultimoAbla = tallerInstruccion
+	o.mu.Unlock()
+}
+
+// construirCon: lo que dijo alguien, hecho mundo (y lo que cambió con las manos).
+func (o *tallerObra) construirCon(autor, quien, texto string) string {
+	palabras := tallerPalabras(texto)
+	if len(palabras) == 0 {
+		return ""
+	}
+	t := o.tortuga(autor)
+	o.mu.Lock()
+	tt := *t // se trabaja con una copia y se guarda al final
+	o.mu.Unlock()
+	f := tallerHablarYConstruir(&tt, palabras, texto, &tallerManos{o: o, autor: autor, quien: quien})
+	resumen := tallerResumen(f)
+	if f.formas > 0 {
+		titulo := strings.Join(palabras[:min(3, len(palabras))], " ")
+		f.esbozo.cabecera = fmt.Sprintf("// %s lo construyó diciendo: «%s»\n// (cada palabra es un gesto: ver taller_lengua.go). Es Go normal: se puede cambiar.\n", quien, prefijo(texto, 160))
+		if p, err := o.CrearEn(autor, titulo, prefijo(texto, 120), f.esbozo.Codigo(), f.x, f.y, f.z); err != nil {
+			resumen += " (no compiló: " + err.Error() + ")"
+		} else {
+			resumen += " → " + p.ID
+		}
+	}
+	o.mu.Lock()
+	*t = tt
+	o.mu.Unlock()
+	return resumen
+}
+
+// TurnoNyx: Nyx contesta (con su cabeza, que no se toca) a lo último que
+// dijo Abla, o a la instrucción; y lo que dice, lo construye.
+func (o *tallerObra) TurnoNyx(rng *rand.Rand, mensaje string) {
+	o.mu.Lock()
+	if mensaje == "" {
+		mensaje = o.ultimoAbla
+	}
+	o.mu.Unlock()
+	if mensaje == "" {
+		mensaje = tallerInstruccion
+	}
+	dice := strings.TrimSpace(o.m.Responder(mensaje))
+	if dice == "" {
+		dice = tallerInstruccion
+	}
+	hecho := o.construirCon("nyx", "Nyx", dice)
+	o.Decir("Nyx", prefijo(dice, 260)+"  ⟶ "+hecho, "")
+	o.mu.Lock()
+	o.ultimoNyx = dice
+	o.mu.Unlock()
+}
+
+// TurnoAbla: uno de los 27 contesta a lo último que dijo Nyx (o se oye
+// lo que han estado pensando), y lo que dice, lo construye.
+func (o *tallerObra) TurnoAbla(rng *rand.Rand, mensaje string) {
+	if !o.abla.Viva() {
+		return
+	}
+	o.mu.Lock()
+	if mensaje == "" {
+		mensaje = o.ultimoNyx
+	}
+	o.mu.Unlock()
+	ser, _ := o.serDeTribu(rng, rng.Intn(3))
+	quien, dijo, glosa := "", "", ""
+	if mensaje != "" {
+		quien, dijo, glosa = o.abla.Decir(fmt.Sprint(ser.ID+1), mensaje)
+	}
+	if quien == "" {
+		// lo que han estado pensando (sin parar): una de las últimas ideas
+		ps := o.abla.Pensamientos()
+		for i := len(ps) - 1; i >= 0 && i >= len(ps)-40; i-- {
+			l := tallerRePrefijo.ReplaceAllString(ps[i], "")
+			if j := strings.Index(l, ": "); j > 0 && strings.Contains(l, "«") {
+				quien, dijo = strings.Fields(l[:j])[0], l[j+2:]
 				break
 			}
 		}
-		o.m.mu.Unlock()
-		o.ablaContesta(rng, strings.Join(palabras, " "))
 	}
-	return p, nil
+	if quien == "" {
+		quien, dijo, glosa = o.abla.DecirComo("Humano", fmt.Sprint(ser.ID+1), tallerInstruccion)
+	}
+	if quien == "" {
+		return
+	}
+	texto := dijo
+	if glosa != "" && !strings.Contains(dijo, glosa) {
+		texto += " " + glosa
+	}
+	hecho := o.construirCon("abla", "Abla · "+quien, texto)
+	o.Decir("Abla · "+quien, prefijo(dijo, 260)+"  ⟶ "+hecho, glosa)
+	o.mu.Lock()
+	o.ultimoAbla = texto
+	o.mu.Unlock()
 }
 
-// ablaContesta: uno de los 27 contesta. Si no conoce ninguna de esas
-// palabras, lo relaciona con lo último que vio ella.
-func (o *tallerObra) ablaContesta(rng *rand.Rand, texto string) {
-	ser, _ := o.serDeTribu(rng, rng.Intn(3))
-	quien, dijo, glosa := o.abla.Decir(fmt.Sprint(ser.ID+1), texto)
-	if quien == "" {
-		if v := o.vistaReciente(); v != nil && len(v.Conceptos) > 0 {
-			quien, dijo, glosa = o.abla.Decir(fmt.Sprint(ser.ID+1), strings.ReplaceAll(v.Glosa(), ",", ""))
-		} else {
-			quien, dijo, glosa = o.abla.Decir(fmt.Sprint(ser.ID+1), "luz mundo")
+// ---------- las manos: el editor con el que cambian lo que ya hay ----------
+
+type tallerManos struct {
+	o     *tallerObra
+	autor string // nyx, abla
+	quien string // cómo sale en la charla
+}
+
+func (m *tallerManos) Tomar(x, y, z float64) (string, [3]float64, bool) {
+	m.o.mu.Lock()
+	defer m.o.mu.Unlock()
+	var mejor *tallerPieza
+	dmin := 40.0
+	for _, p := range m.o.Piezas {
+		if d := math.Sqrt((p.X-x)*(p.X-x) + (p.Y-y)*(p.Y-y) + (p.Z-z)*(p.Z-z)); d < dmin {
+			dmin, mejor = d, p
 		}
 	}
-	if quien != "" {
-		o.Decir("Abla · "+quien, dijo, glosa)
+	if mejor == nil {
+		return "", [3]float64{}, false
+	}
+	return mejor.Base, [3]float64{mejor.X, mejor.Y, mejor.Z}, true
+}
+
+func (m *tallerManos) Origen(base string) ([3]float64, bool) {
+	p := m.o.Pieza(base)
+	if p == nil {
+		return [3]float64{}, false
+	}
+	m.o.mu.Lock()
+	defer m.o.mu.Unlock()
+	return [3]float64{p.X, p.Y, p.Z}, true
+}
+
+func (m *tallerManos) Mover(base string, dx, dy, dz float64) {
+	if p := m.o.Pieza(base); p != nil {
+		m.o.MoverA(p, p.X+dx, p.Y+dy, p.Z+dz, p.Rumbo)
 	}
 }
 
-func (o *tallerObra) creaAbla(rng *rand.Rand, pedido string, tribu int) (*tallerPieza, error) {
-	if tribu < 0 {
-		tribu = rng.Intn(3)
+func (m *tallerManos) Girar(base string, a float64) {
+	if p := m.o.Pieza(base); p != nil {
+		m.o.MoverA(p, p.X, p.Y, p.Z, p.Rumbo+a)
 	}
-	v := o.vistaParaCrear(rng)
-	ser, _ := o.serDeTribu(rng, tribu)
-	titulo, de, codigo := tallerIdeaAbla(o, rng, v, tribu, pedido)
-	p, err := o.Crear("abla", titulo, de, codigo, math.NaN(), math.NaN())
-	if err != nil {
-		o.Decir("Abla · "+ser.Nombre, "quise hacer "+titulo+" pero mi código no compiló: "+err.Error(), "")
-		return nil, err
-	}
-	if v != nil {
-		o.Decir("Abla · "+ser.Nombre, fmt.Sprintf("%s → he hecho %s (%s) con lo que vi en «%s».", v.Abla, titulo, p.ID, de), v.Glosa())
-	} else {
-		o.Decir("Abla · "+ser.Nombre, fmt.Sprintf("he hecho %s (%s) de mi imaginación.", titulo, p.ID), "")
-	}
-	// Nyx le contesta con su cabeza (sin tocarla: le habla como tú)
-	if v != nil && rng.Float64() < 0.5 {
-		r := o.m.Responder(v.Glosa())
-		o.Decir("Nyx", prefijo(r, 300), "")
-	}
-	return p, nil
 }
 
-// retocaAbla: Abla cambia una pieza (p, o si es nil, una reciente de deQuien).
-func (o *tallerObra) retocaAbla(rng *rand.Rand, deQuien string, p *tallerPieza) {
+func (m *tallerManos) Escalar(base string, k float64) {
+	p := m.o.Pieza(base)
 	if p == nil {
-		p = o.ultimaDe(deQuien, rng)
-	}
-	if p == nil {
-		o.creaAbla(rng, "", -1)
 		return
 	}
-	v := o.vistaReciente()
-	var que string
-	err := o.Cambiar(p, "Abla", "retoca", func(cod string) (string, error) {
-		q, nuevo, err := tallerRetoqueAbla(rng, cod, v)
-		que = q
-		return nuevo, err
+	que := "lo agranda"
+	if k < 1 {
+		que = "lo achica"
+	}
+	_ = m.o.Cambiar(p, m.quien, que, func(c string) (string, error) {
+		e := tallerValor(c, "escala")
+		if e <= 0 {
+			e = 1
+		}
+		return tallerRetocar(c, "escala", math.Max(0.02, math.Min(e*k, 200)))
 	})
-	if err != nil {
-		o.Decir("Abla", "quise cambiar "+p.Base+" pero "+err.Error(), "")
-		return
-	}
-	o.mu.Lock()
-	p.Cambios[len(p.Cambios)-1] = "Abla: " + que
-	o.mu.Unlock()
-	frase := fmt.Sprintf("En %s (de %s) %s.", p.Titulo, tallerNombreAutor(p.Autor), que)
-	glosa := ""
-	if v != nil {
-		glosa = v.Glosa()
-	}
-	o.Decir("Abla", frase, glosa)
 }
 
-// retocaNyx: Nyx cambia una pieza (p, o si es nil, una reciente de deQuien).
-func (o *tallerObra) retocaNyx(rng *rand.Rand, deQuien string, p *tallerPieza) {
-	if p == nil {
-		p = o.ultimaDe(deQuien, rng)
+func (m *tallerManos) Tenir(base string, col [3]float64) {
+	if p := m.o.Pieza(base); p != nil {
+		_ = m.o.Cambiar(p, m.quien, "lo tiñe", func(c string) (string, error) {
+			return tallerRetocar(c, "tinte", col[0], col[1], col[2], 0.6)
+		})
 	}
+}
+
+func (m *tallerManos) Copiar(base string, x, y, z float64) string {
+	p := m.o.Pieza(base)
 	if p == nil {
-		o.creaNyx(rng, "")
-		return
+		return ""
 	}
-	var que string
-	err := o.Cambiar(p, "Nyx", "retoca", func(cod string) (string, error) {
-		q, nuevo, err := tallerRetoqueNyx(o.m, rng, cod)
-		que = q
-		return nuevo, err
-	})
+	d, err := os.ReadFile(filepath.Join(m.o.m.dir, "objetos", p.ID+".go"))
 	if err != nil {
-		o.Decir("Nyx", "quise cambiar "+p.Base+" pero "+err.Error(), "")
-		return
+		return ""
 	}
-	o.mu.Lock()
-	p.Cambios[len(p.Cambios)-1] = "Nyx: " + que
-	o.mu.Unlock()
-	o.Decir("Nyx", fmt.Sprintf("En %s (de %s) %s.", p.Titulo, tallerNombreAutor(p.Autor), que), "")
-	if o.abla.Viva() {
-		o.ablaContesta(rng, p.Titulo+" "+que)
+	q, err := m.o.CrearEn(m.autor, "copia de "+p.Titulo, p.Base, string(d), x, y, z)
+	if err != nil {
+		return ""
+	}
+	return q.Base
+}
+
+func (m *tallerManos) Quitar(base string) {
+	if p := m.o.Pieza(base); p != nil {
+		m.o.Quitar(p)
+	}
+}
+
+func (m *tallerManos) Escribir(base, lineas string) {
+	if p := m.o.Pieza(base); p != nil {
+		_ = m.o.Cambiar(p, m.quien, "le escribe código", func(c string) (string, error) {
+			return tallerAnadir(c, m.quien, lineas)
+		})
 	}
 }
 
@@ -307,102 +352,6 @@ func tallerNombreAutor(a string) string {
 	}
 	return a
 }
-
-func (o *tallerObra) vistaReciente() *tallerVista {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	if len(o.Vistas) == 0 {
-		return nil
-	}
-	v := o.Vistas[len(o.Vistas)-1]
-	return &v
-}
-
-// seresAblaAlMundo: algunos de los 27 salen a caminar por el mundo de Nyx
-// (como entidades suyas, con su código en entidades/), diciendo lo último
-// que han pensado.
-func (o *tallerObra) seresAblaAlMundo(rng *rand.Rand, cuantos int) {
-	seres := o.abla.Seres()
-	if len(seres) == 0 {
-		return
-	}
-	// lo que ha pensado cada uno
-	frases := map[string][]string{}
-	for _, l := range o.abla.Pensamientos() {
-		l = tallerRePrefijo.ReplaceAllString(l, "")
-		if i := strings.Index(l, ": "); i > 0 {
-			quien := strings.Fields(l[:i])
-			if len(quien) > 0 {
-				frases[quien[0]] = append(frases[quien[0]], l[i+2:])
-			}
-		}
-	}
-	rng.Shuffle(len(seres), func(i, j int) { seres[i], seres[j] = seres[j], seres[i] })
-	hechos := 0
-	for _, s := range seres {
-		if hechos >= cuantos {
-			break
-		}
-		nombre := "abla-" + tallerSlug(s.Nombre)
-		fs := frases[s.Nombre]
-		if len(fs) > 6 {
-			fs = fs[len(fs)-6:]
-		}
-		if len(fs) == 0 && s.Ultimo != "" {
-			fs = []string{s.Ultimo}
-		}
-		codigo := tallerCodigoSerAbla(s, fs)
-		o.m.mu.Lock()
-		e := o.m.especie(nombre)
-		o.m.mu.Unlock()
-		nueva := e == nil
-		if nueva {
-			e = &Especie{Nombre: nombre, Pedido: "uno de los 27 de la especie Abla (" + s.Nombre + ", tribu " + tallerTribus[s.Tribu%3] + ")", Frecuencia: 0.08}
-		}
-		if err := Compilar(e, codigo); err != nil {
-			continue
-		}
-		if nueva {
-			o.m.mu.Lock()
-			o.m.Especies = append(o.m.Especies, e)
-			o.m.mu.Unlock()
-		}
-		_ = o.m.guardarCodigo(e)
-		o.m.seresMu.Lock()
-		jx, jz := o.m.jx, o.m.jz
-		o.m.seresMu.Unlock()
-		a := rng.Float64() * 2 * math.Pi
-		o.m.Aparecer(e, jx+6*math.Cos(a), jz+6*math.Sin(a))
-		if nueva {
-			o.Decir("Abla · "+s.Nombre, "salgo a caminar por el mundo de Nyx", "")
-		}
-		hechos++
-	}
-	_ = o.m.Guardar()
-}
-
-// ablaPideCriatura: Abla le pide a Nyx que invente una criatura con lo que
-// vio; Nyx la escribe a su manera (en Go, como siempre).
-func (o *tallerObra) ablaPideCriatura(rng *rand.Rand) {
-	o.m.mu.Lock()
-	n := len(o.m.Especies)
-	o.m.mu.Unlock()
-	if n > 24 {
-		return
-	}
-	v := o.vistaReciente()
-	que := "luz"
-	if v != nil && len(v.Conceptos) > 0 {
-		que = v.Conceptos[rng.Intn(len(v.Conceptos))].Es
-	}
-	adj := []string{"que te sigue", "que huye", "que vaga despacio", "alta", "pequeña", "que brilla"}[rng.Intn(6)]
-	pedido := fmt.Sprintf("crea una criatura de %s %s", que, adj)
-	o.Decir("Abla", "Nyx, "+pedido+".", "")
-	r := o.m.Responder(pedido)
-	o.Decir("Nyx", prefijo(r, 300), "")
-}
-
-// ---------- ver vídeos juntas ----------
 
 // Ver: les enseña un vídeo (de YouTube u otra web, un archivo, o una
 // carpeta de fotos) a las dos.
@@ -520,115 +469,6 @@ func tallerMoverArchivo(a, b string) error {
 }
 
 // ---------- jugar ----------
-
-// avatarNyx: Nyx, como entidad que camina por su mundo.
-func (o *tallerObra) avatarNyx() *Especie {
-	var frases []string
-	for _, f := range o.Charla(40) {
-		if f.Quien == "Nyx" {
-			frases = append(frases, f.Texto)
-		}
-	}
-	if len(frases) > 6 {
-		frases = frases[len(frases)-6:]
-	}
-	if len(frases) == 0 {
-		frases = []string{"Este mundo lo hago con lo que recuerdo."}
-	}
-	o.m.mu.Lock()
-	e := o.m.especie("nyx-avatar")
-	o.m.mu.Unlock()
-	nueva := e == nil
-	if nueva {
-		e = &Especie{Nombre: "nyx-avatar", Pedido: "Nyx en persona, caminando por su mundo", Frecuencia: 0.02}
-	}
-	if err := Compilar(e, tallerCodigoAvatarNyx(frases)); err != nil {
-		return nil
-	}
-	if nueva {
-		o.m.mu.Lock()
-		o.m.Especies = append(o.m.Especies, e)
-		o.m.mu.Unlock()
-	}
-	_ = o.m.guardarCodigo(e)
-	return e
-}
-
-// Jugar: si hay un juego cerca, Nyx y algunos de los 27 van a jugar.
-func (o *tallerObra) Jugar(rng *rand.Rand) bool {
-	if !o.motorEnMarcha() {
-		return false
-	}
-	o.m.seresMu.Lock()
-	jx, jz := o.m.jx, o.m.jz
-	o.m.seresMu.Unlock()
-	var juego *tallerPieza
-	mejor := 45.0
-	o.mu.Lock()
-	piezas := append([]*tallerPieza(nil), o.Piezas...)
-	o.mu.Unlock()
-	for _, p := range piezas {
-		v := o.motor.vivo(p)
-		if v == nil || v.comp.prog.alTocar == nil {
-			continue
-		}
-		if d := math.Hypot(p.X-jx, p.Z-jz); d < mejor {
-			mejor, juego = d, p
-		}
-	}
-	if juego == nil {
-		return false
-	}
-	// que haya jugadores: Nyx y alguno de Abla
-	cerca := map[string]bool{}
-	for _, s := range o.m.SeresCerca(juego.X, juego.Z, 30) {
-		cerca[s.Especie] = true
-	}
-	aparecer := func(e *Especie) {
-		a := rng.Float64() * 2 * math.Pi
-		o.m.Aparecer(e, juego.X+5*math.Cos(a), juego.Z+5*math.Sin(a))
-	}
-	if !cerca["nyx-avatar"] {
-		if e := o.avatarNyx(); e != nil {
-			aparecer(e)
-		}
-	}
-	nAbla := 0
-	for k := range cerca {
-		if strings.HasPrefix(k, "abla-") {
-			nAbla++
-		}
-	}
-	if nAbla < 2 && o.abla.Viva() {
-		o.m.mu.Lock()
-		var de []*Especie
-		for _, e := range o.m.Especies {
-			if strings.HasPrefix(e.Nombre, "abla-") && e.cuerpo != nil {
-				de = append(de, e)
-			}
-		}
-		o.m.mu.Unlock()
-		if len(de) == 0 {
-			o.seresAblaAlMundo(rng, 2)
-			o.m.mu.Lock()
-			for _, e := range o.m.Especies {
-				if strings.HasPrefix(e.Nombre, "abla-") && e.cuerpo != nil {
-					de = append(de, e)
-				}
-			}
-			o.m.mu.Unlock()
-		}
-		for i := 0; i < 2-nAbla && len(de) > 0; i++ {
-			aparecer(de[rng.Intn(len(de))])
-		}
-	}
-	// el motor les dice adónde ir (lo recalcula solo, si los seres tardan en aparecer)
-	time.AfterFunc(600*time.Millisecond, func() { o.motor.Jugar(juego, 60) })
-	n := o.motor.Jugar(juego, 60)
-	o.Decir("taller", fmt.Sprintf("Nyx y Abla se van a jugar a «%s» (%s)%s", juego.Titulo, juego.Base,
-		map[bool]string{true: "", false: fmt.Sprintf(": ya hay %d jugando", n)}[n == 0]), "")
-	return true
-}
 
 func (o *tallerObra) motorEnMarcha() bool {
 	o.mu.Lock()

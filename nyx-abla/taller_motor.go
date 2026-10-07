@@ -295,6 +295,18 @@ type tallerFisica struct {
 const tallerCelda = 0.2
 
 func tallerCalcularFisica(c *Cuerpo, solido []bool, huecos [][4]float64) *tallerFisica {
+	// las celdas son de 20 cm; en las cosas enormes, más grandes (que no
+	// pase de unas 400 por lado)
+	celda := tallerCelda
+	mn, mx := math.Inf(1), math.Inf(-1)
+	for i := 0; i+2 < len(c.Pos); i += 3 {
+		for _, v := range []float32{c.Pos[i], c.Pos[i+2]} {
+			mn, mx = math.Min(mn, float64(v)), math.Max(mx, float64(v))
+		}
+	}
+	if ext := mx - mn; ext/celda > 400 {
+		celda = ext / 400
+	}
 	suelos := map[[2]int][]float64{}
 	ocupa := map[[2]int][]float64{}
 	caja := map[[2]int][4]float64{}
@@ -317,8 +329,8 @@ func tallerCalcularFisica(c *Cuerpo, solido []bool, huecos [][4]float64) *taller
 			continue
 		}
 		pisable := math.Abs(n[1])/l > 0.6
-		n1 := int(math.Ceil(math.Sqrt(e1[0]*e1[0]+e1[1]*e1[1]+e1[2]*e1[2]) / (tallerCelda / 2)))
-		n2 := int(math.Ceil(math.Sqrt(e2[0]*e2[0]+e2[1]*e2[1]+e2[2]*e2[2]) / (tallerCelda / 2)))
+		n1 := int(math.Ceil(math.Sqrt(e1[0]*e1[0]+e1[1]*e1[1]+e1[2]*e1[2]) / (celda / 2)))
+		n2 := int(math.Ceil(math.Sqrt(e2[0]*e2[0]+e2[1]*e2[1]+e2[2]*e2[2]) / (celda / 2)))
 		n1, n2 = max(1, min(n1, 120)), max(1, min(n2, 120))
 		for a := 0; a <= n1; a++ {
 			for b := 0; b <= n2; b++ {
@@ -329,7 +341,7 @@ func tallerCalcularFisica(c *Cuerpo, solido []bool, huecos [][4]float64) *taller
 				x := v[0][0] + e1[0]*u + e2[0]*w
 				y := v[0][1] + e1[1]*u + e2[1]*w
 				z := v[0][2] + e1[2]*u + e2[2]*w
-				k := [2]int{int(math.Floor(x / tallerCelda)), int(math.Floor(z / tallerCelda))}
+				k := [2]int{int(math.Floor(x / celda)), int(math.Floor(z / celda))}
 				ocupa[k] = append(ocupa[k], y)
 				if b, ok := caja[k]; ok {
 					caja[k] = [4]float64{math.Min(b[0], x), math.Min(b[1], z), math.Max(b[2], x), math.Max(b[3], z)}
@@ -342,7 +354,7 @@ func tallerCalcularFisica(c *Cuerpo, solido []bool, huecos [][4]float64) *taller
 			}
 		}
 	}
-	f := &tallerFisica{C: tallerCelda, Celdas: map[string][]float32{}, Huecos: huecos}
+	f := &tallerFisica{C: celda, Celdas: map[string][]float32{}, Huecos: huecos}
 	for k, ys := range ocupa {
 		sort.Float64s(ys)
 		var tramos [][2]float64

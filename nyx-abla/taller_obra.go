@@ -60,25 +60,33 @@ type tallerFrase struct {
 }
 
 type tallerObra struct {
-	mu        sync.Mutex
-	m         *Mundo
-	dir       string
-	abla      *tallerAbla
-	Piezas    []*tallerPieza `json:"piezas"`
-	Sig       int            `json:"sig"`
-	Vistas    []tallerVista  `json:"vistas"`           // los recuerdos de Abla (lo que vio)
-	Puntos    map[string]int `json:"puntos,omitempty"` // el marcador de los juegos
-	Turno     int            `json:"turno"`
-	charla    []tallerFrase
-	nfrase    int
-	version   int            // sube con cada cambio de la obra
-	trozos    map[string]int // trozo "cx,cz" → versión en que cambió
-	pausa     bool
-	ritmo     time.Duration
-	viendo    string // el vídeo que están viendo ahora
-	avisarFn  func(string)
-	motor     *tallerMotor
-	motorVivo bool // la ventana está abierta y el motor corre
+	mu     sync.Mutex
+	m      *Mundo
+	dir    string
+	abla   *tallerAbla
+	Piezas []*tallerPieza `json:"piezas"`
+	Sig    int            `json:"sig"`
+	Vistas []tallerVista  `json:"vistas"`           // los recuerdos de Abla (lo que vio)
+	Puntos map[string]int `json:"puntos,omitempty"` // el marcador de los juegos
+	// por dónde va construyendo cada una (sin límite hacia ningún lado)
+	Tortugas map[string]*tallerTortuga `json:"tortugas,omitempty"`
+	// Pasillos: si el fondo es el mundo de Nyx Mundo (sus pasillos y sitios).
+	// Si no, es el vacío: todo lo que hay lo hacen ellas.
+	Pasillos   bool `json:"pasillos,omitempty"`
+	Turno      int  `json:"turno"`
+	charla     []tallerFrase
+	nfrase     int
+	version    int            // sube con cada cambio de la obra
+	trozos     map[string]int // trozo "cx,cz" → versión en que cambió
+	pausa      bool
+	ritmo      time.Duration
+	viendo     string // el vídeo que están viendo ahora
+	avisarFn   func(string)
+	motor      *tallerMotor
+	motorVivo  bool // la ventana está abierta y el motor corre
+	instruida  bool // ya se les dio la instrucción en esta sesión
+	ultimoNyx  string
+	ultimoAbla string
 }
 
 func tallerNuevaObra(m *Mundo) *tallerObra {
@@ -242,6 +250,40 @@ func (o *tallerObra) Crear(autor, titulo, de, codigo string, x, z float64) (*tal
 	return p, nil
 }
 
+// CrearEn: una pieza nueva justo en (x, y, z), sin girar: así la ponen las
+// tortugas de Nyx y Abla (sin buscar suelo: puede estar en el aire o bajo
+// tierra, sin límite).
+func (o *tallerObra) CrearEn(autor, titulo, de, codigo string, x, y, z float64) (*tallerPieza, error) {
+	o.mu.Lock()
+	n := o.Sig
+	o.Sig++
+	o.mu.Unlock()
+	base := fmt.Sprintf("%s-%s-%d", tallerSlug(autor), tallerSlug(titulo), n)
+	c, err := o.compilarYGuardar(base, codigo)
+	if err != nil {
+		return nil, err
+	}
+	_, alto := medirCuerpo(c)
+	p := &tallerPieza{ID: base, Base: base, Version: 1, Autor: autor, Titulo: titulo, De: de,
+		X: x, Y: y, Z: z, Radio: tallerRadio(c), Alto: alto, Cuando: time.Now()}
+	o.mu.Lock()
+	o.Piezas = append(o.Piezas, p)
+	o.cambio(p.X, p.Z)
+	o.mu.Unlock()
+	_ = o.Guardar()
+	return p, nil
+}
+
+// MoverA: la pieza exactamente ahí (también la altura).
+func (o *tallerObra) MoverA(p *tallerPieza, x, y, z, rumbo float64) {
+	o.mu.Lock()
+	o.cambio(p.X, p.Z)
+	p.X, p.Y, p.Z, p.Rumbo = x, y, z, rumbo
+	o.cambio(x, z)
+	o.mu.Unlock()
+	_ = o.Guardar()
+}
+
 // Cambiar: reescribe el código de una pieza con una función y guarda la
 // nueva versión (si no compila, la pieza se queda como estaba).
 func (o *tallerObra) Cambiar(p *tallerPieza, quien, que string, f func(codigo string) (string, error)) error {
@@ -308,6 +350,12 @@ func tallerClave(x, z float64) string {
 
 // suelo: la altura del suelo en (x, z).
 func (o *tallerObra) suelo(x, z float64) float64 {
+	if !o.Pasillos { // en el vacío no hay suelo: a la altura de quien camina
+		o.motor.mu.Lock()
+		y := o.motor.jug[1]
+		o.motor.mu.Unlock()
+		return y
+	}
 	ch := o.m.Construir(int(math.Floor(x/ladoChunk)), int(math.Floor(z/ladoChunk)))
 	return ch.AlturaEn(x, z)
 }
@@ -330,21 +378,23 @@ func (o *tallerObra) sitioLibre(radio float64) (float64, float64) {
 		if math.Hypot(x-jx, z-jz) < r+1.5 {
 			continue
 		}
-		ch := o.m.Construir(int(math.Floor(x/ladoChunk)), int(math.Floor(z/ladoChunk)))
 		libre := true
-		o.m.mu.Lock()
-		for _, p := range ch.Paredes {
-			if distSegmento(x, z, p.X1, p.Z1, p.X2, p.Z2) < r {
-				libre = false
-				break
+		if o.Pasillos { // en el vacío no hay paredes ni agua de Nyx Mundo
+			ch := o.m.Construir(int(math.Floor(x/ladoChunk)), int(math.Floor(z/ladoChunk)))
+			o.m.mu.Lock()
+			for _, p := range ch.Paredes {
+				if distSegmento(x, z, p.X1, p.Z1, p.X2, p.Z2) < r {
+					libre = false
+					break
+				}
 			}
-		}
-		for _, w := range ch.Agua {
-			if x > w.X0-r && x < w.X1+r && z > w.Z0-r && z < w.Z1+r {
-				libre = false
+			for _, w := range ch.Agua {
+				if x > w.X0-r && x < w.X1+r && z > w.Z0-r && z < w.Z1+r {
+					libre = false
+				}
 			}
+			o.m.mu.Unlock()
 		}
-		o.m.mu.Unlock()
 		o.mu.Lock()
 		for _, p := range o.Piezas {
 			if math.Hypot(p.X-x, p.Z-z) < r+p.Radio+0.8 {

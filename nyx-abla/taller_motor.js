@@ -128,7 +128,7 @@
         }
       });
     }
-    if (!hueco) { const t = sueloAqui(x, z); if (t <= lim && t > g) g = t; }
+    if (!hueco) { const t = sueloAqui(x, z); if (t > -1000 && t <= lim && t > g) g = t; } // en el vacío no hay suelo
     // lo alto de las formas de Nyx (cajas, cilindros…)
     trozosCerca(x, z, d => {
       for (const o of d.objetos || []) {
@@ -186,9 +186,12 @@
   /* ---------- caminar (sustituye a la de Nyx) ---------- */
   mover = function (dt) {
     const cuerpos = cuerposCerca(yo.x, yo.z);
+    const vacio = sueloAqui(yo.x, yo.z) < -1000; // sin el mundo de Nyx: no hay suelo
     if (T.pies === null || Math.hypot(yo.x - T.ultimo.x, yo.z - T.ultimo.z) > 3) {
       // primera vez, o un salto de sitio (un portal, lo que pasaba en lo que vio)
-      T.pies = sueloAqui(yo.x, yo.z); T.vy = 0;
+      if (vacio) { if (T.pies === null) { T.pies = 1.5; T.volar = true; } }
+      else T.pies = sueloAqui(yo.x, yo.z);
+      T.vy = 0;
     }
     let f = 0, s = 0;
     if (teclas.has("KeyW") || teclas.has("ArrowUp")) f += 1;
@@ -228,13 +231,18 @@
         T.pies = np;
       }
     }
-    if (T.pies < -400) { T.pies = sueloAqui(yo.x, yo.z); T.vy = 0; } // se cayó del mundo
+    if (!vacio && T.pies < sueloAqui(yo.x, yo.z) - 400) { T.pies = sueloAqui(yo.x, yo.z); T.vy = 0; } // se cayó del mundo
+    // en el vacío, si no hay nada debajo, a volar (hacia abajo no hay fondo)
+    if (vacio && !T.volar && g === -Infinity) {
+      T.cayendo = (T.cayendo || 0) + dt;
+      if (T.cayendo > 1.2) { T.volar = true; T.vy = 0; T.cayendo = 0; }
+    } else T.cayendo = 0;
     const objetivo = T.pies + 1.6;
     if (yo.base === undefined || T.vy < -3 || Math.abs(objetivo - yo.base) > 3) yo.base = objetivo;
     else yo.base += (objetivo - yo.base) * Math.min(1, dt * 14);
     yo.ojo = yo.base + (T.suelo && !T.volar ? Math.sin(paso) * 0.035 : 0);
     cruzarPortales();
-    if (Math.hypot(yo.x - T.ultimo.x, yo.z - T.ultimo.z) > 3) T.pies = sueloAqui(yo.x, yo.z);
+    if (!vacio && Math.hypot(yo.x - T.ultimo.x, yo.z - T.ultimo.z) > 3) T.pies = sueloAqui(yo.x, yo.z);
     T.ultimo = {x: yo.x, z: yo.z};
   };
 
@@ -333,7 +341,8 @@
     lineas.push("Espacio saltar · <b>V</b> " + (T.volar ? "dejar de volar (Espacio sube, C baja)" : "volar") + " · E usar");
     if (T.pies !== null) {
       const t = sueloAqui(yo.x, yo.z);
-      if (T.pies < t - 1.5) lineas.push("bajo tierra: " + (T.pies - t).toFixed(1) + " m");
+      if (t < -1000) lineas.push("altura: " + (T.pies >= 0 ? "+" : "") + T.pies.toFixed(1) + " m" + (T.volar ? " · volando" : ""));
+      else if (T.pies < t - 1.5) lineas.push("bajo tierra: " + (T.pies - t).toFixed(1) + " m");
       else if (T.pies > t + 2.5) lineas.push("en alto: +" + (T.pies - t).toFixed(1) + " m");
     }
     if (T.marcador.length) lineas.push("🏆 " + T.marcador.map(texto).join(" · "));

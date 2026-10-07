@@ -1,8 +1,14 @@
 # Taller de Nyx y Abla
 
-Nyx y Abla ven vídeos de YouTube juntas y construyen un mundo en 3D con lo
-que recuerdan. Las dos pueden crear cosas y las dos pueden cambiar lo que hizo
-la otra.
+Nyx y Abla empiezan **sin nada**: sin plantillas, sin planos, sin saber qué es
+una casa o un árbol, y sin el mundo de pasillos de Nyx Mundo. Solo tienen sus
+idiomas y una instrucción:
+
+> **crea un mundo infinito con lo que sabes**
+
+Lo que dicen y lo que piensan se convierte en mundo, palabra a palabra. Con
+sus **manos** cogen lo que ya existe, suyo o de la otra, y lo cambian. No hay
+límite ni hacia arriba ni hacia abajo.
 
 - **Nyx no cambia.** Estos archivos se **añaden** a la carpeta de Nyx
   (`taller_*.go`). No modifican ninguna línea suya: ni su cabeza (`mente.go`),
@@ -37,61 +43,64 @@ taller› obra                                    lo que han construido
 En la ventana del mundo, la tecla **Y** muestra u oculta la charla. Desde la
 ventana también puedes escribirles a las dos.
 
-## En la ventana (como un pequeño Unity)
+## En la ventana
 
 | Tecla | Qué hace |
 |---|---|
 | **W A S D** | andar (Mayús para correr) |
 | **Espacio** | saltar |
 | **V** | volar (Espacio sube, C baja); otra vez V para dejar de volar |
-| **E** | usar lo que tengas cerca: puertas, ascensores, cofres, campanas |
+| **E** | usar lo que tengas cerca (si una pieza tiene `AlUsar`) |
 | **Y** | mostrar u ocultar la charla |
 
-- **Hacia arriba y hacia abajo.** Las escaleras se suben de verdad, los pisos
-  y azoteas se pisan, y hay torres y edificios que atraviesan el techo. Las
-  mazmorras bajan bajo tierra por escaleras, nivel a nivel, y los ascensores
-  te suben con ellos.
-- **Choques exactos.** La física sale de la forma real de cada cosa, medida en
-  celdas de 20 cm a cada altura. Nada choca más de lo que mide (un poste fino
-  te deja acercarte hasta tocarlo), y por debajo de un arco se pasa.
-- **Partes que se mueven, scripts y eventos.** Cada pieza puede tener partes
-  (una puerta, unas aspas, un ascensor, un anillo) y funciones que el motor
-  llama: `Empezar`, `Actuar` (10 veces por segundo), `AlUsar` (tecla E),
-  `AlEntrar`, `AlSalir` y `AlTocar`.
-- **Sonido en 3D.** Cada cosa suena desde donde está: agua, fuego, viento,
-  pájaros, campanas, puertas, monedas… y música. Abla toca sus frases como
-  melodías. También puedes poner tus propios sonidos en
-  `~/.local/share/nyx-mundo/taller/sonidos/`.
-- **Juegos.** Anillos que se cogen, plataformas para saltar hasta una corona
-  y un cofre con tesoro al fondo de la mazmorra, con marcador. Nyx y los seres
-  de Abla también juegan: van a por los anillos. La orden `jugad` los manda a
-  jugar.
-
-Todo eso lo escriben Nyx y Abla en Go (puedes leerlo y cambiarlo); `formas`
-en el taller enseña todo lo que pueden usar.
+- **El vacío.** No hay suelo de partida: empiezas volando. Lo que pisas es lo
+  que ellas han hecho, a la altura que sea (+90 m, −60 m o lo que sea). Si
+  dejas de volar sobre algo, caes hasta ello. Si no hay nada debajo, a los
+  pocos segundos vuelves a volar. Con `pasillos on` vuelve el mundo de Nyx
+  Mundo de fondo.
+- **Choques exactos.** La física sale de la forma real de cada cosa, medida a
+  cada altura. Nada choca más de lo que mide (te acercas a un poste fino hasta
+  tocarlo), por debajo de un arco se pasa y las escaleras se suben.
+- **Lo que se mueve y suena.** Las piezas pueden tener partes que giran o
+  suben y bajan, scripts con eventos (`Empezar`, `Actuar`, `AlUsar`,
+  `AlEntrar`, `AlSalir`, `AlTocar`) y sonido en 3D: agua, fuego, viento,
+  pájaros, campanas, música… Cuando una dice algo de sonido, su frase se
+  vuelve melodía.
 
 ## Qué hacen solas
 
-Mientras el taller está abierto trabajan por turnos, sin parar:
+Mientras el taller está abierto se turnan, sin parar:
 
-1. **Abla** cuenta en su idioma lo que vio en cada fotograma y construye algo
-   con eso: sus colores reales, sus bordes y los conceptos que le evocó. Cada
-   tribu trabaja a su manera:
-   - **lenguaje** hace estelas con frases en Abla;
-   - **data** hace murales en relieve con la foto misma;
-   - **lógica** hace fractales, espirales y escaleras.
-2. **Nyx** construye con lo que recuerda de los sitios que vio: los colores de
-   paredes, suelo y techo; si había cielo, agua, plantas u oscuridad; y las
-   cosas que recortó de lo que vio, que pone en estatuas. Le cuenta a Abla lo
-   que hizo y uno de los 27 le contesta.
-3. **Cada una retoca lo de la otra.**
-   - Abla le pone anillos de luz, le escribe en su idioma, la tiñe o le cambia
-     el tamaño.
-   - Nyx le pone encima cosas que vio, le hace un suelo o la tiñe con los
-     colores de sus recuerdos.
-4. Algunos de los 27 de Abla **salen a caminar** por el mundo de Nyx, como
-   entidades, diciendo lo último que han pensado.
-5. A veces Abla le pide a Nyx una criatura, y Nyx la escribe a su manera.
+1. **Nyx** contesta con su propia cabeza, que no se toca, a lo último que dijo
+   Abla. La primera vez contesta a la instrucción.
+2. **Uno de los 27 de Abla** contesta a lo que dijo Nyx, en su idioma. Si no
+   tiene respuesta, se oye una de las cosas que han estado pensando.
+3. **Lo que dice cada una se construye.** Cada una tiene un constructor que va
+   por el mundo sin límite, y cada palabra es un gesto:
+   - **Dirección:** las palabras de dirección lo mueven. *Subir, arriba,
+     cielo…* lo suben; *bajar, abajo, tierra, profundo…* lo bajan; *ir,
+     camino, lejos…* lo llevan adelante; *girar, vuelta…* lo giran.
+   - **Tamaño y color:** *grande*, *pequeño* y los colores lo cambian.
+   - **Luz, suelo y sonido:** *luz* enciende una luz, *casa* o *lugar* ponen
+     un suelo donde pisar y *voz* o *música* dejan su melodía.
+   - **Tiempo:** *tiempo* o *vida* hacen que lo siguiente se mueva.
+   - **Memoria:** *recordar* guarda dónde está el constructor y *volver*
+     regresa allí.
+   - **Todas las demás palabras son formas.** Cada palabra, de Abla o de Nyx,
+     es siempre la misma forma, del mismo tamaño, así que su idioma se
+     convierte en algo que se ve.
+4. **Las manos (el editor).** Con *tomar* o *coger* agarran la pieza más
+   cercana, suya o de la otra. Mientras la tienen:
+   - *subir*, *bajar*, *ir* y *girar* la mueven;
+   - *grande* y *pequeño* la cambian de tamaño;
+   - un color la tiñe;
+   - *copiar* la duplica;
+   - *quitar* o *borrar* la sacan del mundo;
+   - *escribir* o *editar* meten sus palabras como código dentro de ella;
+   - *soltar* la deja.
+
+Cada pieza es código Go escrito así. Si les enseñas vídeos (`ven …`), lo que
+ven entra en lo que dicen y piensan, y de ahí en lo que construyen.
 
 ## Código y 3D
 
@@ -127,10 +136,9 @@ Todo eso también sirve en las entidades.
 |---|---|
 | `taller_main.go` | `nyx taller`: la consola y la ventana con la charla |
 | `taller_charla.go` | los turnos, la conversación y ver vídeos juntas |
-| `taller_ideas.go` | cómo escriben código Nyx y Abla, y cómo retocan lo de la otra |
 | `taller_obra.go` | las piezas, sus versiones, Blender (exportar e importar) |
 | `taller_formas.go` | las herramientas nuevas para construir |
-| `taller_niveles.go` | torres, edificios, mazmorras, ascensores, juegos, molinos, campanarios |
+| `taller_lengua.go` | de palabras a construcción: el constructor de cada una y sus manos (el editor) |
 | `taller_motor.go` | el motor: partes, scripts, eventos, sonidos, física exacta, juegos |
 | `taller_motor.js` | en la ventana: caminar con física, dibujar lo que se mueve, sonido 3D |
 | `taller_abla.go` | el puente con Abla (el programa en C) |
