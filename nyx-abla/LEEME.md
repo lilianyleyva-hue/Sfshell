@@ -89,18 +89,66 @@ Mientras el taller está abierto se turnan, sin parar:
    - **Todas las demás palabras son formas.** Cada palabra, de Abla o de Nyx,
      es siempre la misma forma, del mismo tamaño, así que su idioma se
      convierte en algo que se ve.
-4. **Las manos (el editor).** Con *tomar* o *coger* agarran la pieza más
-   cercana, suya o de la otra. Mientras la tienen:
-   - *subir*, *bajar*, *ir* y *girar* la mueven;
-   - *grande* y *pequeño* la cambian de tamaño;
-   - un color la tiñe;
-   - *copiar* la duplica;
-   - *quitar* o *borrar* la sacan del mundo;
-   - *escribir* o *editar* meten sus palabras como código dentro de ella;
-   - *soltar* la deja.
+4. **Más palabras que entienden**:
+   - **Números** (*dos*, *tres*… o *5*): cuántas de lo siguiente.
+   - **Colocación:** *encima*, *debajo*, *al lado*, *dentro* o *alrededor* de
+     lo último que pusieron.
+   - **Materiales:** *madera*, *piedra*, *ladrillo*, *metal*, *hierba*,
+     *mármol*, *cristal*, *neón*… (con un color delante, teñido).
+   - **Texturas propias:** *textura <palabra>* (cada palabra es un dibujo
+     distinto).
+   - **Formas propias:** *llamar <palabra>* guarda lo que acaban de hacer como
+     forma con ese nombre. Desde entonces, decir esa palabra la vuelve a
+     poner.
+5. **Las manos (el editor).** Con *tomar* o *coger* agarran lo más cercano,
+   o *coger <nombre>* lo que se llame así, suyo o de la otra. Mientras lo
+   tienen:
+   - *subir*, *bajar*, *ir*, *al lado* y *girar* lo mueven; *inclinar* lo
+     ladea;
+   - *grande* y *pequeño* cambian su tamaño;
+   - un color lo tiñe, un material lo pinta y *textura <palabra>* le pone
+     esa textura;
+   - *encima* lo pone sobre otra cosa y *caer* lo deja caer sobre lo de
+     debajo;
+   - *copiar* lo duplica; *quitar* o *borrar* lo sacan del mundo;
+   - *deshacer* vuelve a su versión de antes;
+   - *escribir* o *editar* meten sus palabras como código dentro;
+   - *soltar* lo deja.
 
 Cada pieza es código Go escrito así. Si les enseñas vídeos (`ven …`), lo que
 ven entra en lo que dicen y piensan, y de ahí en lo que construyen.
+
+## Tú también: crear con texto
+
+```text
+taller› crea tres piedra encima luz azul
+taller› crea madera dos zela alrededor mika llamar fuente
+taller› forma lista
+taller› texturas
+```
+
+`crea …` usa las mismas reglas que ellas y empieza cerca de donde estás. En la
+ventana puedes escribir «crea …» en la caja de la charla.
+
+Tus propias imágenes sirven de textura: ponlas en
+`~/.local/share/nyx-mundo/taller/texturas/` (png o jpg) y úsalas por su nombre
+(*textura miimagen*).
+
+## Godot
+
+Si tienes Godot 4, escribe `godot` en el taller. El taller:
+
+1. escribe un proyecto en `~/.local/share/nyx-mundo/taller/godot/`;
+2. lo abre si encuentra Godot (si no, te dice qué carpeta importar).
+
+Le das a ▶ (F5) y entras en su mundo, dibujado por Godot: luz y sombras,
+materiales y texturas, y colisiones exactas con la física de Godot. Lo que se
+mueve se mueve y lo que construyen aparece mientras lo construyen. Deja el
+taller abierto: Godot le va pidiendo lo que hay.
+
+Usa el modo «Compatibilidad» (OpenGL), así que va bien también con gráficos
+Intel integrados. Controles: WASD, Espacio, V (volar), E (usar) y Esc (soltar
+el ratón).
 
 ## Código y 3D
 
@@ -113,7 +161,7 @@ Cada pieza es un programa en Go: `~/.local/share/nyx-mundo/objetos/<pieza>.go`.
 
 | Orden | Qué hace |
 |---|---|
-| `exporta` | Todo el mundo en una escena: `taller/blender/mundo.obj`. |
+| `exporta` | Todo el mundo en una escena: `taller/blender/mundo.obj`, con sus texturas en `.png` (sirve para Blender y para Godot). |
 | `importa archivo.obj [alto 3] [como nombre]` | Trae un modelo tuyo de Blender, con sus colores y materiales. Si tiene más de 30 000 triángulos, se simplifica. |
 | `nueva mi_pieza.go` | Pone tu propio código como pieza. |
 | `codigo <pieza>` | Enseña el código de una pieza. Después de editar el archivo, `recompila <pieza>`. |
@@ -139,6 +187,9 @@ Todo eso también sirve en las entidades.
 | `taller_obra.go` | las piezas, sus versiones, Blender (exportar e importar) |
 | `taller_formas.go` | las herramientas nuevas para construir |
 | `taller_lengua.go` | de palabras a construcción: el constructor de cada una y sus manos (el editor) |
+| `taller_materiales.go` | materiales y texturas (con nombre, de cualquier palabra, de fotos o tuyas) |
+| `taller_formas_propias.go` | las formas que guardan con nombre |
+| `taller_godot.go` | el proyecto de Godot que muestra su mundo en vivo |
 | `taller_motor.go` | el motor: partes, scripts, eventos, sonidos, física exacta, juegos |
 | `taller_motor.js` | en la ventana: caminar con física, dibujar lo que se mueve, sonido 3D |
 | `taller_abla.go` | el puente con Abla (el programa en C) |

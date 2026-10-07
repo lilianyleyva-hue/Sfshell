@@ -167,6 +167,12 @@ func (o *tallerObra) construirCon(autor, quien, texto string) string {
 			resumen += " (no compiló: " + err.Error() + ")"
 		} else {
 			resumen += " → " + p.ID
+			// «llamar X»: desde ahora, esa palabra es esta forma
+			if f.Nombrar != "" {
+				if err := o.GuardarForma(f.Nombrar, p, quien); err == nil {
+					resumen += " (guardada como forma «" + f.Nombrar + "»)"
+				}
+			}
 		}
 	}
 	o.mu.Lock()
@@ -263,6 +269,137 @@ func (m *tallerManos) Tomar(x, y, z float64) (string, [3]float64, bool) {
 		return "", [3]float64{}, false
 	}
 	return mejor.Base, [3]float64{mejor.X, mejor.Y, mejor.Z}, true
+}
+
+// TomarNombre: lo que se llame así (por su título o su nombre), lo más
+// cercano que haya.
+func (m *tallerManos) TomarNombre(palabra string, x, y, z float64) (string, [3]float64, bool) {
+	clave := tallerSlug(palabra)
+	if clave == "" || clave == "pieza" {
+		return "", [3]float64{}, false
+	}
+	m.o.mu.Lock()
+	defer m.o.mu.Unlock()
+	var mejor *tallerPieza
+	dmin := math.Inf(1)
+	for _, p := range m.o.Piezas {
+		if !strings.Contains(tallerSlug(p.Titulo), clave) && !strings.Contains(p.Base, clave) {
+			continue
+		}
+		if d := math.Sqrt((p.X-x)*(p.X-x) + (p.Y-y)*(p.Y-y) + (p.Z-z)*(p.Z-z)); d < dmin {
+			dmin, mejor = d, p
+		}
+	}
+	if mejor == nil {
+		return "", [3]float64{}, false
+	}
+	return mejor.Base, [3]float64{mejor.X, mejor.Y, mejor.Z}, true
+}
+
+func (m *tallerManos) Inclinar(base string, a float64) {
+	if p := m.o.Pieza(base); p != nil {
+		m.o.mu.Lock()
+		p.RotX += a
+		m.o.cambio(p.X, p.Z)
+		m.o.mu.Unlock()
+		_ = m.o.Guardar()
+	}
+}
+
+// Pintar: toda la pieza de un material (madera, piedra, una palabra suya…).
+func (m *tallerManos) Pintar(base, material string) {
+	if p := m.o.Pieza(base); p != nil {
+		_ = m.o.Cambiar(p, m.quien, "la pinta de "+material, func(c string) (string, error) {
+			return tallerAnadir(c, m.quien, fmt.Sprintf("c.PintarTodo(%q)", material))
+		})
+	}
+}
+
+// Apilar: lo pone encima de lo más cercano que tenga debajo o al lado.
+func (m *tallerManos) Apilar(base string) bool {
+	p := m.o.Pieza(base)
+	if p == nil {
+		return false
+	}
+	m.o.mu.Lock()
+	var otra *tallerPieza
+	dmin := 40.0
+	for _, q := range m.o.Piezas {
+		if q == p {
+			continue
+		}
+		if d := math.Hypot(q.X-p.X, q.Z-p.Z) + math.Abs(q.Y-p.Y)*0.5; d < dmin {
+			dmin, otra = d, q
+		}
+	}
+	m.o.mu.Unlock()
+	if otra == nil {
+		return false
+	}
+	m.o.MoverA(p, otra.X, otra.Y+otra.Alto, otra.Z, p.Rumbo)
+	return true
+}
+
+// Caer: baja hasta lo primero que tenga debajo (si no hay nada, se queda:
+// en el vacío no hay fondo).
+func (m *tallerManos) Caer(base string) bool {
+	p := m.o.Pieza(base)
+	if p == nil {
+		return false
+	}
+	y, ok := m.sueloBajo(p.X, p.Y, p.Z, p)
+	if !ok {
+		return false
+	}
+	m.o.MoverA(p, p.X, y, p.Z, p.Rumbo)
+	return true
+}
+
+func (m *tallerManos) SueloBajo(x, y, z float64) (float64, bool) { return m.sueloBajo(x, y, z, nil) }
+
+func (m *tallerManos) sueloBajo(x, y, z float64, sin *tallerPieza) (float64, bool) {
+	m.o.mu.Lock()
+	defer m.o.mu.Unlock()
+	mejor, hay := math.Inf(-1), false
+	for _, q := range m.o.Piezas {
+		if q == sin {
+			continue
+		}
+		top := q.Y + q.Alto
+		if top <= y+0.01 && math.Hypot(q.X-x, q.Z-z) < math.Max(1, q.Radio) && top > mejor {
+			mejor, hay = top, true
+		}
+	}
+	if m.o.Pasillos && (!hay || mejor < 0) && y >= 0 {
+		return 0, true // con el mundo de Nyx de fondo, su suelo
+	}
+	return mejor, hay
+}
+
+// Deshacer: vuelve a la versión de antes (las viejas se guardan).
+func (m *tallerManos) Deshacer(base string) bool {
+	p := m.o.Pieza(base)
+	if p == nil {
+		return false
+	}
+	m.o.mu.Lock()
+	defer m.o.mu.Unlock()
+	if p.Version <= 1 {
+		return false
+	}
+	v := p.Version - 1
+	id := p.Base
+	if v > 1 {
+		id = fmt.Sprintf("%s-v%d", p.Base, v)
+	}
+	if _, err := os.Stat(filepath.Join(m.o.m.dir, "objetos", id+".go")); err != nil {
+		return false
+	}
+	p.ID, p.Version = id, v
+	p.Cambios = append(p.Cambios, m.quien+": deshace su último cambio")
+	m.o.cambio(p.X, p.Z)
+	go func() { _ = m.o.Guardar() }()
+	return true
 }
 
 func (m *tallerManos) Origen(base string) ([3]float64, bool) {
@@ -474,4 +611,21 @@ func (o *tallerObra) motorEnMarcha() bool {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return o.motorVivo
+}
+
+// CrearTu: lo que escribes tú, construido con las mismas reglas que ellas
+// (tu constructor empieza cerca de donde estás).
+func (o *tallerObra) CrearTu(texto string) string {
+	t := o.tortuga("tú")
+	o.motor.mu.Lock()
+	j := o.motor.jug
+	o.motor.mu.Unlock()
+	o.mu.Lock()
+	if math.Hypot(t.X-j[0], t.Z-j[2]) > 25 || math.Abs(t.Y-j[1]) > 25 {
+		t.X, t.Y, t.Z = j[0]+2, j[1], j[2]
+	}
+	o.mu.Unlock()
+	r := o.construirCon("tú", "tú", texto)
+	o.Decir("tú", texto+"  ⟶ "+r, "")
+	return r
 }

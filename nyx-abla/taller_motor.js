@@ -305,15 +305,81 @@
     try { dibujar(ahora); actualizarSonido(); hud(); } catch (e) { console.error("taller:", e); }
   };
 
+  /* ---------- modelos con materiales y texturas ---------- */
+  const MODELOS = new Map(), PIDIENDO = new Set(), TEXTURAS = new Map();
+  function texturaTaller(nombre) {
+    let t = TEXTURAS.get(nombre);
+    if (t) return t;
+    t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([170, 170, 170, 255]));
+    TEXTURAS.set(nombre, t);
+    if (typeof Image === "undefined") return t;
+    const img = new Image();
+    img.onload = () => {
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+      gl.generateMipmap(gl.TEXTURE_2D);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+    };
+    img.src = "/api/taller-textura?n=" + encodeURIComponent(nombre);
+    return t;
+  }
+  // dónde cae un punto en su textura (como el taller: una cada 2 m)
+  function uvDe(x, y, z, nx, ny, nz) {
+    const ax = Math.abs(nx), ay = Math.abs(ny), az = Math.abs(nz);
+    if (ay >= ax && ay >= az) return [x / 2, z / 2];
+    if (ax >= az) return [z / 2, y / 2];
+    return [x / 2, y / 2];
+  }
+  async function cargarModelo(id) {
+    if (PIDIENDO.has(id)) return;
+    PIDIENDO.add(id);
+    try {
+      const d = await (await fetch("/api/figura?id=" + encodeURIComponent(id))).json();
+      const nt = d.pos.length / 9, grupos = new Map();
+      for (let t = 0; t < nt; t++) {
+        const k = d.tm ? d.tm[t] : -1;
+        if (!grupos.has(k)) grupos.set(k, []);
+        const g = grupos.get(k);
+        for (let v = t * 3; v < t * 3 + 3; v++) {
+          const x = d.pos[v * 3], y = d.pos[v * 3 + 1], z = d.pos[v * 3 + 2];
+          const nx = d.nor[v * 3], ny = d.nor[v * 3 + 1], nz = d.nor[v * 3 + 2];
+          const uv = k >= 0 ? uvDe(x, y, z, nx, ny, nz) : [0, 0];
+          g.push(x, y, z, uv[0], uv[1], nx, ny, nz, k >= 0 ? 0 : d.emi[v], d.col[v * 3], d.col[v * 3 + 1], d.col[v * 3 + 2]);
+        }
+      }
+      const partes = [];
+      for (const [k, datos] of grupos) {
+        const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+        const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(datos), gl.STATIC_DRAW);
+        const atrib = (a, n, o) => { if (a < 0) return; gl.enableVertexAttribArray(a); gl.vertexAttribPointer(a, n, gl.FLOAT, false, 48, o * 4); };
+        atrib(A.aPos, 3, 0); atrib(A.aUV, 2, 3); atrib(A.aNor, 3, 5); atrib(A.aEmi, 1, 8); atrib(A.aCol, 3, 9);
+        partes.push({vao, buf, n: datos.length / 12, tex: k >= 0 ? texturaTaller(d.mats[k]) : null});
+      }
+      gl.bindVertexArray(null);
+      MODELOS.set(id, partes);
+    } catch (_) { setTimeout(() => PIDIENDO.delete(id), 3000); return; }
+    PIDIENDO.delete(id);
+  }
+
   function dibujar(ahora) {
+    gl.activeTexture(gl.TEXTURE0);
     for (const p of T.piezas) {
       if (Math.hypot(p.x - yo.x, p.z - yo.z) > 130) continue;
       for (const e of p.partes) {
-        const mo = figurasModelo.get(e.m);
-        if (!mo) { pedirFigura(e.m); continue; }
+        const mo = MODELOS.get(e.m);
+        if (!mo) { cargarModelo(e.m); continue; }
         gl.uniformMatrix4fv(U.uModelo, false, matrizDe(e, ahora));
-        gl.bindVertexArray(mo.vao);
-        gl.drawArrays(gl.TRIANGLES, 0, mo.n);
+        for (const g of mo) {
+          if (g.tex) gl.bindTexture(gl.TEXTURE_2D, g.tex);
+          gl.bindVertexArray(g.vao);
+          gl.drawArrays(gl.TRIANGLES, 0, g.n);
+        }
       }
     }
     gl.bindVertexArray(null);

@@ -61,6 +61,10 @@ type tallerExtra struct {
 	fantasmaDesde int
 	brillo        [][2]int // tramos de vértices que dan luz
 	brilloDesde   int
+	materiales    []tallerTramoMaterial
+	material      string
+	materialDesde int
+	matVertice    []string // al terminar: el material de cada vértice
 }
 
 var (
@@ -95,6 +99,7 @@ func tallerSoltarExtra(c *Cuerpo) *tallerExtra {
 		x.fantasmaDesde = -1
 	}
 	tallerAplicarBrillo(c, x)
+	x.matVertice = tallerMaterialPorVertice(c, x)
 	return x
 }
 
@@ -165,13 +170,15 @@ func (p *tallerProg) tieneScripts() bool {
 type tallerParteMalla struct {
 	nombre string
 	pivote [3]float64
-	cuerpo *Cuerpo // con el pivote en el origen
-	solido []bool  // por triángulo
+	cuerpo *Cuerpo  // con el pivote en el origen
+	solido []bool   // por triángulo
+	mat    []string // material de cada triángulo ("" = color liso)
 }
 
 type tallerCompilada struct {
 	prog   *tallerProg
 	entero *Cuerpo
+	matTri []string            // material de cada triángulo del cuerpo entero
 	partes []*tallerParteMalla // la 0 es el cuerpo principal ("")
 	huecos [][4]float64
 }
@@ -258,6 +265,13 @@ func tallerPartir(p *tallerProg, c *Cuerpo, ex *tallerExtra) *tallerCompilada {
 		}
 	}
 	out := &tallerCompilada{prog: p, entero: c, huecos: ex.huecos}
+	for t := 0; t+2 < nv; t += 3 {
+		m := ""
+		if t < len(ex.matVertice) {
+			m = ex.matVertice[t]
+		}
+		out.matTri = append(out.matTri, m)
+	}
 	for _, n := range orden {
 		pv := pivotes[n]
 		pm := &tallerParteMalla{nombre: n, pivote: pv, cuerpo: &Cuerpo{}}
@@ -272,6 +286,11 @@ func tallerPartir(p *tallerProg, c *Cuerpo, ex *tallerExtra) *tallerCompilada {
 				pm.cuerpo.Emi = append(pm.cuerpo.Emi, c.Emi[k])
 			}
 			pm.solido = append(pm.solido, !fantasma[t] && c.Emi[t] < 3.5)
+			m := ""
+			if t < len(ex.matVertice) {
+				m = ex.matVertice[t]
+			}
+			pm.mat = append(pm.mat, m)
 		}
 		if len(pm.cuerpo.Pos) > 0 || n == "" {
 			out.partes = append(out.partes, pm)
@@ -546,7 +565,7 @@ func (v *tallerPiezaViva) parte(nombre string) *tallerParteViva {
 // matrizDe: dónde está una parte en el mundo ahora mismo.
 func (v *tallerPiezaViva) matrizDe(p *tallerParteViva) tallerMat {
 	pz := v.pieza
-	m := tallerTras(pz.X, pz.Y, pz.Z).por(tallerRotY(pz.Rumbo))
+	m := tallerTras(pz.X, pz.Y, pz.Z).por(tallerRotY(pz.Rumbo)).por(tallerRotX(pz.RotX))
 	m = m.por(tallerTras(p.pivote[0]+p.pos[0], p.pivote[1]+p.pos[1], p.pivote[2]+p.pos[2]))
 	m = m.por(tallerRotY(p.rot[1])).por(tallerRotX(p.rot[0])).por(tallerRotZ(p.rot[2])).por(tallerEsc(p.esc))
 	return m
@@ -554,9 +573,15 @@ func (v *tallerPiezaViva) matrizDe(p *tallerParteViva) tallerMat {
 
 // mallaDe: el cuerpo de una parte («pieza~parte»), para dibujarlo.
 func (mt *tallerMotor) mallaDe(modelo string) (*Cuerpo, []bool, [][4]float64, bool) {
+	c, s, h, _, ok := mt.mallaConMateriales(modelo)
+	return c, s, h, ok
+}
+
+// mallaConMateriales: lo mismo, con el material de cada triángulo.
+func (mt *tallerMotor) mallaConMateriales(modelo string) (*Cuerpo, []bool, [][4]float64, []string, bool) {
 	i := strings.LastIndex(modelo, "~")
 	if i < 0 {
-		return nil, nil, nil, false
+		return nil, nil, nil, nil, false
 	}
 	id, nombre := modelo[:i], modelo[i+1:]
 	mt.o.mu.Lock()
@@ -576,10 +601,10 @@ func (mt *tallerMotor) mallaDe(modelo string) (*Cuerpo, []bool, [][4]float64, bo
 	if comp == nil { // una versión vieja, o una pieza que ya no está
 		d, err := os.ReadFile(filepath.Join(mt.o.m.dir, "objetos", id+".go"))
 		if err != nil {
-			return nil, nil, nil, false
+			return nil, nil, nil, nil, false
 		}
 		if comp, err = tallerCompilar(string(d)); err != nil {
-			return nil, nil, nil, false
+			return nil, nil, nil, nil, false
 		}
 	}
 	for _, pm := range comp.partes {
@@ -588,10 +613,10 @@ func (mt *tallerMotor) mallaDe(modelo string) (*Cuerpo, []bool, [][4]float64, bo
 			if nombre == "" {
 				h = comp.huecos
 			}
-			return pm.cuerpo, pm.solido, h, true
+			return pm.cuerpo, pm.solido, h, pm.mat, true
 		}
 	}
-	return nil, nil, nil, false
+	return nil, nil, nil, nil, false
 }
 
 // Fisica: la de un modelo (una parte de una pieza, o una cosa que vio Nyx).
@@ -1237,12 +1262,40 @@ func (mt *tallerMotor) rutas(mux *http.ServeMux, suyo http.Handler, codigo strin
 			suyo.ServeHTTP(w, r)
 			return
 		}
-		c, _, _, ok := mt.mallaDe(id)
+		c, solido, _, mats, ok := mt.mallaConMateriales(id)
 		if !ok {
 			http.NotFound(w, r)
 			return
 		}
-		responder(w, map[string]any{"pos": c.Pos, "nor": c.Nor, "col": c.Col, "emi": c.Emi}, nil)
+		sol := make([]int, len(solido))
+		for i, b := range solido {
+			if b {
+				sol[i] = 1
+			}
+		}
+		res := map[string]any{"pos": c.Pos, "nor": c.Nor, "col": c.Col, "emi": c.Emi, "sol": sol}
+		// los materiales: una lista y, por triángulo, cuál (-1 = color liso)
+		var lista []string
+		idx := map[string]int{}
+		tm := make([]int, len(mats))
+		hay := false
+		for i, m := range mats {
+			if m == "" {
+				tm[i] = -1
+				continue
+			}
+			k, ok := idx[m]
+			if !ok {
+				k = len(lista)
+				idx[m] = k
+				lista = append(lista, m)
+			}
+			tm[i], hay = k, true
+		}
+		if hay {
+			res["mats"], res["tm"] = lista, tm
+		}
+		responder(w, res, nil)
 	})
 	mux.HandleFunc("/api/taller-fisica", func(w http.ResponseWriter, r *http.Request) {
 		f := mt.Fisica(r.URL.Query().Get("m"))
@@ -1262,6 +1315,7 @@ func (mt *tallerMotor) rutas(mux *http.ServeMux, suyo http.Handler, codigo strin
 		}
 		responder(w, mt.Vista(int(num("s")), int(num("l"))), nil)
 	})
+	tallerRutaTextura(mux, mt.o)
 	mux.HandleFunc("/api/taller-sonido", func(w http.ResponseWriter, r *http.Request) {
 		n := filepath.Base(r.URL.Query().Get("f"))
 		if n == "." || n == "/" || strings.HasPrefix(n, ".") {

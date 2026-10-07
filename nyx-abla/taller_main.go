@@ -52,6 +52,8 @@ func init() {
 }
 
 const tallerAyuda = `TALLER DE NYX Y ABLA — construyen un mundo en 3D con lo que recuerdan
+  godot                        su mundo en Godot 4 (luz, sombras y física de Godot):
+                               escribe el proyecto y lo abre si tienes Godot
   camina                       abre el mundo (las ves trabajar mientras paseas)
                                en la ventana: WASD andar · Espacio saltar ·
                                V volar (Espacio sube, C baja) · E usar (puertas,
@@ -66,6 +68,11 @@ const tallerAyuda = `TALLER DE NYX Y ABLA — construyen un mundo en 3D con lo q
   LA OBRA
   obra                         todas las piezas (quién las hizo y qué cambiaron)
   codigo <pieza>               su código en Go (y dónde está)
+  crea <palabras>              construye tú con palabras, con sus mismas reglas
+                               (p. ej. «crea tres piedra encima luz azul»;
+                               «crea torre llamar faro» la guarda como forma)
+  forma lista · forma guarda <pieza> como <nombre> · forma borra <nombre>
+  texturas                     los materiales y cómo hacer texturas propias
   nyx [lo que quieras]         que Nyx hable ahora (contesta a eso, o a Abla) y
                                construya con lo que dice
   abla                         que uno de los 27 hable ahora y construya
@@ -405,6 +412,22 @@ func (s *tallerSesion) ejecutar(linea string) bool {
 			break
 		}
 		s.decir("taller: %d piezas en %s (ábrelo en Blender: Archivo → Importar → Wavefront .obj)", n, ruta)
+	case "crea", "construye", "escribe":
+		// tú también construyes con palabras (con las mismas reglas que ellas)
+		if resto == "" {
+			s.decir("uso: crea <lo que quieras, en palabras>   (p. ej. «crea tres piedra encima luz azul»)")
+			break
+		}
+		s.decir("tú ⟶ %s", o.CrearTu(resto))
+	case "forma", "formas-propias":
+		s.forma(resto)
+	case "texturas", "materiales":
+		s.decir("Materiales: %s, neón (brilla).", strings.Join(tallerListaMateriales(), ", "))
+		s.decir("Y cualquier palabra es una textura: «textura zela» (siempre el mismo dibujo para la misma palabra).")
+		s.decir("Con un color delante se tiñe: «rojo madera». «foto:<nombre>» es una foto que vio Abla.")
+		s.decir("Tus imágenes: ponlas en %s (png o jpg) y úsalas por su nombre.", filepath.Join(o.dir, "texturas"))
+	case "godot":
+		s.abrirGodot()
 	case "pasillos":
 		on := strings.HasPrefix(strings.ToLower(resto), "on") || strings.HasPrefix(strings.ToLower(resto), "si") || strings.HasPrefix(strings.ToLower(resto), "sí")
 		o.mu.Lock()
@@ -420,6 +443,39 @@ func (s *tallerSesion) ejecutar(linea string) bool {
 		ejecutaMundo(o.m, linea)
 	}
 	return false
+}
+
+// forma: las formas propias (las que se guardan con nombre).
+func (s *tallerSesion) forma(resto string) {
+	o := s.o
+	f := strings.Fields(resto)
+	switch {
+	case len(f) == 0 || f[0] == "lista":
+		l := tallerListaFormas()
+		if len(l) == 0 {
+			s.decir("Todavía no hay formas guardadas. Ellas las guardan al decir «llamar <nombre>»; tú, con: forma guarda <pieza> como <nombre>")
+		}
+		for _, x := range l {
+			s.decir("  %s", x)
+		}
+	case f[0] == "guarda" && len(f) >= 4 && f[2] == "como":
+		p := o.Pieza(f[1])
+		if p == nil {
+			s.decir("no encuentro la pieza %s", f[1])
+			return
+		}
+		if err := o.GuardarForma(strings.Join(f[3:], " "), p, "tú"); err != nil {
+			s.decir("taller: %v", err)
+			return
+		}
+		s.decir("taller: guardada. Desde ahora «%s» es esa forma (para ti y para ellas).", strings.Join(f[3:], " "))
+	case f[0] == "borra" && len(f) >= 2:
+		if err := tallerBorrarForma(strings.Join(f[1:], " ")); err != nil {
+			s.decir("taller: %v", err)
+		}
+	default:
+		s.decir("uso: forma lista · forma guarda <pieza> como <nombre> · forma borra <nombre>")
+	}
 }
 
 // ordenDeUna: «nyx …» o «abla …»: que hable (y construya) ahora, o una
@@ -531,22 +587,53 @@ func (s *tallerSesion) abrirVentana() {
 		go abrirNavegador(s.ventana)
 		return
 	}
-	listo := make(chan string, 1)
-	go func() {
-		if err := tallerServir(s.o, 8471, listo); err != nil {
-			s.decir("taller: la ventana falló: %v", err)
-			listo <- ""
-		}
-	}()
-	s.ventana = <-listo
-	if s.ventana != "" {
+	if s.servir(true) {
 		s.decir("taller: ventana en %s (sigues aquí: puedes enseñarles vídeos mientras paseas)", s.ventana)
 	}
 }
 
+// servir: arranca el servidor del mundo (una vez); con navegador, abre la
+// ventana.
+func (s *tallerSesion) servir(navegador bool) bool {
+	if s.ventana != "" {
+		return true
+	}
+	listo := make(chan string, 1)
+	go func() {
+		if err := tallerServir(s.o, 8471, listo, navegador); err != nil {
+			s.decir("taller: el servidor del mundo falló: %v", err)
+			listo <- ""
+		}
+	}()
+	s.ventana = <-listo
+	return s.ventana != ""
+}
+
+// abrirGodot: el proyecto de Godot, conectado a este taller.
+func (s *tallerSesion) abrirGodot() {
+	if !s.servir(false) {
+		return
+	}
+	s.o.mu.Lock()
+	cod := s.o.codigoVentana
+	s.o.mu.Unlock()
+	dir, err := s.o.EscribirGodot(strings.TrimSuffix(s.ventana, "/"), cod)
+	if err != nil {
+		s.decir("taller: no pude escribir el proyecto de Godot: %v", err)
+		return
+	}
+	s.decir("taller: proyecto de Godot en %s", dir)
+	if quien, ok := tallerAbrirGodot(dir); ok {
+		s.decir("taller: abriendo Godot (%s). Dale a ▶ (F5) para entrar en su mundo.", quien)
+	} else {
+		s.decir("taller: abre Godot 4 → Importar → elige %s → Importar y editar → ▶ (F5).", filepath.Join(dir, "project.godot"))
+	}
+	s.decir("        (deja el taller abierto: Godot le va pidiendo lo que construyen)")
+}
+
 // tallerServir: la misma ventana de Nyx Mundo (con todo lo suyo), con las
 // piezas del taller en el mundo y la charla de las dos encima.
-func tallerServir(o *tallerObra, puerto int, listo chan<- string) error {
+func tallerServir(o *tallerObra, puerto int, listo chan<- string, navegador bool) error {
 	b := make([]byte, 24)
 	_, _ = rand.Read(b)
 	srv := &servidorMundo{m: o.m, codigo: hex.EncodeToString(b)}
@@ -607,7 +694,11 @@ func tallerServir(o *tallerObra, puerto int, listo chan<- string) error {
 		d, _ := io.ReadAll(io.LimitReader(r.Body, 4096))
 		t := strings.TrimSpace(string(d))
 		if t != "" {
-			go (&tallerSesion{o: o}).ejecutar("di " + t)
+			if strings.HasPrefix(strings.ToLower(t), "crea ") {
+				go o.CrearTu(t[5:])
+			} else {
+				go (&tallerSesion{o: o}).ejecutar("di " + t)
+			}
 		}
 		responder(w, map[string]any{"ok": true}, nil)
 	})
@@ -618,8 +709,13 @@ func tallerServir(o *tallerObra, puerto int, listo chan<- string) error {
 		}
 	}
 	dir := "http://" + ln.Addr().String() + "/"
+	o.mu.Lock()
+	o.codigoVentana = srv.codigo
+	o.mu.Unlock()
 	listo <- dir
-	go abrirNavegador(dir)
+	if navegador {
+		go abrirNavegador(dir)
+	}
 	// lo mismo que hace la ventana de Nyx Mundo: se entrena, los seres viven
 	o.mu.Lock()
 	pasillos := o.Pasillos
@@ -682,7 +778,7 @@ const tallerPanel = `
  <div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">
   <b>Taller · Nyx ↔ Abla</b><span id="taller-e" style="font-size:11px;opacity:.7"></span></div>
  <div id="taller-l"></div>
- <form id="taller-f" style="margin-top:6px"><input id="taller-t" placeholder="Háblales a las dos (Enter)" autocomplete="off"
+ <form id="taller-f" style="margin-top:6px"><input id="taller-t" placeholder="Háblales a las dos, o «crea …» para construir tú (Enter)" autocomplete="off"
   style="width:100%;box-sizing:border-box;background:rgba(255,255,255,.08);color:inherit;border:1px solid rgba(255,255,255,.15);border-radius:6px;padding:5px 7px"></form>
  <div style="font-size:11px;opacity:.6;margin-top:4px">Y: mostrar/ocultar</div>
 </div>

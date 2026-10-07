@@ -44,6 +44,7 @@ type tallerPieza struct {
 	Y       float64            `json:"y"`
 	Z       float64            `json:"z"`
 	Rumbo   float64            `json:"rumbo"`
+	RotX    float64            `json:"rotX,omitempty"` // inclinada (las manos)
 	Radio   float64            `json:"radio"`
 	Alto    float64            `json:"alto"`
 	Cambios []string           `json:"cambios,omitempty"` // quién la cambió y cómo
@@ -72,21 +73,22 @@ type tallerObra struct {
 	Tortugas map[string]*tallerTortuga `json:"tortugas,omitempty"`
 	// Pasillos: si el fondo es el mundo de Nyx Mundo (sus pasillos y sitios).
 	// Si no, es el vacío: todo lo que hay lo hacen ellas.
-	Pasillos   bool `json:"pasillos,omitempty"`
-	Turno      int  `json:"turno"`
-	charla     []tallerFrase
-	nfrase     int
-	version    int            // sube con cada cambio de la obra
-	trozos     map[string]int // trozo "cx,cz" → versión en que cambió
-	pausa      bool
-	ritmo      time.Duration
-	viendo     string // el vídeo que están viendo ahora
-	avisarFn   func(string)
-	motor      *tallerMotor
-	motorVivo  bool // la ventana está abierta y el motor corre
-	instruida  bool // ya se les dio la instrucción en esta sesión
-	ultimoNyx  string
-	ultimoAbla string
+	Pasillos      bool `json:"pasillos,omitempty"`
+	Turno         int  `json:"turno"`
+	charla        []tallerFrase
+	nfrase        int
+	version       int            // sube con cada cambio de la obra
+	trozos        map[string]int // trozo "cx,cz" → versión en que cambió
+	pausa         bool
+	ritmo         time.Duration
+	viendo        string // el vídeo que están viendo ahora
+	avisarFn      func(string)
+	motor         *tallerMotor
+	motorVivo     bool   // la ventana está abierta y el motor corre
+	instruida     bool   // ya se les dio la instrucción en esta sesión
+	codigoVentana string // el código que pide el servidor del mundo
+	ultimoNyx     string
+	ultimoAbla    string
 }
 
 func tallerNuevaObra(m *Mundo) *tallerObra {
@@ -100,6 +102,7 @@ func tallerNuevaObra(m *Mundo) *tallerObra {
 		o.Sig = 1
 	}
 	o.abla = tallerNuevaAbla(filepath.Join(m.dir, "abla"))
+	tallerFormasDir = filepath.Join(o.dir, "formas")
 	o.motor = tallerNuevoMotor(o)
 	// lo último que se dijeron, para seguir la conversación
 	if f, err := os.Open(filepath.Join(o.dir, "charla.txt")); err == nil {
@@ -218,7 +221,7 @@ func (o *tallerObra) compilarYGuardar(id, codigo string) (*Cuerpo, error) {
 	if err := os.WriteFile(ruta+".go", []byte(codigo), 0o644); err != nil {
 		return nil, err
 	}
-	_ = tallerGuardarOBJ(comp.entero, ruta, id)
+	_ = o.tallerGuardarOBJ(comp.entero, comp.matTri, ruta, id)
 	return comp.entero, nil
 }
 
@@ -415,22 +418,28 @@ func tallerRadio(c *Cuerpo) float64 {
 
 // ---------- Blender: exportar ----------
 
-// tallerGuardarOBJ: el cuerpo como .obj + .mtl (Blender lo abre con sus
-// colores; lo que brilla va como material emisivo).
-func tallerGuardarOBJ(c *Cuerpo, ruta, nombre string) error {
+// tallerGuardarOBJ: el cuerpo como .obj + .mtl (Blender o Godot lo abren
+// con sus colores y sus texturas; lo que brilla va como material emisivo).
+func (o *tallerObra) tallerGuardarOBJ(c *Cuerpo, mats []string, ruta, nombre string) error {
 	var b, mt strings.Builder
 	fmt.Fprintf(&b, "# %s — hecho en el taller de Nyx y Abla\nmtllib %s.mtl\no %s\n", nombre, filepath.Base(ruta), nombre)
-	usados := tallerEscribirMalla(&b, c, 0, func(p [3]float64) [3]float64 { return p })
-	tallerEscribirMateriales(&mt, usados)
+	usados := tallerEscribirMalla(&b, c, mats, 0, func(p [3]float64) [3]float64 { return p })
+	o.tallerEscribirMateriales(&mt, usados, filepath.Dir(ruta))
 	if err := os.WriteFile(ruta+".mtl", []byte(mt.String()), 0o644); err != nil {
 		return err
 	}
 	return os.WriteFile(ruta+".obj", []byte(b.String()), 0o644)
 }
 
-// tallerEscribirMalla: vértices (con color), normales y caras agrupadas por
-// material. base: cuántos vértices hay ya en el archivo.
-func tallerEscribirMalla(b *strings.Builder, c *Cuerpo, base int, mover func([3]float64) [3]float64) map[string][4]float64 {
+type tallerMatOBJ struct {
+	col    [3]float64
+	brilla bool
+	tex    string // nombre de la textura ("" = color liso)
+}
+
+// tallerEscribirMalla: vértices (con color), coordenadas de textura,
+// normales y caras agrupadas por material. base: cuántos vértices hay ya.
+func tallerEscribirMalla(b *strings.Builder, c *Cuerpo, mats []string, base int, mover func([3]float64) [3]float64) map[string]tallerMatOBJ {
 	n := len(c.Pos) / 3
 	f := func(x float32) string { return strconv.FormatFloat(float64(x), 'f', 4, 32) }
 	for i := 0; i < n; i++ {
@@ -438,13 +447,24 @@ func tallerEscribirMalla(b *strings.Builder, c *Cuerpo, base int, mover func([3]
 		fmt.Fprintf(b, "v %s %s %s %s %s %s\n", f(float32(p[0])), f(float32(p[1])), f(float32(p[2])), f(c.Col[i*3]), f(c.Col[i*3+1]), f(c.Col[i*3+2]))
 	}
 	for i := 0; i < n; i++ {
+		u, v := tallerUV([3]float64{float64(c.Pos[i*3]), float64(c.Pos[i*3+1]), float64(c.Pos[i*3+2])}, [3]float64{float64(c.Nor[i*3]), float64(c.Nor[i*3+1]), float64(c.Nor[i*3+2])})
+		fmt.Fprintf(b, "vt %s %s\n", f(float32(u)), f(float32(v)))
+	}
+	for i := 0; i < n; i++ {
 		q := mover([3]float64{float64(c.Nor[i*3]), float64(c.Nor[i*3+1]), float64(c.Nor[i*3+2])})
 		o := mover([3]float64{})
 		fmt.Fprintf(b, "vn %s %s %s\n", f(float32(q[0]-o[0])), f(float32(q[1]-o[1])), f(float32(q[2]-o[2])))
 	}
 	grupos := map[string][]int{}
-	usados := map[string][4]float64{}
+	usados := map[string]tallerMatOBJ{}
 	for t := 0; t+2 < n; t += 3 {
+		if m := ""; t/3 < len(mats) && mats[t/3] != "" {
+			m = mats[t/3]
+			nombre := "t_" + tallerSlug(strings.ReplaceAll(m, "|", "-"))
+			grupos[nombre] = append(grupos[nombre], t)
+			usados[nombre] = tallerMatOBJ{col: [3]float64{1, 1, 1}, tex: m}
+			continue
+		}
 		q := func(v float32) int { return int(math.Round(float64(v) * 15)) }
 		brilla := 0
 		if c.Emi[t] >= 4 {
@@ -452,7 +472,7 @@ func tallerEscribirMalla(b *strings.Builder, c *Cuerpo, base int, mover func([3]
 		}
 		nombre := fmt.Sprintf("c%x%x%x_%d", q(c.Col[t*3]), q(c.Col[t*3+1]), q(c.Col[t*3+2]), brilla)
 		grupos[nombre] = append(grupos[nombre], t)
-		usados[nombre] = [4]float64{float64(q(c.Col[t*3])) / 15, float64(q(c.Col[t*3+1])) / 15, float64(q(c.Col[t*3+2])) / 15, float64(brilla)}
+		usados[nombre] = tallerMatOBJ{col: [3]float64{float64(q(c.Col[t*3])) / 15, float64(q(c.Col[t*3+1])) / 15, float64(q(c.Col[t*3+2])) / 15}, brilla: brilla == 1}
 	}
 	nombres := make([]string, 0, len(grupos))
 	for k := range grupos {
@@ -463,13 +483,14 @@ func tallerEscribirMalla(b *strings.Builder, c *Cuerpo, base int, mover func([3]
 		fmt.Fprintf(b, "usemtl %s\n", k)
 		for _, t := range grupos[k] {
 			a := base + t + 1
-			fmt.Fprintf(b, "f %d//%d %d//%d %d//%d\n", a, a, a+1, a+1, a+2, a+2)
+			fmt.Fprintf(b, "f %d/%d/%d %d/%d/%d %d/%d/%d\n", a, a, a, a+1, a+1, a+1, a+2, a+2, a+2)
 		}
 	}
 	return usados
 }
 
-func tallerEscribirMateriales(mt *strings.Builder, usados map[string][4]float64) {
+// tallerEscribirMateriales: el .mtl (y las texturas como .png al lado).
+func (o *tallerObra) tallerEscribirMateriales(mt *strings.Builder, usados map[string]tallerMatOBJ, dir string) {
 	nombres := make([]string, 0, len(usados))
 	for k := range usados {
 		nombres = append(nombres, k)
@@ -477,9 +498,15 @@ func tallerEscribirMateriales(mt *strings.Builder, usados map[string][4]float64)
 	sort.Strings(nombres)
 	for _, k := range nombres {
 		c := usados[k]
-		fmt.Fprintf(mt, "newmtl %s\nKd %.3f %.3f %.3f\nKa 0 0 0\nKs 0.05 0.05 0.05\nNs 20\nd 1\nillum 2\n", k, c[0], c[1], c[2])
-		if c[3] > 0 {
-			fmt.Fprintf(mt, "Ke %.3f %.3f %.3f\n", c[0], c[1], c[2])
+		fmt.Fprintf(mt, "newmtl %s\nKd %.3f %.3f %.3f\nKa 0 0 0\nKs 0.05 0.05 0.05\nNs 20\nd 1\nillum 2\n", k, c.col[0], c.col[1], c.col[2])
+		if c.brilla {
+			fmt.Fprintf(mt, "Ke %.3f %.3f %.3f\n", c.col[0], c.col[1], c.col[2])
+		}
+		if c.tex != "" {
+			archivo := k + ".png"
+			if d, err := tallerTexturaPNG(o, c.tex); err == nil && os.WriteFile(filepath.Join(dir, archivo), d, 0o644) == nil {
+				fmt.Fprintf(mt, "map_Kd %s\n", archivo)
+			}
 		}
 		mt.WriteString("\n")
 	}
@@ -493,7 +520,7 @@ func (o *tallerObra) ExportarEscena() (string, int, error) {
 	o.mu.Unlock()
 	var b, mt strings.Builder
 	b.WriteString("# El mundo de Nyx y Abla: cada pieza en su sitio (y hacia arriba es +Y)\nmtllib mundo.mtl\n")
-	todos := map[string][4]float64{}
+	todos := map[string]tallerMatOBJ{}
 	base := 0
 	for _, p := range piezas {
 		d, err := os.ReadFile(filepath.Join(o.m.dir, "objetos", p.ID+".go"))
@@ -505,20 +532,16 @@ func (o *tallerObra) ExportarEscena() (string, int, error) {
 			continue
 		}
 		c := comp.entero
-		s, co := math.Sin(p.Rumbo), math.Cos(p.Rumbo)
-		px, py, pz := p.X, p.Y, p.Z
+		M := tallerTras(p.X, p.Y, p.Z).por(tallerRotY(p.Rumbo)).por(tallerRotX(p.RotX))
 		fmt.Fprintf(&b, "o %s\n", p.ID)
-		usados := tallerEscribirMalla(&b, c, base, func(v [3]float64) [3]float64 {
-			// como la ventana: gira alrededor del eje vertical y lo pone en su sitio
-			return [3]float64{v[0]*co - v[2]*s + px, v[1] + py, v[0]*s + v[2]*co + pz}
-		})
+		usados := tallerEscribirMalla(&b, c, comp.matTri, base, M.punto)
 		for k, v := range usados {
 			todos[k] = v
 		}
 		base += len(c.Pos) / 3
 	}
-	tallerEscribirMateriales(&mt, todos)
 	dir := filepath.Join(o.dir, "blender")
+	o.tallerEscribirMateriales(&mt, todos, dir)
 	if err := os.WriteFile(filepath.Join(dir, "mundo.mtl"), []byte(mt.String()), 0o644); err != nil {
 		return "", 0, err
 	}
