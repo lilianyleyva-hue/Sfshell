@@ -32,6 +32,7 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -64,6 +65,11 @@ type tallerObjetivo struct {
 func (o *tallerObra) Estudiar(entrada []string, avisar func(string)) int {
 	var nuevos []string
 	for _, e := range entrada {
+		if strings.HasPrefix(e, "~/") {
+			if h, err := os.UserHomeDir(); err == nil {
+				e = filepath.Join(h, e[2:])
+			}
+		}
 		if strings.HasSuffix(strings.ToLower(e), ".txt") {
 			if f, err := os.Open(e); err == nil {
 				sc := bufio.NewScanner(f)
