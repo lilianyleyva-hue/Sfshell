@@ -97,6 +97,8 @@ type tallerObra struct {
 	// Nexo: el cerebro nuevo (taller_nexo.go)
 	nexo                  *tallerNexo
 	ias                   *tallerPoblado
+	ultimoIA, quienIA     string // lo último que dijo una de las 36 (y quién)
+	iaEn                  int
 	ultimoNexo            string
 	habla                 int // cuenta quién habló cuándo: lo último dicho es lo que se contesta
 	nyxEn, ablaEn, nexoEn int

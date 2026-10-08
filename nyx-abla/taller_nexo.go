@@ -845,6 +845,20 @@ func (n *tallerNexo) activar(estimulo, contexto []string) map[string]float64 {
 	return act
 }
 
+// Activacion: lo que se le enciende a Nexo con unas palabras (y un
+// contexto), para que piensen con él las 36.
+func (n *tallerNexo) Activacion(palabras, contexto []string) map[string]float64 {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	act := n.activar(palabras, contexto)
+	for w := range act {
+		if tallerVacias[w] || nexoEsRelacion(w) {
+			delete(act, w)
+		}
+	}
+	return act
+}
+
 // Responder: lo que dice Nexo a un mensaje. Devuelve la frase y, si usa
 // palabras suyas, qué significan.
 func (n *tallerNexo) Responder(mensaje string) (frase, glosa string) {
@@ -1236,15 +1250,9 @@ func (o *tallerObra) TurnoNexo(mensaje string) {
 	if o.nexo == nil {
 		return
 	}
-	o.mu.Lock()
 	if mensaje == "" {
-		if o.ablaEn > o.nyxEn {
-			mensaje = o.ultimoAbla
-		} else {
-			mensaje = o.ultimoNyx
-		}
+		mensaje = o.loUltimo("nexo")
 	}
-	o.mu.Unlock()
 	if mensaje == "" {
 		mensaje = tallerInstruccion
 	}

@@ -108,10 +108,14 @@ const tallerAyuda = `TALLER DE NYX Y ABLA — construyen un mundo en 3D con lo q
   nexo palabras                las palabras que ha inventado
   nexo hereda                  que lea lo que ya saben Nyx y Abla (sin tocarlas)
 
-  LAS 36 IAs DEL MUNDO 3D (constructoras, exploradoras, artistas, jugadoras)
-  ias                          las 36: qué hacen, su habilidad, dónde están
+  LAS 36 IAs (como Nyx y Abla: sin cuerpo, y pueden hacer de todo: construir,
+  programar modelos 3D, componer música, crear entidades, usar las manos,
+  hacer juegos, explorar)
+  ias                          las 36: su oficio y en qué son mejores
   ia <nombre>                  una de ellas, con detalle
-  ias aqui                     que vengan todas a donde estás
+  ia <nombre> <lo que quieras> decirle algo a una (contesta y lo hace)
+  ias habla                    que hable una ahora
+  ias ritmo <segundos>         cada cuánto habla una (12 si no dices)
   ias pausa · ias sigue        que paren o sigan
   modelo                       el modelo del mundo 3D (lo que sabe y cuánto acierta)
   lengua                       el modelo de lenguaje (cuánto ha aprendido)
@@ -283,10 +287,23 @@ func (s *tallerSesion) ejecutar(linea string) bool {
 	case "ias":
 		s.ias(resto)
 	case "ia":
-		if l, ok := o.ias.Una(strings.TrimSpace(resto)); ok {
+		f := strings.Fields(resto)
+		if len(f) == 0 {
+			s.ias("")
+			break
+		}
+		una := o.ias.buscar(f[0])
+		switch {
+		case una == nil:
+			s.decir("No hay ninguna que se llame «%s» (escribe «ias» para verlas).", f[0])
+		case len(f) == 1:
+			l, _ := o.ias.Una(f[0])
 			s.decir("%s", l)
-		} else {
-			s.decir("No hay ninguna que se llame «%s» (escribe «ias» para verlas).", resto)
+		default:
+			// le dices algo a una: contesta y lo hace
+			msg := strings.Join(f[1:], " ")
+			o.Decir("tú", "("+una.Nombre+") "+msg, "")
+			o.ias.Turno(una, msg)
 		}
 	case "modelo":
 		s.decir("%s", o.ias.modelo.Estado())
@@ -598,19 +615,28 @@ func (s *tallerSesion) forma(resto string) {
 // ias: las 36 del mundo 3D.
 func (s *tallerSesion) ias(resto string) {
 	p := s.o.ias
-	switch strings.ToLower(strings.TrimSpace(resto)) {
+	f := strings.Fields(strings.ToLower(resto))
+	sub := ""
+	if len(f) > 0 {
+		sub = f[0]
+	}
+	switch sub {
 	case "pausa", "para":
 		p.PonerPausa(true)
-		s.decir("Las 36 se quedan quietas («ias sigue» para que sigan).")
+		s.decir("Las 36 se quedan calladas («ias sigue» para que sigan).")
 	case "sigue", "seguid":
 		p.PonerPausa(false)
 		s.decir("Siguen.")
-	case "aqui", "aquí", "ven", "venid":
-		s.o.motor.mu.Lock()
-		j := s.o.motor.jug
-		s.o.motor.mu.Unlock()
-		p.Traer(j[0], j[1], j[2])
-		s.decir("Vienen todas a (%.0f, %.0f, %.0f).", j[0], j[1], j[2])
+	case "habla", "ya", "turno":
+		p.Ya()
+		s.decir("Ahora habla una.")
+	case "ritmo":
+		seg := 12.0
+		if len(f) > 1 {
+			fmt.Sscanf(f[1], "%g", &seg)
+		}
+		p.PonerRitmo(seg)
+		s.decir("Una cada %.0f segundos.", math.Max(3, seg))
 	default:
 		for _, l := range p.Lista() {
 			s.decir("  %s", l)

@@ -218,14 +218,9 @@ func (o *tallerObra) construirConHecho(autor, quien, texto string) (string, *tal
 // TurnoNyx: Nyx contesta (con su cabeza, que no se toca) a lo último que
 // dijo Abla, o a la instrucción; y lo que dice, lo construye.
 func (o *tallerObra) TurnoNyx(rng *rand.Rand, mensaje string) {
-	o.mu.Lock()
 	if mensaje == "" {
-		mensaje = o.ultimoAbla
-		if o.nexoEn > o.ablaEn && o.ultimoNexo != "" {
-			mensaje = o.ultimoNexo
-		}
+		mensaje = o.loUltimo("nyx") // lo último que dijo otra (Abla, Nexo o una de las 36)
 	}
-	o.mu.Unlock()
 	if mensaje == "" {
 		mensaje = tallerInstruccion
 	}
@@ -249,14 +244,9 @@ func (o *tallerObra) TurnoAbla(rng *rand.Rand, mensaje string) {
 	if !o.abla.Viva() {
 		return
 	}
-	o.mu.Lock()
 	if mensaje == "" {
-		mensaje = o.ultimoNyx
-		if o.nexoEn > o.nyxEn && o.ultimoNexo != "" {
-			mensaje = o.ultimoNexo
-		}
+		mensaje = o.loUltimo("abla")
 	}
-	o.mu.Unlock()
 	ser, _ := o.serDeTribu(rng, rng.Intn(3))
 	quien, dijo, glosa := "", "", ""
 	if mensaje != "" {

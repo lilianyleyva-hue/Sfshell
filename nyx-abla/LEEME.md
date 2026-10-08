@@ -151,44 +151,53 @@ taller› palabras olvida zape      que vuelva a ser solo su forma
 taller› puntos                    el marcador de sus juegos
 ```
 
-## Las 36 IAs del mundo 3D
+## Las 36 IAs
 
-En el mundo viven **36 IAs con cuerpo**. Andan con física por lo que hay:
-suben escaleras, bajan a sótanos y nada las atraviesa. Por el vacío vuelan.
-Se hablan cuando se encuentran, y construyen, pintan y juegan solas. Van en
-cuatro tribus de 9, como los seres de Abla:
+Además de Nyx, Abla y Nexo hay **36 IAs más**. Son como las dos principales:
+**no tienen cuerpo**. Están en la charla, contestan a lo último que se ha
+dicho (de Nyx, de Abla, de Nexo o de otra de ellas) y lo que dicen se hace en
+el mundo. Y Nyx, Abla y Nexo también les contestan a ellas.
 
-| Tribu | Color | Qué hace |
-|---|---|---|
-| **Constructoras** | naranja | Buscan un sitio libre pegado a lo que ya hay y construyen allí. A la mitad les gusta crecer hacia arriba y a la otra mitad hacia abajo. |
-| **Exploradoras** | azul | Van a donde nadie ha ido. Si llegan lejos de todo, tienden suelo para que el mundo siga sin fin. |
-| **Artistas** | rosa | Van a lo que hay y lo pintan con el color que Nexo une a sus palabras (la sinestesia). |
-| **Jugadoras** | verde | Van a por los premios y ganan puntos. Si no hay juegos cerca, hacen uno. |
+**Todas pueden hacer de todo:**
 
-No tienen plantillas. Para construir:
+| Qué | Cómo |
+|---|---|
+| **Construir** con palabras | con el constructor (formas, materiales, manos, eventos…). Antes de construir, imaginan con el modelo del mundo qué saldrá. |
+| **Programar modelos 3D** | escriben un programa en Go con bucles, funciones, recursión y senos. Pueden salir espirales, anillos, escaleras hacia arriba o hacia abajo, arcos, cúpulas, árboles (una función que se llama a sí misma), rejillas como ciudades, olas, muros con ventanas o sus palabras en letras 3D. |
+| **Componer música** | cada palabra es una nota; la escala, el ritmo y el timbre (cuerda, campana, flauta u órgano) salen de la frase y del estilo de cada una. La graban como **audio de verdad** (.wav) y escriben un instrumento que la toca en el mundo. |
+| **Crear entidades** | criaturas escritas en código, con cuerpo, cabeza, ojos y patas que se mueven. Andan solas y te siguen o huyen; si las tocas, dicen algo. Con `pasillos on` también crean entidades de Nyx Mundo. |
+| **Usar las manos** | cogen lo que ha hecho otra y lo tiñen, lo pintan de un material, lo suben, lo giran, lo agrandan, lo copian o le escriben código dentro. |
+| **Hacer juegos** | premios, puertas, trampolines, portales. |
+| **Explorar** | llevan el mundo a donde no hay nada. |
 
-1. hablan con el **modelo de lenguaje**, con las palabras que han oído;
-2. *imaginan* con el **modelo del mundo** qué saldría de cada frase;
-3. dicen la frase que mejor sirve para lo que quieren.
+Cada una tiene un **oficio** que le gusta más (6 de cada):
 
-Después comparan lo imaginado con lo que salió. Así el modelo se corrige y
-ellas ganan **habilidad**, como en las misiones de Abla. Con más habilidad,
-imaginan más frases antes de elegir.
+- constructora
+- programadora
+- música
+- creadora de entidades
+- artista
+- exploradora
 
-En la ventana las ves con su cuerpo, su cabeza y unos ojos que brillan, con
-una antena del color de su tribu. Abajo sale lo que dicen las que tienes
-cerca. En Godot también salen, con su nombre y lo que dicen encima.
+Pero todas pueden todo. Lo que eligen depende de su oficio, de lo que les sale
+bien y de lo que se está hablando: si hablan de música, apetece componer. Lo
+que hacen les sale cada vez mejor, como en las misiones de Abla. Lo que oyen y
+dicen se vuelve lo que les interesa, así que cada una acaba siendo distinta.
 
-Construyen de una en una, una cada 12 segundos, para que el mundo crezca sin
-amontonarse.
+Hablan de una en una, cada 12 segundos.
 
 ```text
-taller› ias                     las 36: qué hacen, su habilidad, dónde están
-taller› ia Kavi                 una de ellas, con detalle
-taller› ias aqui                que vengan todas a donde estás
+taller› ias                        las 36: su oficio y en qué son mejores
+taller› ia Kavi                    una, con detalle (qué ha hecho, qué le interesa)
+taller› ia Kavi haz una criatura   decirle algo a una: contesta y lo hace
+taller› ias habla                  que hable una ahora
+taller› ias ritmo 20               una cada 20 segundos
 taller› ias pausa · ias sigue
-taller› modelo                  el modelo del mundo: lo que sabe y cuánto acierta
+taller› modelo                     el modelo del mundo: lo que sabe y cuánto acierta
 ```
+
+Todo lo que hacen es código Go que puedes leer (`codigo <pieza>`). Su música
+está en `~/.local/share/nyx-mundo/taller/sonidos/`.
 
 ## Los dos modelos
 
@@ -203,7 +212,7 @@ a partir de las dos anteriores (trigramas con suavizado de Kneser-Ney).
 - **Cómo decirlo**: imagina varias frases y elige la que mejor junta lo que
   quiere decir y lo bien que suena.
 
-Lo usan Nexo y las 36.
+Lo usan Nexo y las 36 IAs.
 
 ```text
 taller› lengua                  cuánto ha aprendido
@@ -368,7 +377,9 @@ Todo eso también sirve en las entidades.
 | `taller_nexo.go` | Nexo, el cerebro nuevo hecho con lo mejor de los tres |
 | `taller_lenguaje.go` | el modelo de lenguaje |
 | `taller_modelo3d.go` | el modelo del mundo 3D (mapa, imaginar, calibrarse) |
-| `taller_ias3d.go` | las 36 IAs del mundo 3D (cuerpo, física, tribus, habilidad) |
+| `taller_ias.go` | las 36 IAs (oficios, habilidades, intereses, conversación, todo lo que hacen) |
+| `taller_programador.go` | cómo escriben programas: modelos 3D, entidades e instrumentos |
+| `taller_musica.go` | cómo componen y graban su música (.wav) |
 | `taller_materiales.go` | materiales y texturas (con nombre, de cualquier palabra, de fotos o tuyas) |
 | `taller_formas_propias.go` | las formas que guardan con nombre |
 | `taller_godot.go` | el proyecto de Godot que muestra su mundo en vivo |
@@ -389,7 +400,8 @@ Lo que guardan, en `~/.local/share/nyx-mundo/`:
 | `taller/nexo-diario.txt` | todo lo que ha pensado Nexo (no se borra) |
 | `taller/lengua.json` | el modelo de lenguaje |
 | `taller/mundo3d.json` | el modelo del mundo (visitas y calibración) |
-| `taller/ias3d.json` | las 36 IAs (dónde están, su habilidad, lo que han hecho) |
+| `taller/ias.json` | las 36 IAs (su oficio, habilidades, intereses, lo que han hecho) |
+| `taller/sonidos/` | la música que componen (y la tuya) |
 | `taller/videos/` | los vídeos que vieron |
 | `abla/` | la memoria de Abla |
 | `abla/fotos/vistas.jsonl` | lo que vio en cada fotograma |

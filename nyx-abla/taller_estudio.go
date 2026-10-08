@@ -205,7 +205,19 @@ func (o *tallerObra) estudiarUno(fuente string, avisar func(string)) string {
 	// y perfeccionan
 	var sumaAntes, sumaDespues float64
 	n := 0
-	for _, q := range [][2]string{{"nyx", "Nyx"}, {"abla", "Abla"}, {"nexo", "Nexo"}} {
+	quienes := [][2]string{{"nyx", "Nyx"}, {"abla", "Abla"}, {"nexo", "Nexo"}}
+	if o.ias != nil { // y seis de las 36, cada vídeo otras
+		o.mu.Lock()
+		hechos := len(o.Estudio.Hechos)
+		o.mu.Unlock()
+		o.ias.mu.Lock()
+		for k := 0; k < 6 && k < len(o.ias.Seres); k++ {
+			s := o.ias.Seres[(hechos*6+k)%len(o.ias.Seres)]
+			quienes = append(quienes, [2]string{"ia:" + s.Nombre, s.quien()})
+		}
+		o.ias.mu.Unlock()
+	}
+	for _, q := range quienes {
 		if (q[0] == "abla" && !o.abla.Viva()) || (q[0] == "nexo" && o.nexo == nil) {
 			continue
 		}
