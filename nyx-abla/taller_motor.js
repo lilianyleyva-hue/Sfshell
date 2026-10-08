@@ -16,7 +16,7 @@
   const T = {
     piezas: [], estado: new Map(), fis: new Map(),
     nsonido: -1, nllevar: -1, ambientes: new Map(),
-    pies: null, vy: 0, suelo: true, volar: false, usar: false,
+    pies: null, vy: 0, suelo: true, volar: false, usar: false, ias: new Map(),
     ultimo: {x: yo.x, z: yo.z}, marcador: [], cuerpos: [], cuerposHora: 0,
   };
   globalThis.taller = T; // para mirarlo desde las herramientas del navegador
@@ -295,6 +295,23 @@
     T.nllevar = Math.max(T.nllevar, d.nllevar || 0);
     T.ambientesNuevos = d.ambientes || [];
     T.marcador = d.puntos || [];
+    // las 36 IAs del mundo 3D: de dónde venían y adónde van (para moverlas suave)
+    const vistas = new Set();
+    for (const a of d.ias || []) {
+      let e = T.ias.get(a.n);
+      if (!e) { e = {px: a.x, py: a.y, pz: a.z, pr: a.r}; T.ias.set(a.n, e); }
+      else { const m = iaAhora(e, ahora); e.px = m[0]; e.py = m[1]; e.pz = m[2]; e.pr = m[3]; }
+      Object.assign(e, a, {t0: ahora});
+      vistas.add(a.n);
+    }
+    for (const k of [...T.ias.keys()]) if (!vistas.has(k)) T.ias.delete(k);
+  }
+  function iaAhora(e, ahora) {
+    const k = Math.max(0, Math.min(1, (ahora - e.t0) / 200));
+    let dr = e.r - e.pr;
+    while (dr > Math.PI) dr -= 2 * Math.PI;
+    while (dr < -Math.PI) dr += 2 * Math.PI;
+    return [e.px + (e.x - e.px) * k, e.py + (e.y - e.py) * k, e.pz + (e.z - e.pz) * k, e.pr + dr * k];
   }
   setTimeout(preguntar, 300);
 
@@ -382,8 +399,54 @@
         }
       }
     }
+    dibujarIAs(ahora);
     gl.bindVertexArray(null);
     gl.uniformMatrix4fv(U.uModelo, false, IDENTIDAD);
+  }
+
+  /* ---------- las 36 IAs: un cuerpo, una cabeza y ojos que brillan ---------- */
+  const TRIBUS = [[0.95, 0.68, 0.22], [0.3, 0.78, 0.95], [0.9, 0.35, 0.8], [0.4, 0.88, 0.4]];
+  const NOMBRE_TRIBU = ["constructora", "exploradora", "artista", "jugadora"];
+  const CUERPOS = [];
+  function cajaIA(out, x0, y0, z0, x1, y1, z1, c, emi) {
+    const caras = [
+      [[1, 0, 0], [[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]]],
+      [[-1, 0, 0], [[x0, y0, z1], [x0, y1, z1], [x0, y1, z0], [x0, y0, z0]]],
+      [[0, 1, 0], [[x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0]]],
+      [[0, -1, 0], [[x0, y0, z1], [x0, y0, z0], [x1, y0, z0], [x1, y0, z1]]],
+      [[0, 0, 1], [[x1, y0, z1], [x1, y1, z1], [x0, y1, z1], [x0, y0, z1]]],
+      [[0, 0, -1], [[x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [x1, y0, z0]]],
+    ];
+    for (const [n, q] of caras) for (const i of [0, 1, 2, 0, 2, 3]) out.push(q[i][0], q[i][1], q[i][2], 0, 0, n[0], n[1], n[2], emi, c[0], c[1], c[2]);
+  }
+  function cuerpoDe(t) {
+    if (CUERPOS[t]) return CUERPOS[t];
+    const c = TRIBUS[t] || TRIBUS[0], claro = c.map(v => Math.min(1, v * 0.6 + 0.4)), d = [];
+    cajaIA(d, -0.16, 0, -0.12, 0.16, 0.55, 0.12, c.map(v => v * 0.55), 0);      // piernas
+    cajaIA(d, -0.22, 0.55, -0.26, 0.22, 1.25, 0.26, c, 0);                       // cuerpo
+    cajaIA(d, -0.2, 1.3, -0.2, 0.2, 1.7, 0.2, claro, 0);                         // cabeza
+    cajaIA(d, 0.2, 1.48, -0.13, 0.23, 1.56, -0.05, [1, 1, 1], 1);                // ojos (miran hacia +x)
+    cajaIA(d, 0.2, 1.48, 0.05, 0.23, 1.56, 0.13, [1, 1, 1], 1);
+    cajaIA(d, -0.03, 1.7, -0.03, 0.03, 1.9, 0.03, c, 1);                         // la antena, del color de su tribu
+    const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+    const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(d), gl.STATIC_DRAW);
+    const atrib = (a, n, o) => { if (a < 0) return; gl.enableVertexAttribArray(a); gl.vertexAttribPointer(a, n, gl.FLOAT, false, 48, o * 4); };
+    atrib(A.aPos, 3, 0); atrib(A.aUV, 2, 3); atrib(A.aNor, 3, 5); atrib(A.aEmi, 1, 8); atrib(A.aCol, 3, 9);
+    gl.bindVertexArray(null);
+    return (CUERPOS[t] = {vao, n: d.length / 12});
+  }
+  function dibujarIAs(ahora) {
+    for (const e of T.ias.values()) {
+      const [x, y, z, r] = iaAhora(e, ahora);
+      if (Math.hypot(x - yo.x, z - yo.z) > 120) continue;
+      const cu = cuerpoDe(e.t);
+      const salto = Math.abs(Math.sin(ahora / 160 + x)) * 0.06; // anda (o flota)
+      const c = Math.cos(r), s = Math.sin(r);
+      gl.uniformMatrix4fv(U.uModelo, false, [c, 0, s, 0, 0, 1, 0, 0, -s, 0, c, 0, x, y + salto, z, 1]);
+      gl.bindVertexArray(cu.vao);
+      gl.drawArrays(gl.TRIANGLES, 0, cu.n);
+    }
   }
 
   /* ---------- lo que ves abajo a la izquierda ---------- */
@@ -412,6 +475,16 @@
       else if (T.pies > t + 2.5) lineas.push("en alto: +" + (T.pies - t).toFixed(1) + " m");
     }
     if (T.marcador.length) lineas.push("🏆 " + T.marcador.map(texto).join(" · "));
+    // lo que dicen las IAs que tienes cerca
+    const cerca3 = [...T.ias.values()].map(e => [Math.hypot(e.x - yo.x, e.z - yo.z), e]).filter(([d]) => d < 20)
+      .sort((a, b) => a[0] - b[0]);
+    for (const [, e] of cerca3.filter(([, e]) => e.d).slice(0, 3))
+      lineas.push("💬 <b>" + texto(e.n) + "</b> (" + NOMBRE_TRIBU[e.t] + "): " + texto(e.d));
+    if (cerca3.length && !cerca3.some(([, e]) => e.d)) {
+      const e = cerca3[0][1];
+      lineas.push("🤖 <b>" + texto(e.n) + "</b> (" + NOMBRE_TRIBU[e.t] + "): " + texto(e.h || ""));
+    }
+    if (T.ias.size) lineas.push(T.ias.size + " IAs a la vista");
     const h = lineas.join("<br>");
     if (h !== hudAntes) { caja.innerHTML = h; hudAntes = h; }
   }

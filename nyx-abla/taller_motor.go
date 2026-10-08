@@ -925,6 +925,9 @@ func (mt *tallerMotor) Vista(desdeSonido, desdeLlevar int) map[string]any {
 	mt.o.mu.Lock()
 	res["puntos"] = tallerMarcador(mt.o.Puntos)
 	mt.o.mu.Unlock()
+	if mt.o.ias != nil {
+		res["ias"] = mt.o.ias.Vista(jug[0], jug[2], 120) // las 36 IAs del mundo 3D
+	}
 	return res
 }
 

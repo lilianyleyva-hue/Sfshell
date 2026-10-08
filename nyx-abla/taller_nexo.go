@@ -891,6 +891,34 @@ func (n *tallerNexo) Responder(mensaje string) (frase, glosa string) {
 		return frase, ""
 	}
 	tema := temas[0]
+	// con el modelo de lenguaje: una frase de verdad, que diga lo activado
+	if tallerLengua != nil {
+		if f := tallerLengua.Decir(n.rng, rel, tema, 16); f != "" {
+			frase = f
+			fb := " " + tallerSinTildes.Replace(f) + " "
+			// lo que sabe con más confianza de su tema, si no lo ha dicho ya
+			var mejorH *nexoHecho
+			for _, i := range n.porSujeto[tema] {
+				h := &n.Hechos[i]
+				if h.C >= 0.5 && (mejorH == nil || h.C > mejorH.C) {
+					mejorH = h
+				}
+			}
+			if mejorH != nil && !strings.Contains(fb, " "+mejorH.O+" ") {
+				frase += ", y " + mejorH.S + " " + nexoRelDicha[mejorH.R] + " " + mejorH.O
+			}
+			// y su color, si lo ha visto
+			if c, ok := n.Color[tema]; ok && c[3] >= 2 {
+				frase += ", " + nexoNombreColor([3]float64{c[0], c[1], c[2]})
+			}
+			n.Dichos = append(n.Dichos, tema)
+			if len(n.Dichos) > 12 {
+				n.Dichos = n.Dichos[len(n.Dichos)-12:]
+			}
+			n.anotarContexto(strings.Join(nexoPalabras(f), " "))
+			return frase, ""
+		}
+	}
 	partes := []string{}
 	// su color (sinestesia): si lo ha visto, lo dice, y se construye así
 	for _, w := range append([]string{tema}, est...) {
@@ -1236,11 +1264,17 @@ func (o *tallerObra) TurnoNexo(mensaje string) {
 	o.nexoEn = o.habla
 	o.mu.Unlock()
 	_ = o.nexo.Guardar()
+	if tallerLengua != nil {
+		_ = tallerLengua.Guardar()
+	}
 }
 
 // oyeNexo: lo que dice cualquiera, Nexo lo escucha y aprende.
 func (o *tallerObra) oyeNexo(quien, texto string) {
 	if o.nexo != nil {
 		o.nexo.Oir(quien, texto)
+	}
+	if tallerLengua != nil {
+		tallerLengua.Aprender(quien, texto) // y el modelo de lenguaje también
 	}
 }

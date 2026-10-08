@@ -173,6 +173,8 @@ type tallerTortuga struct {
 	Pila     [][8]float64 `json:"pila,omitempty"`
 	Frases   int          `json:"frases"`
 	Mano     string       `json:"mano,omitempty"` // la pieza que tiene cogida
+	// imaginando: solo se piensa, no se aprende nada (el modelo del mundo)
+	imaginando bool
 }
 
 func tallerNuevaTortuga(x, z float64, color [3]float64) *tallerTortuga {
@@ -379,6 +381,21 @@ type tallerObraHecha struct {
 	Nombrar string   // si la llamaron de alguna manera: así se guarda la forma
 	Juego   bool     // tiene premios: los seres pueden ir a jugar
 	Aprendo []string // palabras suyas a las que dieron sentido («kevo = subir»)
+	// dónde queda lo que pone (para imaginarlo antes de hacerlo)
+	HayCaja bool
+	Caja    [6]float64 // x0, y0, z0, x1, y1, z1
+	Eventos int        // puertas, premios, trampolines…
+}
+
+// abarcar: la caja crece para que quepa esto.
+func (f *tallerObraHecha) abarcar(x0, y0, z0, x1, y1, z1 float64) {
+	if !f.HayCaja {
+		f.Caja, f.HayCaja = [6]float64{x0, y0, z0, x1, y1, z1}, true
+		return
+	}
+	c := &f.Caja
+	c[0], c[1], c[2] = math.Min(c[0], x0), math.Min(c[1], y0), math.Min(c[2], z0)
+	c[3], c[4], c[5] = math.Max(c[3], x1), math.Max(c[4], y1), math.Max(c[5], z1)
 }
 
 // tallerHablarYConstruir: la tortuga recorre la frase; cada palabra, un
@@ -569,6 +586,10 @@ o.SonarEn(%q, %q, %s)
 			}
 			if escrito == nil {
 				f.formas++ // lo escrito en otra pieza no cuenta como pieza nueva
+				f.abarcar(cx-a/2, y, cz-a/2, cx+a/2, y+alto, cz+a/2)
+				if esp != gForma && esp != gMover {
+					f.Eventos++
+				}
 			}
 		}
 		quedo := " ×" + fmt.Sprint(n)
@@ -621,7 +642,7 @@ o.SonarEn(%q, %q, %s)
 		if g, ok := tallerGestoDe[base]; ok && g == gAprender {
 			if i > 0 && i+1 < len(palabras) {
 				x, y := palabras[i-1], palabras[i+1]
-				if tallerAprender(x, y, quien) {
+				if !t.imaginando && tallerAprender(x, y, quien) {
 					i++
 					f.Aprendo = append(f.Aprendo, x+" = "+y)
 					gesto("«" + x + "» ahora es «" + y + "»")
@@ -873,6 +894,7 @@ o.SonarEn(%q, %q, %s)
 		case gLuz:
 			e.L("c.Brilla(%s, %s, %s, %s, %s) // «%s»", f2(t.X-ox), f2(t.Y-oy+0.5*t.Escala), f2(t.Z-oz), f2(0.25*t.Escala), tallerCol(tallerAclarar(t.Color, 0.5)), w)
 			f.formas++
+			f.abarcar(t.X-0.3*t.Escala, t.Y, t.Z-0.3*t.Escala, t.X+0.3*t.Escala, t.Y+0.8*t.Escala, t.Z+0.3*t.Escala)
 			gesto("luz")
 		case gSuelo:
 			l := 4 * t.Escala
@@ -882,6 +904,7 @@ o.SonarEn(%q, %q, %s)
 			}
 			e.L("c.Caja(%s, %s, %s, %s, %s, %s, %s) // «%s»: un suelo", f2(t.X-ox), f2(t.Y-oy-0.1*t.Escala), f2(t.Z-oz), f2(l), f2(0.2*t.Escala), f2(l), tallerCol(t.Color), w)
 			f.formas++
+			f.abarcar(t.X-l/2, t.Y-0.2*t.Escala, t.Z-l/2, t.X+l/2, t.Y, t.Z+l/2)
 			gesto("suelo")
 		case gRepetir:
 			if ultima.ok {

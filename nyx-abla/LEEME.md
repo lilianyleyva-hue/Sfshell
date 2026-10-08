@@ -151,6 +151,79 @@ taller› palabras olvida zape      que vuelva a ser solo su forma
 taller› puntos                    el marcador de sus juegos
 ```
 
+## Las 36 IAs del mundo 3D
+
+En el mundo viven **36 IAs con cuerpo**. Andan con física por lo que hay:
+suben escaleras, bajan a sótanos y nada las atraviesa. Por el vacío vuelan.
+Se hablan cuando se encuentran, y construyen, pintan y juegan solas. Van en
+cuatro tribus de 9, como los seres de Abla:
+
+| Tribu | Color | Qué hace |
+|---|---|---|
+| **Constructoras** | naranja | Buscan un sitio libre pegado a lo que ya hay y construyen allí. A la mitad les gusta crecer hacia arriba y a la otra mitad hacia abajo. |
+| **Exploradoras** | azul | Van a donde nadie ha ido. Si llegan lejos de todo, tienden suelo para que el mundo siga sin fin. |
+| **Artistas** | rosa | Van a lo que hay y lo pintan con el color que Nexo une a sus palabras (la sinestesia). |
+| **Jugadoras** | verde | Van a por los premios y ganan puntos. Si no hay juegos cerca, hacen uno. |
+
+No tienen plantillas. Para construir:
+
+1. hablan con el **modelo de lenguaje**, con las palabras que han oído;
+2. *imaginan* con el **modelo del mundo** qué saldría de cada frase;
+3. dicen la frase que mejor sirve para lo que quieren.
+
+Después comparan lo imaginado con lo que salió. Así el modelo se corrige y
+ellas ganan **habilidad**, como en las misiones de Abla. Con más habilidad,
+imaginan más frases antes de elegir.
+
+En la ventana las ves con su cuerpo, su cabeza y unos ojos que brillan, con
+una antena del color de su tribu. Abajo sale lo que dicen las que tienes
+cerca. En Godot también salen, con su nombre y lo que dicen encima.
+
+Construyen de una en una, una cada 12 segundos, para que el mundo crezca sin
+amontonarse.
+
+```text
+taller› ias                     las 36: qué hacen, su habilidad, dónde están
+taller› ia Kavi                 una de ellas, con detalle
+taller› ias aqui                que vengan todas a donde estás
+taller› ias pausa · ias sigue
+taller› modelo                  el modelo del mundo: lo que sabe y cuánto acierta
+```
+
+## Los dos modelos
+
+**El modelo de lenguaje** (`taller_lenguaje.go`) predice la palabra siguiente
+a partir de las dos anteriores (trigramas con suavizado de Kneser-Ney).
+
+- Aprende de todo lo que dicen Nyx, Abla (con su traducción) y tú, y de los
+  textos que le des. Nunca aprende de lo que dice él mismo, así no se queda
+  en bucle.
+- **De qué hablar** lo decide con la activación de Nexo: viene de Nyx, con
+  los hechos de Abla y los colores del cerebro web.
+- **Cómo decirlo**: imagina varias frases y elige la que mejor junta lo que
+  quiere decir y lo bien que suena.
+
+Lo usan Nexo y las 36.
+
+```text
+taller› lengua                  cuánto ha aprendido
+taller› lengua di la torre      que siga la frase
+taller› lengua lee ~/libro.txt  que aprenda de un texto tuyo (todo local)
+```
+
+**El modelo del mundo 3D** (`taller_modelo3d.go`) tiene lo mejor de cada una:
+
+- **Mapa:** un mapa en 3D, por celdas de 4 m, de lo que hay y qué palabras
+  lo hicieron, como los sitios que recuerda Nyx Mundo.
+- **Imaginación:** prueba una frase en la cabeza antes de construirla.
+- **Autoentreno:** compara lo imaginado con lo real y se calibra solo, como
+  Nyx Mundo.
+- **Novedad:** sabe qué sitios no ha visitado nadie, como el cerebro web
+  sabe lo que cambia.
+
+Para que se sepa cuánto acierta, dice su error: por ejemplo, «se equivoca un
+3%».
+
 ## Nexo: un cerebro nuevo con lo mejor de los tres
 
 Nexo es una **tercera IA** del taller. No cambia a Nyx ni a Abla: es un
@@ -293,6 +366,9 @@ Todo eso también sirve en las entidades.
 | `taller_lengua.go` | de palabras a construcción: el constructor de cada una, sus manos (el editor) y los eventos |
 | `taller_vocabulario.go` | las palabras suyas a las que dan sentido |
 | `taller_nexo.go` | Nexo, el cerebro nuevo hecho con lo mejor de los tres |
+| `taller_lenguaje.go` | el modelo de lenguaje |
+| `taller_modelo3d.go` | el modelo del mundo 3D (mapa, imaginar, calibrarse) |
+| `taller_ias3d.go` | las 36 IAs del mundo 3D (cuerpo, física, tribus, habilidad) |
 | `taller_materiales.go` | materiales y texturas (con nombre, de cualquier palabra, de fotos o tuyas) |
 | `taller_formas_propias.go` | las formas que guardan con nombre |
 | `taller_godot.go` | el proyecto de Godot que muestra su mundo en vivo |
@@ -311,6 +387,9 @@ Lo que guardan, en `~/.local/share/nyx-mundo/`:
 | `taller/palabras.json` | las palabras que aprendieron |
 | `taller/nexo.json` | lo que sabe Nexo (lazos, hechos, colores, sus palabras) |
 | `taller/nexo-diario.txt` | todo lo que ha pensado Nexo (no se borra) |
+| `taller/lengua.json` | el modelo de lenguaje |
+| `taller/mundo3d.json` | el modelo del mundo (visitas y calibración) |
+| `taller/ias3d.json` | las 36 IAs (dónde están, su habilidad, lo que han hecho) |
 | `taller/videos/` | los vídeos que vieron |
 | `abla/` | la memoria de Abla |
 | `abla/fotos/vistas.jsonl` | lo que vio en cada fotograma |

@@ -108,6 +108,16 @@ const tallerAyuda = `TALLER DE NYX Y ABLA — construyen un mundo en 3D con lo q
   nexo palabras                las palabras que ha inventado
   nexo hereda                  que lea lo que ya saben Nyx y Abla (sin tocarlas)
 
+  LAS 36 IAs DEL MUNDO 3D (constructoras, exploradoras, artistas, jugadoras)
+  ias                          las 36: qué hacen, su habilidad, dónde están
+  ia <nombre>                  una de ellas, con detalle
+  ias aqui                     que vengan todas a donde estás
+  ias pausa · ias sigue        que paren o sigan
+  modelo                       el modelo del mundo 3D (lo que sabe y cuánto acierta)
+  lengua                       el modelo de lenguaje (cuánto ha aprendido)
+  lengua di <principio>        que siga una frase
+  lengua lee <archivo.txt>     que aprenda de un texto tuyo (un libro, notas…)
+
   ABLA
   abla <orden>                 una orden para la consola de Abla (seres, mision,
                                fotos, dic buscar <palabra>, decir <ser> <texto>…)
@@ -202,6 +212,7 @@ func tallerMain(args []string) {
 		s.ejecutar(strings.Join(args, " "))
 		if len(args) > 0 && (args[0] == "camina" || args[0] == "ventana") {
 			go o.Trabajar(s.parar)
+			go o.ias.Vivir(s.parar)
 			select {}
 		}
 		cerrar()
@@ -214,6 +225,7 @@ func tallerMain(args []string) {
 		np, len(m.ListaRecuerdos()), o.abla.Estado())
 	fmt.Println("Ya están trabajando. Escribe 'camina' para verlas, 'ven <vídeo>' para enseñarles algo, 'ayuda' para más.")
 	go o.Trabajar(s.parar)
+	go o.ias.Vivir(s.parar) // las 36 IAs del mundo 3D
 	o.SeguirEstudiando(func(l string) { s.decir("%s", l) })
 	lector := bufio.NewReader(os.Stdin)
 	for {
@@ -261,9 +273,25 @@ func (s *tallerSesion) ejecutar(linea string) bool {
 		if o.nexo != nil {
 			_ = o.nexo.Guardar()
 		}
+		if tallerLengua != nil {
+			_ = tallerLengua.Guardar()
+		}
+		_ = o.ias.Guardar()
 		return true
 	case "nexo":
 		s.nexo(resto)
+	case "ias":
+		s.ias(resto)
+	case "ia":
+		if l, ok := o.ias.Una(strings.TrimSpace(resto)); ok {
+			s.decir("%s", l)
+		} else {
+			s.decir("No hay ninguna que se llame «%s» (escribe «ias» para verlas).", resto)
+		}
+	case "modelo":
+		s.decir("%s", o.ias.modelo.Estado())
+	case "lengua":
+		s.lengua(resto)
 	case "estado":
 		o.mu.Lock()
 		s.decir("piezas: %d · turnos: %d · Abla vio %d fotos · %s", len(o.Piezas), o.Turno, len(o.Vistas),
@@ -564,6 +592,64 @@ func (s *tallerSesion) forma(resto string) {
 		}
 	default:
 		s.decir("uso: forma lista · forma guarda <pieza> como <nombre> · forma borra <nombre>")
+	}
+}
+
+// ias: las 36 del mundo 3D.
+func (s *tallerSesion) ias(resto string) {
+	p := s.o.ias
+	switch strings.ToLower(strings.TrimSpace(resto)) {
+	case "pausa", "para":
+		p.PonerPausa(true)
+		s.decir("Las 36 se quedan quietas («ias sigue» para que sigan).")
+	case "sigue", "seguid":
+		p.PonerPausa(false)
+		s.decir("Siguen.")
+	case "aqui", "aquí", "ven", "venid":
+		s.o.motor.mu.Lock()
+		j := s.o.motor.jug
+		s.o.motor.mu.Unlock()
+		p.Traer(j[0], j[1], j[2])
+		s.decir("Vienen todas a (%.0f, %.0f, %.0f).", j[0], j[1], j[2])
+	default:
+		for _, l := range p.Lista() {
+			s.decir("  %s", l)
+		}
+		s.decir("%s", p.modelo.Estado())
+	}
+}
+
+// lengua: el modelo de lenguaje.
+func (s *tallerSesion) lengua(resto string) {
+	lm := tallerLengua
+	if lm == nil {
+		return
+	}
+	f := strings.Fields(resto)
+	switch {
+	case len(f) == 0:
+		s.decir("%s", lm.Estado())
+	case f[0] == "di" || f[0] == "sigue":
+		rng := mrand.New(mrand.NewSource(time.Now().UnixNano()))
+		for i := 0; i < 3; i++ {
+			s.decir("  %s …%s", strings.Join(f[1:], " "), lm.Continuar(rng, strings.Join(f[1:], " ")))
+		}
+	case f[0] == "lee" && len(f) > 1:
+		ruta := strings.Join(f[1:], " ")
+		if strings.HasPrefix(ruta, "~/") {
+			if h, err := os.UserHomeDir(); err == nil {
+				ruta = filepath.Join(h, ruta[2:])
+			}
+		}
+		n, err := lm.LeerArchivo(ruta)
+		if err != nil {
+			s.decir("No puedo leer %s: %v", ruta, err)
+			return
+		}
+		_ = lm.Guardar()
+		s.decir("Ha aprendido %d palabras de %s.", n, ruta)
+	default:
+		s.decir("uso: lengua · lengua di <principio> · lengua lee <archivo.txt>")
 	}
 }
 

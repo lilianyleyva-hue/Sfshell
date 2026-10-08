@@ -106,6 +106,9 @@ var cayendo := 0.0
 var ocupado := false
 var marcador := []
 var piezas_cerca := []
+var ias := {}          # las 36 IAs del mundo 3D: nombre -> {"nodo", "letrero", "objetivo", "rumbo"}
+const TRIBUS := [Color(0.95, 0.68, 0.22), Color(0.3, 0.78, 0.95), Color(0.9, 0.35, 0.8), Color(0.4, 0.88, 0.4)]
+const NOMBRE_TRIBU := ["constructora", "exploradora", "artista", "jugadora"]
 var jugador: CharacterBody3D
 var camara: Camera3D
 var hud: Label
@@ -138,7 +141,7 @@ func _ready() -> void:
 	t3.wait_time = 5.0
 	t3.autostart = true
 	add_child(t3)
-	t3.timeout.connect(func(): print("taller: %d piezas a la vista, %d modelos, %d texturas" % [instancias.size(), mallas.size(), texturas.size()]))
+	t3.timeout.connect(func(): print("taller: %d piezas a la vista, %d modelos, %d texturas, %d IAs" % [instancias.size(), mallas.size(), texturas.size(), ias.size()]))
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 func _leer_conexion() -> void:
@@ -251,6 +254,12 @@ func _physics_process(dt: float) -> void:
 		var i: Dictionary = instancias[k]
 		var c: AnimatableBody3D = i["cuerpo"]
 		c.global_transform = c.global_transform.interpolate_with(i["objetivo"], min(1.0, dt * 12.0))
+	# las IAs van suaves hacia donde dice el taller
+	for n in ias:
+		var a: Dictionary = ias[n]
+		var nodo: Node3D = a["nodo"]
+		nodo.global_position = nodo.global_position.lerp(a["objetivo"], min(1.0, dt * 6.0))
+		nodo.rotation.y = lerp_angle(nodo.rotation.y, -float(a["rumbo"]), min(1.0, dt * 6.0))
 
 # un escalón (hasta 45 cm) se sube andando
 func _subir_escalon(mov: Vector3) -> void:
@@ -318,7 +327,76 @@ func _al_motor(resultado: int, cod: int, _cab: PackedStringArray, cuerpo: Packed
 	nllevar = maxi(nllevar, nl)
 	nsonido = maxi(nsonido, int(d.get("nsonido", 0)))
 	marcador = _lista(d, "puntos")
+	_actualizar_ias(_lista(d, "ias"))
 	_actualizar_hud()
+
+# ---------- las 36 IAs del mundo 3D ----------
+
+func _actualizar_ias(lista: Array) -> void:
+	var vistas := {}
+	for a in lista:
+		var n := str(a.get("n", ""))
+		vistas[n] = true
+		if not ias.has(n):
+			ias[n] = _crear_ia(n, int(a.get("t", 0)), Vector3(a["x"], a["y"], a["z"]))
+		var e: Dictionary = ias[n]
+		e["objetivo"] = Vector3(a["x"], a["y"], a["z"])
+		e["rumbo"] = float(a.get("r", 0.0))
+		var dice := str(a.get("d", ""))
+		var letrero: Label3D = e["letrero"]
+		letrero.text = n if dice == "" else "%s\n«%s»" % [n, dice]
+	for n in ias.keys():
+		if not vistas.has(n):
+			ias[n]["nodo"].queue_free()
+			ias.erase(n)
+
+func _crear_ia(n: String, t: int, pos: Vector3) -> Dictionary:
+	var nodo := Node3D.new()
+	add_child(nodo)
+	nodo.global_position = pos
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = TRIBUS[t % 4]
+	var cuerpo := MeshInstance3D.new()
+	var capsula := CapsuleMesh.new()
+	capsula.radius = 0.25
+	capsula.height = 1.3
+	cuerpo.mesh = capsula
+	cuerpo.material_override = mat
+	cuerpo.position = Vector3(0, 0.65, 0)
+	nodo.add_child(cuerpo)
+	var cabeza := MeshInstance3D.new()
+	var esfera := SphereMesh.new()
+	esfera.radius = 0.2
+	esfera.height = 0.4
+	cabeza.mesh = esfera
+	var claro := StandardMaterial3D.new()
+	claro.albedo_color = TRIBUS[t % 4].lightened(0.4)
+	cabeza.material_override = claro
+	cabeza.position = Vector3(0, 1.5, 0)
+	nodo.add_child(cabeza)
+	var ojo_mat := StandardMaterial3D.new()
+	ojo_mat.emission_enabled = true
+	ojo_mat.emission = Color(1, 1, 1)
+	for z in [-0.08, 0.08]:
+		var ojo := MeshInstance3D.new()
+		var bola := SphereMesh.new()
+		bola.radius = 0.04
+		bola.height = 0.08
+		ojo.mesh = bola
+		ojo.material_override = ojo_mat
+		ojo.position = Vector3(0.18, 1.53, z)
+		nodo.add_child(ojo)
+	var letrero := Label3D.new()
+	letrero.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	letrero.position = Vector3(0, 2.1, 0)
+	letrero.font_size = 28
+	letrero.pixel_size = 0.008
+	letrero.modulate = TRIBUS[t % 4].lightened(0.5)
+	letrero.text = n
+	letrero.width = 420
+	letrero.autowrap_mode = TextServer.AUTOWRAP_WORD
+	nodo.add_child(letrero)
+	return {"nodo": nodo, "letrero": letrero, "objetivo": pos, "rumbo": 0.0}
 
 # una lista del taller (si viene vacía, llega como null)
 func _lista(d: Dictionary, k: String) -> Array:
@@ -478,5 +556,7 @@ func _actualizar_hud() -> void:
 	l.append("WASD andar · Espacio saltar · V volar (Espacio/C) · E usar · Esc ratón")
 	if marcador.size() > 0:
 		l.append("Puntos: " + " · ".join(PackedStringArray(marcador)))
+	if ias.size() > 0:
+		l.append("%d IAs a la vista" % ias.size())
 	hud.text = "\n".join(l)
 `

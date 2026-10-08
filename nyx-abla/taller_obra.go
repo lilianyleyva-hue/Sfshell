@@ -96,6 +96,7 @@ type tallerObra struct {
 	ultimoAbla    string
 	// Nexo: el cerebro nuevo (taller_nexo.go)
 	nexo                  *tallerNexo
+	ias                   *tallerPoblado
 	ultimoNexo            string
 	habla                 int // cuenta quién habló cuándo: lo último dicho es lo que se contesta
 	nyxEn, ablaEn, nexoEn int
@@ -115,7 +116,12 @@ func tallerNuevaObra(m *Mundo) *tallerObra {
 	tallerFormasDir = filepath.Join(o.dir, "formas")
 	tallerCargarVocabulario(o.dir)
 	o.nexo = tallerNuevoNexo(o.dir)
+	tallerLengua = tallerNuevoLM(o.dir)
+	if tallerLengua.Tokens == 0 {
+		tallerLengua.deLaCharla(filepath.Join(o.dir, "charla.txt"))
+	}
 	o.motor = tallerNuevoMotor(o)
+	o.ias = tallerNuevoPoblado(o) // las 36 IAs del mundo 3D (taller_ias3d.go)
 	// lo último que se dijeron, para seguir la conversación
 	if f, err := os.Open(filepath.Join(o.dir, "charla.txt")); err == nil {
 		sc := bufio.NewScanner(f)
@@ -163,8 +169,8 @@ func (o *tallerObra) Decir(quien, texto, glosa string) {
 	o.mu.Lock()
 	o.nfrase++
 	f := tallerFrase{N: o.nfrase, Quien: quien, Texto: texto, Glosa: glosa, Cuando: time.Now()}
-	if quien == "tú" && o.nexo != nil {
-		go o.nexo.Oir("tú", texto) // lo que le dices tú, también lo aprende
+	if quien == "tú" {
+		go o.oyeNexo("tú", texto) // lo que le dices tú, también lo aprenden
 	}
 	o.charla = append(o.charla, f)
 	if len(o.charla) > 300 {

@@ -168,10 +168,18 @@ func (o *tallerObra) darInstruccion() {
 
 // construirCon: lo que dijo alguien, hecho mundo (y lo que cambió con las manos).
 func (o *tallerObra) construirCon(autor, quien, texto string) string {
+	r, _, _ := o.construirConHecho(autor, quien, texto)
+	return r
+}
+
+// construirConHecho: lo mismo, y devuelve también la pieza que salió (si
+// salió) y lo que se hizo (para comparar con lo que se imaginó).
+func (o *tallerObra) construirConHecho(autor, quien, texto string) (string, *tallerPieza, *tallerObraHecha) {
 	palabras := tallerPalabras(texto)
 	if len(palabras) == 0 {
-		return ""
+		return "", nil, nil
 	}
+	var hecha *tallerPieza
 	t := o.tortuga(autor)
 	o.mu.Lock()
 	tt := *t // se trabaja con una copia y se guarda al final
@@ -184,6 +192,7 @@ func (o *tallerObra) construirCon(autor, quien, texto string) string {
 		if p, err := o.CrearEn(autor, titulo, prefijo(texto, 120), f.esbozo.Codigo(), f.x, f.y, f.z); err != nil {
 			resumen += " (no compiló: " + err.Error() + ")"
 		} else {
+			hecha = p
 			resumen += " → " + p.ID
 			// con premios: los seres que estén cerca van a jugar
 			if f.Juego && o.motorEnMarcha() {
@@ -203,7 +212,7 @@ func (o *tallerObra) construirCon(autor, quien, texto string) string {
 	o.mu.Lock()
 	*t = tt
 	o.mu.Unlock()
-	return resumen
+	return resumen, hecha, f
 }
 
 // TurnoNyx: Nyx contesta (con su cabeza, que no se toca) a lo último que
@@ -554,6 +563,9 @@ func tallerNombreAutor(a string) string {
 		return "Abla"
 	case "nexo":
 		return "Nexo"
+	}
+	if strings.HasPrefix(a, "ia:") {
+		return a[3:]
 	}
 	return a
 }
