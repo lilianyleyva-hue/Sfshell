@@ -78,6 +78,8 @@ const tallerAyuda = `TALLER DE NYX Y ABLA — construyen un mundo en 3D con lo q
                                «crea torre llamar faro» la guarda como forma)
   forma lista · forma guarda <pieza> como <nombre> · forma borra <nombre>
   texturas                     los materiales y cómo hacer texturas propias
+  reinicia                     vaciar el mundo (lo construido se va; lo que han
+                               aprendido se queda). Pide confirmación.
   palabras                     las palabras suyas a las que dieron sentido
   palabras <suya> <gesto>      enseñarles tú una (p. ej. «palabras kevo subir»)
   palabras olvida <suya>       que vuelva a ser solo su forma
@@ -282,6 +284,20 @@ func (s *tallerSesion) ejecutar(linea string) bool {
 		}
 		_ = o.ias.Guardar()
 		return true
+	case "reinicia", "reiniciar":
+		r := strings.ToLower(strings.TrimSpace(resto))
+		if r != "si" && r != "sí" {
+			o.mu.Lock()
+			n := len(o.Piezas)
+			o.mu.Unlock()
+			s.decir("Esto quita las %d piezas del mundo, sus versiones y la música de las IAs.", n)
+			s.decir("Lo que han aprendido se queda (su lengua, Nexo, sus palabras, sus habilidades, lo que vio Abla).")
+			s.decir("Para hacerlo escribe:  reinicia si")
+			break
+		}
+		n, a := o.Reiniciar()
+		o.Decir("taller", "El mundo vuelve a estar vacío. La única instrucción sigue siendo: «"+tallerInstruccion+"»", "")
+		s.decir("Hecho: %d piezas fuera y %d archivos borrados. El mundo está vacío; siguen trabajando.", n, a)
 	case "nexo":
 		s.nexo(resto)
 	case "ias":

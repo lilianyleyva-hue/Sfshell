@@ -320,6 +320,19 @@ Tus propias imágenes sirven de textura: ponlas en
 `~/.local/share/nyx-mundo/taller/texturas/` (png o jpg) y úsalas por su nombre
 (*textura miimagen*).
 
+## Reiniciar el mundo
+
+```text
+taller› reinicia          te dice qué va a borrar
+taller› reinicia si       lo hace
+```
+
+Quita todo lo construido: las piezas con todas sus versiones, la música de las
+IAs y los puntos. **Lo que han aprendido se queda**: su lengua, Nexo, las
+palabras con sentido, las habilidades de las 36, lo que vio Abla, la charla y
+la cabeza de Nyx. Siguen trabajando en el mundo vacío. Solo borra archivos del
+taller; los objetos de Nyx Mundo, que están en la misma carpeta, no se tocan.
+
 ## Godot
 
 Si tienes Godot 4, escribe `godot` en el taller. El taller:
@@ -377,6 +390,7 @@ Todo eso también sirve en las entidades.
 | `taller_nexo.go` | Nexo, el cerebro nuevo hecho con lo mejor de los tres |
 | `taller_lenguaje.go` | el modelo de lenguaje |
 | `taller_modelo3d.go` | el modelo del mundo 3D (mapa, imaginar, calibrarse) |
+| `taller_reiniciar.go` | `reinicia`: vaciar el mundo sin que olviden lo que saben |
 | `taller_ias.go` | las 36 IAs (oficios, habilidades, intereses, conversación, todo lo que hacen) |
 | `taller_programador.go` | cómo escriben programas: modelos 3D, entidades e instrumentos |
 | `taller_musica.go` | cómo componen y graban su música (.wav) |
