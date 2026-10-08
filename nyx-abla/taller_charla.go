@@ -105,6 +105,9 @@ func (o *tallerObra) tortuga(quien string) *tallerTortuga {
 		if quien == "abla" {
 			x = 6
 		}
+		if quien == "nexo" {
+			x = -6
+		}
 		t = tallerNuevaTortuga(x, 0, [3]float64{0.8, 0.8, 0.8})
 		o.Tortugas[quien] = t
 	}
@@ -124,9 +127,21 @@ func (o *tallerObra) Turnar(rng *rand.Rand) {
 		v := nuevas[len(nuevas)-1]
 		o.Decir("Abla", fmt.Sprintf("ha mirado %d foto(s) más. La última: %s", len(nuevas), v.Descripcion), v.Glosa())
 	}
-	if o.abla.Viva() && t%2 == 0 {
+	// Nexo ve lo mismo que Abla, y piensa un poco cada turno
+	if o.nexo != nil {
+		for _, v := range nuevas {
+			o.nexo.Ver(v)
+		}
+		for i := 0; i < 3; i++ {
+			o.nexo.Pensar()
+		}
+	}
+	switch {
+	case o.nexo != nil && t%3 == 0:
+		o.TurnoNexo("")
+	case o.abla.Viva() && t%3 == 2:
 		o.TurnoAbla(rng, "")
-	} else {
+	default:
 		o.TurnoNyx(rng, "")
 	}
 	_ = o.Guardar()
@@ -197,6 +212,9 @@ func (o *tallerObra) TurnoNyx(rng *rand.Rand, mensaje string) {
 	o.mu.Lock()
 	if mensaje == "" {
 		mensaje = o.ultimoAbla
+		if o.nexoEn > o.ablaEn && o.ultimoNexo != "" {
+			mensaje = o.ultimoNexo
+		}
 	}
 	o.mu.Unlock()
 	if mensaje == "" {
@@ -208,8 +226,11 @@ func (o *tallerObra) TurnoNyx(rng *rand.Rand, mensaje string) {
 	}
 	hecho := o.construirCon("nyx", "Nyx", dice)
 	o.Decir("Nyx", prefijo(dice, 260)+"  ⟶ "+hecho, "")
+	o.oyeNexo("Nyx", dice)
 	o.mu.Lock()
 	o.ultimoNyx = dice
+	o.habla++
+	o.nyxEn = o.habla
 	o.mu.Unlock()
 }
 
@@ -222,6 +243,9 @@ func (o *tallerObra) TurnoAbla(rng *rand.Rand, mensaje string) {
 	o.mu.Lock()
 	if mensaje == "" {
 		mensaje = o.ultimoNyx
+		if o.nexoEn > o.nyxEn && o.ultimoNexo != "" {
+			mensaje = o.ultimoNexo
+		}
 	}
 	o.mu.Unlock()
 	ser, _ := o.serDeTribu(rng, rng.Intn(3))
@@ -262,8 +286,16 @@ func (o *tallerObra) TurnoAbla(rng *rand.Rand, mensaje string) {
 	}
 	hecho := o.construirCon("abla", "Abla · "+quien, construye)
 	o.Decir("Abla · "+quien, prefijo(dijo, 260)+"  ⟶ "+hecho, glosa)
+	// Nexo oye lo que quiere decir (su traducción), no el «Nyx me dijo…»
+	if glosa != "" {
+		o.oyeNexo("Abla", glosa)
+	} else {
+		o.oyeNexo("Abla", texto)
+	}
 	o.mu.Lock()
 	o.ultimoAbla = texto
+	o.habla++
+	o.ablaEn = o.habla
 	o.mu.Unlock()
 }
 
@@ -520,6 +552,8 @@ func tallerNombreAutor(a string) string {
 		return "Nyx"
 	case "abla":
 		return "Abla"
+	case "nexo":
+		return "Nexo"
 	}
 	return a
 }
@@ -557,7 +591,7 @@ func (o *tallerObra) Ver(fuente string, avisar func(string)) error {
 	o.mu.Lock()
 	o.viendo = titulo
 	o.mu.Unlock()
-	o.Decir("taller", "Nyx y Abla ven «"+titulo+"»", "")
+	o.Decir("taller", "Nyx, Abla y Nexo ven «"+titulo+"»", "")
 	// Abla: sus fotogramas, a la cola de lo que mira
 	if o.abla.Viva() {
 		n, err := tallerFotogramasParaAbla(ruta, tallerSlug(titulo), filepath.Join(o.abla.dir, "fotos", "entrada"))

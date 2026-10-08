@@ -94,6 +94,11 @@ type tallerObra struct {
 	estudiando    bool   // perfeccionan con un vídeo: los turnos de siempre esperan
 	ultimoNyx     string
 	ultimoAbla    string
+	// Nexo: el cerebro nuevo (taller_nexo.go)
+	nexo                  *tallerNexo
+	ultimoNexo            string
+	habla                 int // cuenta quién habló cuándo: lo último dicho es lo que se contesta
+	nyxEn, ablaEn, nexoEn int
 }
 
 func tallerNuevaObra(m *Mundo) *tallerObra {
@@ -109,6 +114,7 @@ func tallerNuevaObra(m *Mundo) *tallerObra {
 	o.abla = tallerNuevaAbla(filepath.Join(m.dir, "abla"))
 	tallerFormasDir = filepath.Join(o.dir, "formas")
 	tallerCargarVocabulario(o.dir)
+	o.nexo = tallerNuevoNexo(o.dir)
 	o.motor = tallerNuevoMotor(o)
 	// lo último que se dijeron, para seguir la conversación
 	if f, err := os.Open(filepath.Join(o.dir, "charla.txt")); err == nil {
@@ -157,6 +163,9 @@ func (o *tallerObra) Decir(quien, texto, glosa string) {
 	o.mu.Lock()
 	o.nfrase++
 	f := tallerFrase{N: o.nfrase, Quien: quien, Texto: texto, Glosa: glosa, Cuando: time.Now()}
+	if quien == "tú" && o.nexo != nil {
+		go o.nexo.Oir("tú", texto) // lo que le dices tú, también lo aprende
+	}
 	o.charla = append(o.charla, f)
 	if len(o.charla) > 300 {
 		o.charla = o.charla[len(o.charla)-300:]

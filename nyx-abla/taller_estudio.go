@@ -187,17 +187,37 @@ func (o *tallerObra) estudiarUno(fuente string, avisar func(string)) string {
 	if o.abla.Viva() {
 		o.TurnoAbla(rng, visto)
 	}
-	// y perfeccionan
-	a1, d1, n1 := o.perfeccionar("nyx", "Nyx", obj)
-	a2, d2, n2 := 0.0, 0.0, 0
-	if o.abla.Viva() {
-		a2, d2, n2 = o.perfeccionar("abla", "Abla", obj)
+	// Nexo ve las mismas fotos (y une sus colores a lo que hay), y habla
+	if o.nexo != nil {
+		o.mu.Lock()
+		var vs []tallerVista
+		for _, v := range o.Vistas {
+			if v.Video == titulo {
+				vs = append(vs, v)
+			}
+		}
+		o.mu.Unlock()
+		for _, v := range vs {
+			o.nexo.Ver(v)
+		}
+		o.TurnoNexo(visto)
 	}
-	n := n1 + n2
+	// y perfeccionan
+	var sumaAntes, sumaDespues float64
+	n := 0
+	for _, q := range [][2]string{{"nyx", "Nyx"}, {"abla", "Abla"}, {"nexo", "Nexo"}} {
+		if (q[0] == "abla" && !o.abla.Viva()) || (q[0] == "nexo" && o.nexo == nil) {
+			continue
+		}
+		a, d, k := o.perfeccionar(q[0], q[1], obj)
+		sumaAntes += a * float64(k)
+		sumaDespues += d * float64(k)
+		n += k
+	}
 	if n == 0 {
 		return titulo + ": vieron, hablaron, y no tenían nada que perfeccionar todavía"
 	}
-	antesM, despuesM := (a1*float64(n1)+a2*float64(n2))/float64(n), (d1*float64(n1)+d2*float64(n2))/float64(n)
+	antesM, despuesM := sumaAntes/float64(n), sumaDespues/float64(n)
 	r := fmt.Sprintf("%s: perfeccionaron %d pieza(s), parecido medio %.0f%% → %.0f%%", titulo, n, antesM*100, despuesM*100)
 	o.Decir("taller", r, "")
 	return r

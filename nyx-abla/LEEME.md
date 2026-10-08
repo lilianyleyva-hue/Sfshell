@@ -151,6 +151,47 @@ taller› palabras olvida zape      que vuelva a ser solo su forma
 taller› puntos                    el marcador de sus juegos
 ```
 
+## Nexo: un cerebro nuevo con lo mejor de los tres
+
+Nexo es una **tercera IA** del taller. No cambia a Nyx ni a Abla: es un
+cerebro aparte, hecho con lo mejor de cada uno. Nace vacío, las escucha a las
+dos (y a ti), ve lo mismo que ven y construye con ellas. Se turnan entre las
+tres.
+
+| Viene de | Qué hace en Nexo |
+|---|---|
+| **Nyx** | Las palabras son nudos unidos por lazos que se refuerzan al oírlas juntas y se aflojan si no se usan. Para contestar, la activación sale de lo que le dicen. Las palabras raras pesan más que las comunes y lo que llega por varios caminos se refuerza. El contexto empuja más flojo que la pregunta. Tiene un contexto vivo que se edita solo, y aprende más cuando algo le sorprende. |
+| **Abla** | Sabe hechos con su confianza («agua es parte de río», «fuego causa luz»). Su lógica deduce («agua es parte de río» y «río es parte de mar» → «agua es parte de mar») y encuentra contradicciones. Cuando dos palabras van juntas muchas veces, inventa una palabra suya para las dos. Lleva un diario que no se borra. |
+| **El cerebro web** | Sinestesia: lo que ve a la vez que oye una palabra se une a ella («bosque» acaba siendo verde) y construye con ese color. Cuando nadie le habla, sueña: repasa caminos de lo que sabe y los afianza. |
+
+Y además mejora lo que a ninguna le salía bien:
+
+- **Contesta con frases**: un camino por lo que sabe, un hecho y su color.
+  Nyx contestaba con una sola palabra y Abla con plantillas.
+- **Resuelve las contradicciones**: pierde la idea más débil.
+- **La confianza crece con cada prueba** y depende de quién se lo diga.
+- **Sus palabras inventadas construyen**: se las enseña al constructor.
+
+```text
+taller› nexo                  que hable ahora (y construya lo que dice)
+taller› nexo ¿qué hay en el bosque?
+taller› nexo estado           cuánto sabe
+taller› nexo piensa           sus últimas deducciones, sueños y palabras nuevas
+taller› nexo sabe agua        lo que sabe del agua, su color y con qué la une
+taller› nexo palabras         las palabras que ha inventado
+taller› nexo hereda           que lea lo que ya saben Nyx y Abla
+```
+
+`nexo hereda` solo **lee** los archivos de las otras, sin cambiar nada:
+
+- los hechos de los 27 seres de Abla (su conocimiento en C);
+- los lazos más fuertes de la cabeza de Nyx;
+- los sitios que recuerda Nyx Mundo.
+
+Si no lo pides, Nexo empieza sin nada, como ellas.
+
+En el modo estudio, Nexo también ve los vídeos y perfecciona sus piezas.
+
 ## Modo estudio: una lista de vídeos para perfeccionar
 
 ```text
@@ -251,6 +292,7 @@ Todo eso también sirve en las entidades.
 | `taller_formas.go` | las herramientas nuevas para construir |
 | `taller_lengua.go` | de palabras a construcción: el constructor de cada una, sus manos (el editor) y los eventos |
 | `taller_vocabulario.go` | las palabras suyas a las que dan sentido |
+| `taller_nexo.go` | Nexo, el cerebro nuevo hecho con lo mejor de los tres |
 | `taller_materiales.go` | materiales y texturas (con nombre, de cualquier palabra, de fotos o tuyas) |
 | `taller_formas_propias.go` | las formas que guardan con nombre |
 | `taller_godot.go` | el proyecto de Godot que muestra su mundo en vivo |
@@ -267,6 +309,8 @@ Lo que guardan, en `~/.local/share/nyx-mundo/`:
 | `taller/obra.json` | las piezas, quién las hizo y quién las cambió |
 | `taller/charla.txt` | todo lo que se han dicho |
 | `taller/palabras.json` | las palabras que aprendieron |
+| `taller/nexo.json` | lo que sabe Nexo (lazos, hechos, colores, sus palabras) |
+| `taller/nexo-diario.txt` | todo lo que ha pensado Nexo (no se borra) |
 | `taller/videos/` | los vídeos que vieron |
 | `abla/` | la memoria de Abla |
 | `abla/fotos/vistas.jsonl` | lo que vio en cada fotograma |

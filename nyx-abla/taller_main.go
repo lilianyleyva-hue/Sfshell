@@ -100,6 +100,14 @@ const tallerAyuda = `TALLER DE NYX Y ABLA — construyen un mundo en 3D con lo q
   exporta                      todo el mundo como una escena .obj + .mtl
   (cada pieza tiene además su .obj y .mtl en ~/.local/share/nyx-mundo/objetos)
 
+  NEXO (el cerebro nuevo, hecho con lo mejor de Nyx, Abla y el cerebro web)
+  nexo [lo que quieras]        que Nexo hable ahora (y construya lo que dice)
+  nexo estado                  cuánto sabe
+  nexo piensa                  lo último que ha pensado (deducciones, sueños…)
+  nexo sabe [palabra]          lo que sabe (de esa palabra, su color, sus lazos)
+  nexo palabras                las palabras que ha inventado
+  nexo hereda                  que lea lo que ya saben Nyx y Abla (sin tocarlas)
+
   ABLA
   abla <orden>                 una orden para la consola de Abla (seres, mision,
                                fotos, dic buscar <palabra>, decir <ser> <texto>…)
@@ -250,7 +258,12 @@ func (s *tallerSesion) ejecutar(linea string) bool {
 	case "formas":
 		fmt.Print(tallerFormas)
 	case "sale", "salir", "exit":
+		if o.nexo != nil {
+			_ = o.nexo.Guardar()
+		}
 		return true
+	case "nexo":
+		s.nexo(resto)
 	case "estado":
 		o.mu.Lock()
 		s.decir("piezas: %d · turnos: %d · Abla vio %d fotos · %s", len(o.Piezas), o.Turno, len(o.Vistas),
@@ -551,6 +564,53 @@ func (s *tallerSesion) forma(resto string) {
 		}
 	default:
 		s.decir("uso: forma lista · forma guarda <pieza> como <nombre> · forma borra <nombre>")
+	}
+}
+
+// nexo: hablar con Nexo y ver qué sabe.
+func (s *tallerSesion) nexo(resto string) {
+	n := s.o.nexo
+	if n == nil {
+		s.decir("Nexo no está.")
+		return
+	}
+	f := strings.Fields(resto)
+	sub := ""
+	if len(f) > 0 {
+		sub = strings.ToLower(f[0])
+	}
+	switch sub {
+	case "estado":
+		s.decir("%s", n.Estado())
+	case "piensa", "pensamientos":
+		ps := n.UltimosPensamientos(20)
+		if len(ps) == 0 {
+			s.decir("Todavía no ha pensado nada (necesita oír algo primero).")
+		}
+		for _, p := range ps {
+			s.decir("  %s", p)
+		}
+	case "sabe":
+		ls := n.Sabe(strings.Join(f[1:], " "), 25)
+		if len(ls) == 0 {
+			s.decir("No sabe nada de eso todavía.")
+		}
+		for _, l := range ls {
+			s.decir("  %s", l)
+		}
+	case "palabras":
+		ps := n.SusPalabras()
+		if len(ps) == 0 {
+			s.decir("Aún no ha inventado palabras (inventa una cuando dos van juntas muchas veces).")
+		}
+		for _, p := range ps {
+			s.decir("  %s", p)
+		}
+	case "hereda", "heredar":
+		s.decir("%s", n.Heredar(s.o))
+		_ = n.Guardar()
+	default:
+		s.o.TurnoNexo(strings.TrimSpace(resto))
 	}
 }
 
