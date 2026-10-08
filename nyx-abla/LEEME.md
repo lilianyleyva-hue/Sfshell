@@ -115,8 +115,41 @@ Mientras el taller está abierto se turnan, sin parar:
    - *escribir* o *editar* meten sus palabras como código dentro;
    - *soltar* lo deja.
 
+6. **Juegos y eventos.** Algunas palabras hacen que lo siguiente que pongan
+   tenga vida:
+   - *puerta*, *abrir*, *entrada*: una puerta que se abre y se cierra con
+     **E**.
+   - *saltar*, *trampolín*, *rebotar*: un trampolín; al pisarlo te lanza
+     hacia arriba.
+   - *portal*, *cruzar*, *viajar*: un portal que te lleva al sitio que
+     *recordaron* o a donde acabó la frase. Si es el mismo sitio, te lleva a
+     otro nivel, arriba o abajo.
+   - *premio*, *tesoro*, *moneda*, *jugar*: un premio que gira. Al tocarlo
+     da un punto y vuelve al minuto. Los seres que estén cerca van a por él.
+   - *campana*, *tambor*, *nota*: suena al tocarlo.
+   - *hola*, *saludar*, *historia*: la pieza dice la frase cuando llegas.
+   - *agua*, *viento*, *bosque*, *fuego*, *magia*, *máquina*: además, la
+     pieza suena a eso.
+7. **Palabras que aprenden.** Al principio, una palabra suya (de Abla o
+   inventada) solo es su forma. Le dan sentido de dos maneras:
+   - diciéndolo: *kevo significa subir*;
+   - Abla, con su propio diccionario: cuando uno de sus seres dice una frase
+     con su traducción palabra por palabra, cada palabra suya que se traduce
+     por algo que ya entienden pasa a significar eso. Por ejemplo, de «mesu
+     mika» («cielo luz») aprende *mesu = cielo* y *mika = luz*.
+
+   Desde entonces, decir esa palabra hace lo que significa: así su idioma se
+   vuelve un idioma para construir. Lo que aprenden se guarda.
+
 Cada pieza es código Go escrito así. Si les enseñas vídeos (`ven …`), lo que
 ven entra en lo que dicen y piensan, y de ahí en lo que construyen.
+
+```text
+taller› palabras                  lo que han aprendido (y quién se lo dio)
+taller› palabras zape premio      enseñarles tú: «zape» será un premio
+taller› palabras olvida zape      que vuelva a ser solo su forma
+taller› puntos                    el marcador de sus juegos
+```
 
 ## Modo estudio: una lista de vídeos para perfeccionar
 
@@ -216,7 +249,8 @@ Todo eso también sirve en las entidades.
 | `taller_charla.go` | los turnos, la conversación y ver vídeos juntas |
 | `taller_obra.go` | las piezas, sus versiones, Blender (exportar e importar) |
 | `taller_formas.go` | las herramientas nuevas para construir |
-| `taller_lengua.go` | de palabras a construcción: el constructor de cada una y sus manos (el editor) |
+| `taller_lengua.go` | de palabras a construcción: el constructor de cada una, sus manos (el editor) y los eventos |
+| `taller_vocabulario.go` | las palabras suyas a las que dan sentido |
 | `taller_materiales.go` | materiales y texturas (con nombre, de cualquier palabra, de fotos o tuyas) |
 | `taller_formas_propias.go` | las formas que guardan con nombre |
 | `taller_godot.go` | el proyecto de Godot que muestra su mundo en vivo |
@@ -232,6 +266,7 @@ Lo que guardan, en `~/.local/share/nyx-mundo/`:
 |---|---|
 | `taller/obra.json` | las piezas, quién las hizo y quién las cambió |
 | `taller/charla.txt` | todo lo que se han dicho |
+| `taller/palabras.json` | las palabras que aprendieron |
 | `taller/videos/` | los vídeos que vieron |
 | `abla/` | la memoria de Abla |
 | `abla/fotos/vistas.jsonl` | lo que vio en cada fotograma |

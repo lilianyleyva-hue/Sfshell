@@ -108,6 +108,7 @@ func tallerNuevaObra(m *Mundo) *tallerObra {
 	}
 	o.abla = tallerNuevaAbla(filepath.Join(m.dir, "abla"))
 	tallerFormasDir = filepath.Join(o.dir, "formas")
+	tallerCargarVocabulario(o.dir)
 	o.motor = tallerNuevoMotor(o)
 	// lo último que se dijeron, para seguir la conversación
 	if f, err := os.Open(filepath.Join(o.dir, "charla.txt")); err == nil {

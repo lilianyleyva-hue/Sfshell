@@ -28,6 +28,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -77,6 +78,10 @@ const tallerAyuda = `TALLER DE NYX Y ABLA — construyen un mundo en 3D con lo q
                                «crea torre llamar faro» la guarda como forma)
   forma lista · forma guarda <pieza> como <nombre> · forma borra <nombre>
   texturas                     los materiales y cómo hacer texturas propias
+  palabras                     las palabras suyas a las que dieron sentido
+  palabras <suya> <gesto>      enseñarles tú una (p. ej. «palabras kevo subir»)
+  palabras olvida <suya>       que vuelva a ser solo su forma
+  puntos                       el marcador de sus juegos
   nyx [lo que quieras]         que Nyx hable ahora (contesta a eso, o a Abla) y
                                construya con lo que dice
   abla                         que uno de los 27 hable ahora y construya
@@ -426,6 +431,45 @@ func (s *tallerSesion) ejecutar(linea string) bool {
 		s.decir("tú ⟶ %s", o.CrearTu(resto))
 	case "forma", "formas-propias":
 		s.forma(resto)
+	case "palabras", "vocabulario":
+		f := strings.Fields(resto)
+		switch {
+		case len(f) == 0:
+			fmt.Print(tallerListaVocabulario())
+		case len(f) == 2 && (f[0] == "olvida" || f[0] == "borra"):
+			if tallerOlvidarPalabra(f[1]) {
+				s.decir("«%s» vuelve a ser solo su forma.", f[1])
+			} else {
+				s.decir("«%s» no significaba nada todavía.", f[1])
+			}
+		case len(f) == 2:
+			if tallerAprender(f[0], f[1], "tú") {
+				o.Decir("tú", fmt.Sprintf("«%s» significa «%s»", f[0], f[1]), "")
+				s.decir("Desde ahora «%s» hace lo que «%s».", f[0], f[1])
+			} else {
+				s.decir("No: «%s» tiene que ser una palabra suya sin sentido todavía, y «%s» algo que ya entienden (subir, luz, puerta, premio, rojo, madera…).", f[0], f[1])
+			}
+		default:
+			s.decir("uso: palabras · palabras <suya> <gesto> · palabras olvida <suya>")
+		}
+	case "puntos", "marcador":
+		o.mu.Lock()
+		type fila struct {
+			q string
+			n int
+		}
+		var fs []fila
+		for q, n := range o.Puntos {
+			fs = append(fs, fila{q, n})
+		}
+		o.mu.Unlock()
+		if len(fs) == 0 {
+			s.decir("Nadie tiene puntos todavía (los premios dan puntos al tocarlos).")
+		}
+		sort.Slice(fs, func(i, j int) bool { return fs[i].n > fs[j].n })
+		for _, f := range fs {
+			s.decir("  %-20s %d", f.q, f.n)
+		}
 	case "texturas", "materiales":
 		s.decir("Materiales: %s, neón (brilla).", strings.Join(tallerListaMateriales(), ", "))
 		s.decir("Y cualquier palabra es una textura: «textura zela» (siempre el mismo dibujo para la misma palabra).")

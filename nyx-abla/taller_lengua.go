@@ -217,6 +217,15 @@ const (
 	gEscribir
 	gDeshacer
 	gInclinar
+	// lo que pasa cuando alguien llega (juegos y eventos): para lo siguiente
+	gPuerta
+	gSaltar
+	gPortal
+	gPremio
+	gCampana
+	gSaludar
+	// darle sentido a una palabra suya
+	gAprender
 )
 
 var tallerSignificados = map[tallerGesto][]string{
@@ -249,6 +258,29 @@ var tallerSignificados = map[tallerGesto][]string{
 	gEscribir:  {"escribir", "escribe", "editar", "edita", "codigo", "construir", "construye", "hacer", "haz", "crear", "crea", "anadir", "poner", "pon"},
 	gDeshacer:  {"deshacer", "deshaz", "arreglar", "arregla", "corregir"},
 	gInclinar:  {"inclinar", "inclina", "tumbar", "tumba", "ladear", "ladea", "torcido"},
+	gPuerta:    {"puerta", "abrir", "abre", "abierto", "cerrar", "cierra", "entrada", "salida", "ventana", "tapa"},
+	gSaltar:    {"saltar", "salta", "salto", "brincar", "brinca", "rebotar", "rebota", "trampolin", "impulso", "lanzar"},
+	gPortal:    {"portal", "viajar", "viaja", "cruzar", "cruza", "umbral", "atravesar", "teletransporte", "pasaje"},
+	gPremio:    {"premio", "tesoro", "moneda", "ganar", "gana", "joya", "regalo", "jugar", "juega", "juego", "buscar", "encontrar"},
+	gCampana:   {"campana", "tambor", "timbre", "sonar", "suena", "golpe", "golpear", "nota", "llamada"},
+	gSaludar:   {"saludar", "saluda", "hola", "contar", "cuenta", "historia", "mensaje", "bienvenido", "bienvenida", "adios"},
+	gAprender:  {"significa", "significar", "signo", "sentido", "aprender", "aprende", "aprendo", "ensenar", "ensena", "entender", "entiende"},
+}
+
+// tallerAmbientes: palabras que, además de lo que hacen, dejan sonando un
+// ambiente en la pieza (el motor los sabe tocar).
+var tallerAmbientes = map[string]string{
+	"agua": "agua", "rio": "agua", "mar": "agua", "lluvia": "agua", "lago": "agua", "ola": "agua", "fuente": "agua",
+	"viento": "viento", "aire": "viento", "tormenta": "viento", "soplar": "viento",
+	"pajaro": "pajaros", "pajaros": "pajaros", "bosque": "pajaros", "arbol": "pajaros", "selva": "pajaros",
+	"fuego": "fuego", "hoguera": "fuego", "arder": "fuego",
+	"magia": "magia", "sueno": "magia", "misterio": "magia", "hechizo": "magia",
+	"abeja": "zumbido", "maquina": "zumbido", "motor": "zumbido", "electrico": "zumbido",
+}
+
+// el nombre de un evento, para la charla
+var tallerNombreEvento = map[tallerGesto]string{
+	gMover: "moverse", gPuerta: "puerta", gSaltar: "trampolín", gPortal: "portal", gPremio: "premio", gCampana: "sonar al tocar",
 }
 
 var tallerNumeros = map[string]int{"dos": 2, "tres": 3, "cuatro": 4, "cinco": 5, "seis": 6, "siete": 7, "ocho": 8,
@@ -343,8 +375,10 @@ type tallerObraHecha struct {
 	esbozo  *tallerEsbozo
 	gestos  []string
 	formas  int
-	x, y, z float64 // dónde empieza la pieza
-	Nombrar string  // si la llamaron de alguna manera: así se guarda la forma
+	x, y, z float64  // dónde empieza la pieza
+	Nombrar string   // si la llamaron de alguna manera: así se guarda la forma
+	Juego   bool     // tiene premios: los seres pueden ir a jugar
+	Aprendo []string // palabras suyas a las que dieron sentido («kevo = subir»)
 }
 
 // tallerHablarYConstruir: la tortuga recorre la frase; cada palabra, un
@@ -356,6 +390,10 @@ func tallerHablarYConstruir(t *tallerTortuga, palabras []string, frase string, e
 	}
 	e := &tallerEsbozo{}
 	f := &tallerObraHecha{esbozo: e, x: t.X, y: t.Y, z: t.Z}
+	quien := "alguien"
+	if q, ok := ed.(interface{ Quien() string }); ok {
+		quien = q.Quien()
+	}
 	ox, oy, oz := t.X, t.Y, t.Z
 	gesto := func(s string) {
 		if len(f.gestos) < 48 {
@@ -369,8 +407,17 @@ func tallerHablarYConstruir(t *tallerTortuga, palabras []string, frase string, e
 	}
 	cuenta := 0
 	modo := gForma
-	moverSiguiente, sonido := false, false
+	sonido, saludo := false, false
+	ambientes := map[string]bool{}
+	// especial: lo siguiente que se ponga se mueve, es una puerta, un
+	// trampolín, un portal, un premio o suena al tocarlo
+	especial, especialW := gForma, ""
 	partes := 0
+	type portal struct {
+		nombre     string
+		x, y, z, h float64
+	}
+	var portales []portal
 	// escribir dentro de lo que tiene en la mano: otro esbozo, relativo a esa pieza
 	var escrito *tallerEsbozo
 	var eo [3]float64
@@ -405,6 +452,14 @@ func tallerHablarYConstruir(t *tallerTortuga, palabras []string, frase string, e
 		if modo == gDentro {
 			esc *= 0.5
 		}
+		esp, espW := especial, especialW
+		especial, especialW = gForma, ""
+		if escrito != nil {
+			esp = gForma // en el código de otra pieza no hay eventos
+		}
+		if esp == gPremio {
+			esc *= 0.5 // los premios, pequeños (se cogen al pasar)
+		}
 		a := tallerAnchoForma(w, esc)
 		alto := tallerAlturaForma(w, esc)
 		ca, sa := math.Cos(t.Rumbo), math.Sin(t.Rumbo)
@@ -412,8 +467,6 @@ func tallerHablarYConstruir(t *tallerTortuga, palabras []string, frase string, e
 			dst.L("c.Material(%q)", m)
 			dst.mat = m
 		}
-		movil := moverSiguiente && escrito == nil
-		moverSiguiente = false
 		var cx, cz, y float64
 		for k := 0; k < n; k++ {
 			switch {
@@ -433,18 +486,83 @@ func tallerHablarYConstruir(t *tallerTortuga, palabras []string, frase string, e
 				t.Z += sa * a
 			}
 			linea := tallerFormaEn(w, esc, t.Rumbo, cx-bx, y-by, cz-bz, t.Color)
-			if movil {
+			if esp != gForma {
 				partes++
 				nombre := fmt.Sprintf("p%d", partes)
-				dst.L("c.Parte(%q, %s, %s, %s)", nombre, f2(cx-bx), f2(y-by), f2(cz-bz))
+				px, py, pz := cx-bx, y-by, cz-bz
+				switch esp {
+				case gSaltar:
+					py += alto // se pisa por arriba
+				case gPremio, gCampana:
+					py += alto / 2
+				}
+				dst.L("c.Parte(%q, %s, %s, %s)", nombre, f2(px), f2(py), f2(pz))
+				if esp == gPremio || esp == gPortal {
+					dst.L("c.Fantasma(true) // se atraviesa")
+				}
 				dst.L("%s", linea)
+				if esp == gPremio || esp == gPortal {
+					dst.L("c.Fantasma(false)")
+				}
 				dst.L("c.Parte(\"\", 0, 0, 0)")
 				h := tallerHash(w)
-				vel := 0.3 + float64(h%7)*0.25
-				if h%2 == 0 {
-					e.S("Actuar", fmt.Sprintf(`o.Rotar(%q, 0, o.Tiempo()*%s, 0)`, nombre, f2(vel)))
-				} else {
-					e.S("Actuar", fmt.Sprintf(`o.Mover(%q, 0, mundo.Sin(o.Tiempo()*%s)*%s, 0)`, nombre, f2(vel), f2(esc)))
+				switch esp {
+				case gMover:
+					vel := 0.3 + float64(h%7)*0.25
+					if h%2 == 0 {
+						e.S("Actuar", fmt.Sprintf(`o.Rotar(%q, 0, o.Tiempo()*%s, 0)`, nombre, f2(vel)))
+					} else {
+						e.S("Actuar", fmt.Sprintf(`o.Mover(%q, 0, mundo.Sin(o.Tiempo()*%s)*%s, 0)`, nombre, f2(vel), f2(esc)))
+					}
+				case gPuerta:
+					// se abre (sube) y se cierra al usarla (E), y se acuerda
+					sube := f2(alto + 0.2)
+					e.S("Empezar", fmt.Sprintf(`if o.Valor(%q) == 1 {
+o.Mover(%q, 0, %s, 0)
+}`, nombre, nombre, sube))
+					e.S("AlUsar", fmt.Sprintf(`if o.Valor(%q) == 0 {
+o.Mover(%q, 0, %s, 0)
+o.Guardar(%q, 1)
+} else {
+o.Mover(%q, 0, 0, 0)
+o.Guardar(%q, 0)
+}
+o.SonarEn(%q, "puerta", 1)`, nombre, nombre, sube, nombre, nombre, nombre, nombre))
+				case gSaltar:
+					// al pisarlo, te lanza hacia arriba
+					sube := f2(py + 4 + float64(h%9)*1.5)
+					e.S("AlTocar", fmt.Sprintf(`if parte == %q {
+o.Llevar(%s, %s, %s)
+o.SonarEn(%q, "magia", 1.5)
+}`, nombre, f2(px), sube, f2(pz), nombre))
+				case gPortal:
+					// te lleva a otro sitio (se decide al acabar la frase)
+					portales = append(portales, portal{nombre, px, py, pz, float64(h % 1000)})
+				case gPremio:
+					// gira; al tocarlo, un punto (y vuelve al minuto)
+					e.S("Actuar", fmt.Sprintf(`if o.Visible(%q) {
+o.Rotar(%q, 0, o.Tiempo()*2, 0)
+} else if o.Tiempo()-o.Valor(%q) > 60 || o.Tiempo() < o.Valor(%q) {
+o.Mostrar(%q, true)
+}`, nombre, nombre, "t"+nombre, "t"+nombre, nombre))
+					e.S("AlTocar", fmt.Sprintf(`if parte == %q && o.Visible(%q) {
+o.Mostrar(%q, false)
+o.Guardar(%q, o.Tiempo())
+o.Puntos(quien, 1)
+o.SonarEn(%q, "moneda", 1)
+}`, nombre, nombre, nombre, "t"+nombre, nombre))
+					f.Juego = true
+				case gCampana:
+					son, tono := "nota", f2(48+float64(h%24))
+					switch espW {
+					case "campana", "timbre", "llamada":
+						son, tono = "campana", f2(0.7+float64(h%5)*0.15)
+					case "tambor", "golpe", "golpear":
+						son, tono = "tambor", f2(0.8+float64(h%5)*0.1)
+					}
+					e.S("AlTocar", fmt.Sprintf(`if parte == %q {
+o.SonarEn(%q, %q, %s)
+}`, nombre, nombre, son, tono))
 				}
 			} else {
 				dst.L("%s", linea)
@@ -494,7 +612,29 @@ func tallerHablarYConstruir(t *tallerTortuga, palabras []string, frase string, e
 	for i := 0; i < len(palabras) && i < maxPalabras; i++ {
 		w := palabras[i]
 		base := tallerSinTildes.Replace(w)
+		// una palabra suya a la que ya le dieron sentido
+		if s, ok := tallerSignificado(base); ok {
+			base = s
+		}
 		h := tallerHash(w)
+		// «X significa Y»: desde ahora X hace lo que hace Y
+		if g, ok := tallerGestoDe[base]; ok && g == gAprender {
+			if i > 0 && i+1 < len(palabras) {
+				x, y := palabras[i-1], palabras[i+1]
+				if tallerAprender(x, y, quien) {
+					i++
+					f.Aprendo = append(f.Aprendo, x+" = "+y)
+					gesto("«" + x + "» ahora es «" + y + "»")
+				}
+			}
+			continue
+		}
+		// el sonido de lo que nombran (agua, viento, pájaros…)
+		if s, ok := tallerAmbientes[base]; ok && escrito == nil && !ambientes[s] && len(ambientes) < 3 {
+			ambientes[s] = true
+			e.S("Empezar", fmt.Sprintf(`o.Ambiente(%q, 0.5)`, s))
+			gesto("suena a " + s)
+		}
 		paso := (1 + float64(h%4)) * t.Escala
 		// un número: cuántas de lo siguiente
 		if n, ok := tallerNumeros[base]; ok {
@@ -696,6 +836,19 @@ func tallerHablarYConstruir(t *tallerTortuga, palabras []string, frase string, e
 			continue
 		case gDeshacer, gInclinar:
 			continue // sin nada en la mano no hacen nada
+		case gPuerta, gSaltar, gPortal, gPremio, gCampana:
+			especial, especialW = g, base
+			gesto(tallerNombreEvento[g])
+			continue
+		case gSaludar:
+			// al acercarse alguien, la pieza dice la frase
+			if !saludo && escrito == nil {
+				saludo = true
+				e.S("Empezar", "o.Zona(5)")
+				e.S("AlEntrar", fmt.Sprintf(`o.Decir(%q)`, prefijo(frase, 140)))
+				gesto("saluda a quien llega")
+			}
+			continue
 		}
 		switch g {
 		case gSubir:
@@ -744,7 +897,7 @@ func tallerHablarYConstruir(t *tallerTortuga, palabras []string, frase string, e
 				gesto("música")
 			}
 		case gMover:
-			moverSiguiente = true
+			especial = gMover
 			gesto("moverse")
 		case gGuardar:
 			if len(t.Pila) < 64 {
@@ -763,6 +916,25 @@ func tallerHablarYConstruir(t *tallerTortuga, palabras []string, frase string, e
 		}
 	}
 	soltarEscrito()
+	// los portales: al sitio que recordaron, o a donde acabó la frase; si
+	// es el mismo sitio, a otro nivel (arriba o abajo)
+	for _, p := range portales {
+		dx, dy, dz := t.X-ox, t.Y-oy, t.Z-oz
+		if n := len(t.Pila); n > 0 {
+			dx, dy, dz = t.Pila[n-1][0]-ox, t.Pila[n-1][1]-oy, t.Pila[n-1][2]-oz
+		}
+		if math.Abs(dx-p.x)+math.Abs(dy-p.y)+math.Abs(dz-p.z) < 3 {
+			dy = p.y + 15 + math.Mod(p.h, 25)
+			if int(p.h)%2 == 1 {
+				dy = p.y - 15 - math.Mod(p.h, 25)
+			}
+			dx += 2
+		}
+		e.S("AlTocar", fmt.Sprintf(`if parte == %q {
+o.Llevar(%s, %s, %s)
+o.SonarEn(%q, "magia", 0.8)
+}`, p.nombre, f2(dx), f2(dy+0.3), f2(dz), p.nombre))
+	}
 	t.Frases++
 	return f
 }

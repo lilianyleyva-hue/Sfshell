@@ -170,6 +170,13 @@ func (o *tallerObra) construirCon(autor, quien, texto string) string {
 			resumen += " (no compiló: " + err.Error() + ")"
 		} else {
 			resumen += " → " + p.ID
+			// con premios: los seres que estén cerca van a jugar
+			if f.Juego && o.motorEnMarcha() {
+				go func(p *tallerPieza) {
+					time.Sleep(2 * time.Second)
+					o.motor.Jugar(p, 90)
+				}(p)
+			}
 			// «llamar X»: desde ahora, esa palabra es esta forma
 			if f.Nombrar != "" {
 				if err := o.GuardarForma(f.Nombrar, p, quien); err == nil {
@@ -243,7 +250,17 @@ func (o *tallerObra) TurnoAbla(rng *rand.Rand, mensaje string) {
 	if glosa != "" && !strings.Contains(dijo, glosa) {
 		texto += " " + glosa
 	}
-	hecho := o.construirCon("abla", "Abla · "+quien, texto)
+	// lo que su traducción dice de cada palabra suya, lo aprende; y
+	// entonces lo construye con sus palabras (que ya significan eso)
+	nuevas, alineada := tallerAprenderDeGlosa(dijo, glosa, "Abla · "+quien)
+	if len(nuevas) > 0 {
+		o.Decir("taller", "Abla le da sentido a palabras suyas: "+strings.Join(nuevas, ", "), "")
+	}
+	construye := texto
+	if alineada {
+		construye = strings.Replace(dijo, "«"+glosa+"»", "", 1)
+	}
+	hecho := o.construirCon("abla", "Abla · "+quien, construye)
 	o.Decir("Abla · "+quien, prefijo(dijo, 260)+"  ⟶ "+hecho, glosa)
 	o.mu.Lock()
 	o.ultimoAbla = texto
@@ -257,6 +274,9 @@ type tallerManos struct {
 	autor string // nyx, abla
 	quien string // cómo sale en la charla
 }
+
+// Quien: cómo sale en la charla (para lo que aprende).
+func (m *tallerManos) Quien() string { return m.quien }
 
 func (m *tallerManos) Tomar(x, y, z float64) (string, [3]float64, bool) {
 	m.o.mu.Lock()
