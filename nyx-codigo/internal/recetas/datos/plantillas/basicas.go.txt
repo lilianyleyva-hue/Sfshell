@@ -1,0 +1,195 @@
+// plantilla: dos_numeros_operacion
+// titulo: Programa que pide dos números y opera
+// descripcion: Pide dos números por teclado y escribe su suma, resta, multiplicación o división. Si lo que escribes no es un número, lo vuelve a pedir.
+// palabras: programa, pedir, leer, dos, numero, sumar, restar, multiplicar, dividir, operacion, teclado
+// hueco: {"nombre": "op", "clase": "operacion", "opciones": ["suma", "resta", "multiplicación", "división"], "porDefecto": "suma", "pregunta": "¿Qué operación hago con los dos números?"}
+// caso: {"huecos": {"op": "suma"}, "caso": {"entrada": "2\n3\n", "esperado": "La suma es 5", "comparar": "contiene"}}
+// caso: {"huecos": {"op": "resta"}, "caso": {"entrada": "10\n4\n", "esperado": "La resta es 6", "comparar": "contiene"}}
+// caso: {"huecos": {"op": "multiplicación"}, "caso": {"entrada": "2,5\n4\n", "esperado": "La multiplicación es 10", "comparar": "contiene"}}
+// caso: {"huecos": {"op": "división"}, "caso": {"entrada": "7\n2\n", "esperado": "La división es 3.5", "comparar": "contiene"}}
+// caso: {"huecos": {"op": "división"}, "caso": {"entrada": "1\n0\n", "esperado": "No se puede dividir entre cero.", "comparar": "contiene"}}
+// caso: {"huecos": {"op": "suma"}, "caso": {"entrada": "hola\n4\n5\n", "esperado": "Eso no es un número. Prueba otra vez.", "comparar": "contiene"}}
+// caso: {"huecos": {"op": "suma"}, "caso": {"entrada": "hola\n4\n5\n", "esperado": "La suma es 9", "comparar": "contiene"}}
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+)
+
+// leerNumero pregunta hasta que le dan un número (acepta coma o punto decimal).
+func leerNumero(lector *bufio.Reader, pregunta string) float64 {
+	for {
+		fmt.Print(pregunta)
+		linea, err := lector.ReadString('\n')
+		texto := strings.ReplaceAll(strings.TrimSpace(linea), ",", ".")
+		if n, e := strconv.ParseFloat(texto, 64); e == nil {
+			return n
+		}
+		if err != nil {
+			fmt.Println()
+			fmt.Println("No hay más datos.")
+			os.Exit(1)
+		}
+		fmt.Println("Eso no es un número. Prueba otra vez.")
+	}
+}
+
+func main() {
+	lector := bufio.NewReader(os.Stdin)
+	a := leerNumero(lector, "Escribe el primer número: ")
+	b := leerNumero(lector, "Escribe el segundo número: ")
+{{- if eq .op "división"}}
+	if b == 0 {
+		fmt.Println("No se puede dividir entre cero.")
+		return
+	}
+{{- end}}
+	resultado := a {{go_op .op}} b
+	fmt.Println({{go_texto (printf "La %s es" .op)}}, resultado)
+}
+
+// plantilla: saludar
+// titulo: Programa que pregunta tu nombre y te saluda
+// descripcion: Pregunta cómo te llamas, lee tu nombre y te saluda con el saludo que elijas.
+// palabras: programa, saludar, saludo, hola, nombre, preguntar, leer, llamar
+// hueco: {"nombre": "saludo", "clase": "texto", "porDefecto": "Hola", "pregunta": "¿Con qué palabras saludo?"}
+// caso: {"huecos": {"saludo": "Hola"}, "caso": {"entrada": "Ana\n", "esperado": "¡Hola, Ana!", "comparar": "contiene"}}
+// caso: {"huecos": {"saludo": "Buenos días"}, "caso": {"entrada": "Luis Pérez\n", "esperado": "¡Buenos días, Luis Pérez!", "comparar": "contiene"}}
+// caso: {"huecos": {}, "caso": {"entrada": "\n", "esperado": "No me has dicho tu nombre.", "comparar": "contiene"}}
+// caso: {"huecos": {"saludo": "Hola \"amigo\" \\ `x`"}, "caso": {"entrada": "Eva", "esperado": "¡Hola \"amigo\" \\ `x`, Eva!", "comparar": "contiene"}}
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"strings"
+)
+
+func main() {
+	lector := bufio.NewReader(os.Stdin)
+	fmt.Print("¿Cómo te llamas? ")
+	linea, _ := lector.ReadString('\n')
+	nombre := strings.TrimSpace(linea)
+	if nombre == "" {
+		fmt.Println("No me has dicho tu nombre.")
+		return
+	}
+	fmt.Printf("¡%s, %s!\n", {{go_texto .saludo}}, nombre)
+}
+
+// plantilla: par_impar
+// titulo: Programa que dice si un número es par o impar
+// descripcion: Lee un número entero y dice si es par o impar (también con negativos).
+// palabras: programa, par, impar, numero, entero, leer, decir, saber
+// caso: {"huecos": {}, "caso": {"entrada": "4\n", "esperado": "El 4 es par.", "comparar": "contiene"}}
+// caso: {"huecos": {}, "caso": {"entrada": "7\n", "esperado": "El 7 es impar.", "comparar": "contiene"}}
+// caso: {"huecos": {}, "caso": {"entrada": "-3\n", "esperado": "El -3 es impar.", "comparar": "contiene"}}
+// caso: {"huecos": {}, "caso": {"entrada": "0\n", "esperado": "El 0 es par.", "comparar": "contiene"}}
+// caso: {"huecos": {}, "caso": {"entrada": "hola\n", "esperado": "Eso no es un número entero.", "comparar": "contiene"}}
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+)
+
+func main() {
+	lector := bufio.NewReader(os.Stdin)
+	fmt.Print("Escribe un número entero: ")
+	linea, _ := lector.ReadString('\n')
+	n, err := strconv.Atoi(strings.TrimSpace(linea))
+	if err != nil {
+		fmt.Println("Eso no es un número entero.")
+		return
+	}
+	if n%2 == 0 {
+		fmt.Printf("El %d es par.\n", n)
+	} else {
+		fmt.Printf("El %d es impar.\n", n)
+	}
+}
+
+// plantilla: mayor_de_tres
+// titulo: Programa que dice el mayor de tres números
+// descripcion: Pide tres números y escribe cuál es el mayor.
+// palabras: programa, mayor, maximo, tres, numero, pedir, leer, comparar
+// caso: {"huecos": {}, "caso": {"entrada": "3\n9\n4\n", "esperado": "El mayor es 9", "comparar": "contiene"}}
+// caso: {"huecos": {}, "caso": {"entrada": "-1\n-5\n-2\n", "esperado": "El mayor es -1", "comparar": "contiene"}}
+// caso: {"huecos": {}, "caso": {"entrada": "2,5\n2\n1\n", "esperado": "El mayor es 2.5", "comparar": "contiene"}}
+// caso: {"huecos": {}, "caso": {"entrada": "7\n7\n7\n", "esperado": "El mayor es 7", "comparar": "contiene"}}
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+)
+
+// leerNumero pregunta hasta que le dan un número (acepta coma o punto decimal).
+func leerNumero(lector *bufio.Reader, pregunta string) float64 {
+	for {
+		fmt.Print(pregunta)
+		linea, err := lector.ReadString('\n')
+		texto := strings.ReplaceAll(strings.TrimSpace(linea), ",", ".")
+		if n, e := strconv.ParseFloat(texto, 64); e == nil {
+			return n
+		}
+		if err != nil {
+			fmt.Println()
+			fmt.Println("No hay más datos.")
+			os.Exit(1)
+		}
+		fmt.Println("Eso no es un número. Prueba otra vez.")
+	}
+}
+
+func main() {
+	lector := bufio.NewReader(os.Stdin)
+	mayor := leerNumero(lector, "Escribe el número 1: ")
+	for i := 2; i <= 3; i++ {
+		n := leerNumero(lector, fmt.Sprintf("Escribe el número %d: ", i))
+		if n > mayor {
+			mayor = n
+		}
+	}
+	fmt.Println("El mayor es", mayor)
+}
+
+// plantilla: invertir_texto
+// titulo: Programa que escribe un texto al revés
+// descripcion: Lee una línea de texto y la escribe al revés, letra a letra (funciona con tildes y eñes).
+// palabras: programa, invertir, reves, texto, frase, palabra, leer, vuelta
+// caso: {"huecos": {}, "caso": {"entrada": "hola\n", "esperado": "Al revés: aloh", "comparar": "contiene"}}
+// caso: {"huecos": {}, "caso": {"entrada": "ñandú\n", "esperado": "Al revés: údnañ", "comparar": "contiene"}}
+// caso: {"huecos": {}, "caso": {"entrada": "Go es genial", "esperado": "Al revés: laineg se oG", "comparar": "contiene"}}
+// caso: {"huecos": {}, "caso": {"entrada": "", "esperado": "Al revés:", "comparar": "contiene"}}
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"strings"
+)
+
+func main() {
+	lector := bufio.NewReader(os.Stdin)
+	fmt.Print("Escribe un texto: ")
+	linea, _ := lector.ReadString('\n')
+	letras := []rune(strings.TrimRight(linea, "\r\n"))
+	for i, j := 0, len(letras)-1; i < j; i, j = i+1, j-1 {
+		letras[i], letras[j] = letras[j], letras[i]
+	}
+	fmt.Println()
+	fmt.Println("Al revés:", string(letras))
+}

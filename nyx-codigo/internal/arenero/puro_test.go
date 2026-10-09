@@ -219,3 +219,31 @@ func TestVersionLenguaje(t *testing.T) {
 		}
 	}
 }
+
+func TestExtraerCaida(t *testing.T) {
+	var sb strings.Builder
+	sb.WriteString("runtime: goroutine stack exceeds 1000000000-byte limit\nruntime: sp=0xc020160398 stack=[0xc020160000, 0xc040160000]\nfatal error: stack overflow\n\nruntime stack:\n")
+	for i := 0; i < 400; i++ {
+		sb.WriteString("goroutine 4 gp=0xc000002fc0 m=nil [GC scavenge wait]:\n\truntime.gopark(...)\n")
+	}
+	got := extraerCaida(sb.String())
+	if !strings.HasPrefix(got, "runtime: goroutine stack exceeds") || !strings.Contains(got, "fatal error: stack overflow") || len(got) > maxCaida {
+		t.Errorf("pila: %d bytes, %q…", len(got), cortar(got, 200))
+	}
+	oom := "basura previa\nfatal error: runtime: out of memory\n\nruntime stack:\nruntime.throw()\n"
+	if got := extraerCaida(oom); !strings.HasPrefix(got, "fatal error: runtime: out of memory") {
+		t.Errorf("memoria: %q", got)
+	}
+	if got := extraerCaida("hola\nadiós\n"); got != "" {
+		t.Errorf("sin línea de caída: %q", got)
+	}
+	larga := "panic: " + strings.Repeat("x", 3*maxCaida)
+	if got := extraerCaida(larga); len(got) != maxCaida || !strings.HasPrefix(got, "panic: x") {
+		t.Errorf("una sola línea larga se recorta: %d", len(got))
+	}
+	f := fin{errSalida: nuevoLimitado(1 << 20), codigo: 2}
+	f.errSalida.Write([]byte(sb.String()))
+	if r := resumenCaida(f); !strings.HasPrefix(r, "runtime: goroutine stack exceeds") || !strings.HasSuffix(r, "(el programa se cayó (código de salida 2))") {
+		t.Errorf("resumen: %q", cortar(r, 300))
+	}
+}

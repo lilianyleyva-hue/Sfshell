@@ -1,0 +1,109 @@
+// nota: strconv.Itoa
+// titulo: strconv.Itoa: de número entero a texto
+// resumen: Convierte un int en su texto en base 10: 42 da "42". Ojo: string(42) no hace eso, da el carácter número 42 ("*").
+// relacionados: strconv.Atoi, strconv.FormatInt, fmt.Sprintf
+// palabras: convertir, numero, texto, entero, string, cadena
+// salida: 42
+// salida: tengo 3 gatos
+// salida: *
+package main
+
+import (
+	"fmt"
+	"strconv"
+)
+
+func main() {
+	fmt.Println(strconv.Itoa(42))
+	fmt.Println("tengo " + strconv.Itoa(3) + " gatos")
+	fmt.Println(string(rune(42)))
+}
+
+// nota: strconv.Atoi
+// titulo: strconv.Atoi: de texto a número entero
+// resumen: Convierte un texto como "123" en el número 123. Devuelve también un error si el texto no es un número entero, y siempre hay que mirarlo.
+// relacionados: strconv.Itoa, strconv.ParseFloat
+// palabras: convertir, texto, numero, entero, leer, error
+// salida: 124
+// salida: error: strconv.Atoi: parsing "doce": invalid syntax
+package main
+
+import (
+	"fmt"
+	"strconv"
+)
+
+func main() {
+	n, err := strconv.Atoi("123")
+	if err == nil {
+		fmt.Println(n + 1)
+	}
+	if _, err := strconv.Atoi("doce"); err != nil {
+		fmt.Println("error:", err)
+	}
+}
+
+// nota: strconv.ParseFloat
+// titulo: strconv.ParseFloat: de texto a número decimal
+// resumen: Convierte un texto como "3.75" en un float64 (el segundo argumento, 64, es la precisión). El separador decimal es el punto: si el usuario escribe una coma, cámbiala antes.
+// relacionados: strconv.Atoi, strings.ReplaceAll
+// palabras: convertir, decimal, texto, numero, float, coma, punto
+// salida: 7.5
+// salida: 2.5
+package main
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
+
+func main() {
+	x, err := strconv.ParseFloat("3.75", 64)
+	if err == nil {
+		fmt.Println(x * 2)
+	}
+	y, _ := strconv.ParseFloat(strings.ReplaceAll("2,5", ",", "."), 64)
+	fmt.Println(y)
+}
+
+// nota: strconv.FormatInt
+// titulo: strconv.FormatInt: un número en cualquier base
+// resumen: Convierte un int64 en texto en la base que elijas, de 2 a 36: base 2 para binario, 16 para hexadecimal.
+// relacionados: strconv.Itoa, strconv.ParseInt
+// palabras: convertir, base, binario, hexadecimal, numero, texto
+// salida: 1010
+// salida: ff
+// salida: 255
+package main
+
+import (
+	"fmt"
+	"strconv"
+)
+
+func main() {
+	fmt.Println(strconv.FormatInt(10, 2))
+	fmt.Println(strconv.FormatInt(255, 16))
+	n, _ := strconv.ParseInt("ff", 16, 64)
+	fmt.Println(n)
+}
+
+// nota: strconv.Quote
+// titulo: strconv.Quote: poner un texto entre comillas
+// resumen: Devuelve el texto entre comillas dobles y con las secuencias de escape de Go (\n, \", …), tal como se escribiría en el código.
+// relacionados: strconv.Unquote, fmt.Printf
+// palabras: comillas, texto, escapar, literal, mostrar
+// salida: "hola"
+// salida: "dice \"hola\"\n"
+package main
+
+import (
+	"fmt"
+	"strconv"
+)
+
+func main() {
+	fmt.Println(strconv.Quote("hola"))
+	fmt.Println(strconv.Quote("dice \"hola\"\n"))
+}

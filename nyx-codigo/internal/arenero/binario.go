@@ -435,17 +435,13 @@ func (s *sesionProbar) anotar(p [2]int, x *lineaArnes) {
 	}
 }
 
-// resumenCaida turns the end of stderr into the Panico text of a crash.
+// resumenCaida turns stderr into the Panico text of a crash. A runtime fatal error ("fatal error: stack
+// overflow", "runtime: out of memory", a deadlock…) prints its reason first and then a dump of every
+// goroutine, so the reason is looked for at the head of stderr; without one, the last 2 KiB are used.
 func resumenCaida(f fin) string {
-	cola := strings.TrimSpace(f.errSalida.Cola(2048))
-	if cola != "" {
-		lineas := strings.Split(cola, "\n")
-		for i, l := range lineas {
-			if strings.HasPrefix(l, "fatal error:") || strings.HasPrefix(l, "panic:") || strings.HasPrefix(l, "runtime:") {
-				cola = strings.Join(lineas[i:], "\n")
-				break
-			}
-		}
+	cola := extraerCaida(f.errSalida.String())
+	if cola == "" {
+		cola = strings.TrimSpace(f.errSalida.Cola(2048))
 	}
 	var motivo string
 	switch {
@@ -460,4 +456,47 @@ func resumenCaida(f fin) string {
 		return motivo
 	}
 	return cola + "\n(" + motivo + ")"
+}
+
+// maxCaida caps the crash text kept in Panico.
+const maxCaida = 2048
+
+// extraerCaida finds the first line that explains a crash ("fatal error:", "panic:", "runtime:",
+// "SIGSEGV…") and returns it with what follows, cut at a line boundary within maxCaida bytes.
+// It returns "" when stderr has no such line.
+func extraerCaida(errSalida string) string {
+	lineas := strings.Split(strings.ToValidUTF8(errSalida, ""), "\n")
+	inicio := -1
+	for i, l := range lineas {
+		if esLineaCaida(l) {
+			inicio = i
+			break
+		}
+	}
+	if inicio < 0 {
+		return ""
+	}
+	var sb strings.Builder
+	for _, l := range lineas[inicio:] {
+		if sb.Len()+len(l)+1 > maxCaida {
+			if sb.Len() == 0 {
+				sb.WriteString(l[:maxCaida])
+			}
+			break
+		}
+		if sb.Len() > 0 {
+			sb.WriteByte('\n')
+		}
+		sb.WriteString(l)
+	}
+	return strings.TrimSpace(sb.String())
+}
+
+func esLineaCaida(l string) bool {
+	for _, p := range []string{"fatal error:", "panic:", "runtime:", "SIGSEGV", "SIGBUS", "SIGILL", "SIGFPE", "unexpected fault"} {
+		if strings.HasPrefix(l, p) {
+			return true
+		}
+	}
+	return false
 }

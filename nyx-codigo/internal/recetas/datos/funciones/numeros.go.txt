@@ -1,0 +1,513 @@
+// receta: EsPrimo
+// titulo: ¿Es primo un número?
+// descripcion: Dice si un número entero es primo: mayor que 1 y solo divisible entre 1 y entre sí mismo. Prueba divisores hasta la raíz cuadrada.
+// palabras: primo, numero, comprobar, divisor, divisible, saber
+// conceptos: primo, numero, comprobar
+// caso: ["7", "true"]
+// caso: ["1", "false"]
+// caso: ["0", "false"]
+// caso: ["-7", "false"]
+// caso: ["2", "true"]
+// caso: ["9", "false"]
+// caso: ["97", "true"]
+// caso: ["100", "false"]
+// caso: ["7919", "true"]
+package solucion
+
+// EsPrimo dice si n es un número primo.
+func EsPrimo(n int) bool {
+	if n < 2 {
+		return false
+	}
+	for d := 2; d*d <= n; d++ {
+		if n%d == 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// receta: PrimosHasta
+// titulo: Lista de primos hasta un número
+// descripcion: Devuelve todos los números primos menores o iguales que n, en orden, usando la criba de Eratóstenes.
+// palabras: primo, lista, hasta, criba, eratostenes, generar, todos
+// conceptos: primos, lista, numeros
+// caso: ["10", "[2, 3, 5, 7]"]
+// caso: ["1", "[]"]
+// caso: ["2", "[2]"]
+// caso: ["30", "[2, 3, 5, 7, 11, 13, 17, 19, 23, 29]"]
+// caso: ["-5", "[]"]
+// caso: ["13", "[2, 3, 5, 7, 11, 13]"]
+package solucion
+
+// PrimosHasta devuelve los primos que hay entre 2 y n (criba de Eratóstenes).
+func PrimosHasta(n int) []int {
+	if n < 2 {
+		return nil
+	}
+	tachado := make([]bool, n+1)
+	var primos []int
+	for i := 2; i <= n; i++ {
+		if tachado[i] {
+			continue
+		}
+		primos = append(primos, i)
+		for j := i * i; j <= n; j += i {
+			tachado[j] = true
+		}
+	}
+	return primos
+}
+
+// receta: Factorial
+// titulo: Factorial de un número
+// descripcion: Calcula n! = 1 · 2 · … · n. El factorial de 0 es 1; para un número negativo devuelve 0. Con int solo cabe hasta 20!.
+// palabras: factorial, numero, multiplicar, producto, calcular
+// conceptos: factorial, multiplicar, numero
+// caso: ["5", "120"]
+// caso: ["0", "1"]
+// caso: ["1", "1"]
+// caso: ["10", "3628800"]
+// caso: ["-3", "0"]
+// caso: ["20", "2432902008176640000"]
+package solucion
+
+// Factorial devuelve n! (0 si n es negativo).
+func Factorial(n int) int {
+	if n < 0 {
+		return 0
+	}
+	resultado := 1
+	for i := 2; i <= n; i++ {
+		resultado *= i
+	}
+	return resultado
+}
+
+// receta: FactorialGrande
+// titulo: Factorial de un número grande (big.Int)
+// descripcion: Calcula n! sin límite de tamaño con math/big y lo devuelve como texto. Para un número negativo devuelve "0".
+// palabras: factorial, grande, numero, big, enorme, multiplicar
+// conceptos: factorial, numero, a_texto
+// caso: ["5", "\"120\""]
+// caso: ["0", "\"1\""]
+// caso: ["25", "\"15511210043330985984000000\""]
+// caso: ["30", "\"265252859812191058636308480000000\""]
+// caso: ["-1", "\"0\""]
+package solucion
+
+import "math/big"
+
+// FactorialGrande devuelve n! escrito en base 10, sin desbordarse.
+func FactorialGrande(n int) string {
+	if n < 0 {
+		return "0"
+	}
+	resultado := big.NewInt(1)
+	for i := 2; i <= n; i++ {
+		resultado.Mul(resultado, big.NewInt(int64(i)))
+	}
+	return resultado.String()
+}
+
+// receta: Fibonacci
+// titulo: Número de Fibonacci
+// descripcion: Devuelve el n-ésimo número de Fibonacci (0, 1, 1, 2, 3, 5, 8…), contando desde Fibonacci(0) = 0. Va guardando los dos últimos, sin recursión.
+// palabras: fibonacci, sucesion, serie, numero, termino
+// conceptos: fibonacci, numero
+// caso: ["0", "0"]
+// caso: ["1", "1"]
+// caso: ["2", "1"]
+// caso: ["10", "55"]
+// caso: ["20", "6765"]
+// caso: ["-4", "0"]
+// caso: ["50", "12586269025"]
+package solucion
+
+// Fibonacci devuelve el término n de la sucesión 0, 1, 1, 2, 3, 5… (0 si n es negativo).
+func Fibonacci(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	a, b := 0, 1
+	for i := 1; i < n; i++ {
+		a, b = b, a+b
+	}
+	return b
+}
+
+// receta: MCD
+// titulo: Máximo común divisor
+// descripcion: Calcula el máximo común divisor de dos enteros con el algoritmo de Euclides. El resultado nunca es negativo.
+// palabras: mcd, maximo, comun, divisor, euclides, dos, numero
+// conceptos: mcd, numeros
+// caso: ["48", "18", "6"]
+// caso: ["17", "5", "1"]
+// caso: ["0", "9", "9"]
+// caso: ["-12", "8", "4"]
+// caso: ["0", "0", "0"]
+// caso: ["100", "75", "25"]
+package solucion
+
+// MCD devuelve el máximo común divisor de a y b (algoritmo de Euclides).
+func MCD(a, b int) int {
+	if a < 0 {
+		a = -a
+	}
+	if b < 0 {
+		b = -b
+	}
+	for b != 0 {
+		a, b = b, a%b
+	}
+	return a
+}
+
+// receta: MCM
+// titulo: Mínimo común múltiplo
+// descripcion: Calcula el mínimo común múltiplo de dos enteros usando el MCD: a·b / mcd(a, b). Si alguno es 0 devuelve 0.
+// palabras: mcm, minimo, comun, multiplo, dos, numero
+// conceptos: mcm, numeros
+// caso: ["4", "6", "12"]
+// caso: ["3", "5", "15"]
+// caso: ["0", "5", "0"]
+// caso: ["-4", "6", "12"]
+// caso: ["21", "6", "42"]
+package solucion
+
+// MCM devuelve el mínimo común múltiplo de a y b (0 si alguno es 0).
+func MCM(a, b int) int {
+	if a == 0 || b == 0 {
+		return 0
+	}
+	if a < 0 {
+		a = -a
+	}
+	if b < 0 {
+		b = -b
+	}
+	return a / mcd(a, b) * b
+}
+
+func mcd(a, b int) int {
+	for b != 0 {
+		a, b = b, a%b
+	}
+	return a
+}
+
+// receta: SumaDigitos
+// titulo: Suma de las cifras de un número
+// descripcion: Suma los dígitos de un entero (el signo no cuenta): 1234 da 10.
+// palabras: sumar, digito, cifra, numero
+// conceptos: suma_digitos, digitos, numero
+// caso: ["1234", "10"]
+// caso: ["0", "0"]
+// caso: ["9", "9"]
+// caso: ["-56", "11"]
+// caso: ["1000", "1"]
+// caso: ["99999", "45"]
+package solucion
+
+// SumaDigitos suma las cifras de n.
+func SumaDigitos(n int) int {
+	if n < 0 {
+		n = -n
+	}
+	total := 0
+	for n > 0 {
+		total += n % 10
+		n /= 10
+	}
+	return total
+}
+
+// receta: InvertirNumero
+// titulo: Dar la vuelta a un número
+// descripcion: Escribe las cifras de un entero al revés: 123 da 321 y -45 da -54. Los ceros del final desaparecen (120 da 21).
+// palabras: invertir, numero, reves, vuelta, cifra, digito
+// conceptos: invertir_numero, digitos, numero
+// caso: ["123", "321"]
+// caso: ["-45", "-54"]
+// caso: ["120", "21"]
+// caso: ["0", "0"]
+// caso: ["7", "7"]
+// caso: ["1001", "1001"]
+package solucion
+
+// InvertirNumero devuelve n con las cifras al revés (conserva el signo).
+func InvertirNumero(n int) int {
+	signo := 1
+	if n < 0 {
+		signo, n = -1, -n
+	}
+	reves := 0
+	for n > 0 {
+		reves = reves*10 + n%10
+		n /= 10
+	}
+	return signo * reves
+}
+
+// receta: EsCapicuaNumero
+// titulo: ¿Es capicúa un número?
+// descripcion: Dice si un entero se lee igual al derecho y al revés, como 1221. Los negativos no son capicúas.
+// palabras: capicua, palindromo, numero, reves, comprobar
+// conceptos: palindromo, numero, comprobar, invertir_numero
+// caso: ["1221", "true"]
+// caso: ["123", "false"]
+// caso: ["7", "true"]
+// caso: ["0", "true"]
+// caso: ["-121", "false"]
+// caso: ["10", "false"]
+package solucion
+
+// EsCapicuaNumero dice si n se lee igual al revés.
+func EsCapicuaNumero(n int) bool {
+	if n < 0 {
+		return false
+	}
+	original, reves := n, 0
+	for n > 0 {
+		reves = reves*10 + n%10
+		n /= 10
+	}
+	return reves == original
+}
+
+// receta: Divisores
+// titulo: Divisores de un número
+// descripcion: Devuelve los divisores positivos de n, de menor a mayor. Para 0 o un negativo devuelve una lista vacía.
+// palabras: divisor, numero, lista, dividir, divisible
+// conceptos: divisible_por, lista, numero
+// caso: ["12", "[1, 2, 3, 4, 6, 12]"]
+// caso: ["1", "[1]"]
+// caso: ["7", "[1, 7]"]
+// caso: ["0", "[]"]
+// caso: ["-6", "[]"]
+// caso: ["36", "[1, 2, 3, 4, 6, 9, 12, 18, 36]"]
+package solucion
+
+// Divisores devuelve los divisores positivos de n en orden.
+func Divisores(n int) []int {
+	if n <= 0 {
+		return nil
+	}
+	var pequenos, grandes []int
+	for d := 1; d*d <= n; d++ {
+		if n%d == 0 {
+			pequenos = append(pequenos, d)
+			if d != n/d {
+				grandes = append(grandes, n/d)
+			}
+		}
+	}
+	for i := len(grandes) - 1; i >= 0; i-- {
+		pequenos = append(pequenos, grandes[i])
+	}
+	return pequenos
+}
+
+// receta: EsPerfecto
+// titulo: ¿Es un número perfecto?
+// descripcion: Un número es perfecto si es igual a la suma de sus divisores menores que él, como 6 = 1 + 2 + 3.
+// palabras: perfecto, numero, divisor, sumar, comprobar
+// conceptos: comprobar, numero, divisible_por
+// caso: ["6", "true"]
+// caso: ["28", "true"]
+// caso: ["12", "false"]
+// caso: ["1", "false"]
+// caso: ["0", "false"]
+// caso: ["496", "true"]
+package solucion
+
+// EsPerfecto dice si n es igual a la suma de sus divisores propios.
+func EsPerfecto(n int) bool {
+	if n < 2 {
+		return false
+	}
+	suma := 1
+	for d := 2; d*d <= n; d++ {
+		if n%d == 0 {
+			suma += d
+			if d != n/d {
+				suma += n / d
+			}
+		}
+	}
+	return suma == n
+}
+
+// receta: ABinario
+// titulo: Pasar un número a binario
+// descripcion: Escribe un entero en base 2 como texto: 10 da "1010". Los negativos llevan un signo menos delante.
+// palabras: binario, base, dos, convertir, numero, bit
+// conceptos: binario, a_texto, numero
+// caso: ["10", "\"1010\""]
+// caso: ["0", "\"0\""]
+// caso: ["1", "\"1\""]
+// caso: ["255", "\"11111111\""]
+// caso: ["-5", "\"-101\""]
+package solucion
+
+// ABinario devuelve n escrito en base 2.
+func ABinario(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	signo := ""
+	if n < 0 {
+		signo, n = "-", -n
+	}
+	var cifras []byte
+	for n > 0 {
+		cifras = append(cifras, byte('0'+n%2))
+		n /= 2
+	}
+	for i, j := 0, len(cifras)-1; i < j; i, j = i+1, j-1 {
+		cifras[i], cifras[j] = cifras[j], cifras[i]
+	}
+	return signo + string(cifras)
+}
+
+// receta: DesdeBinario
+// titulo: Leer un número escrito en binario
+// descripcion: Convierte un texto con ceros y unos en su valor: "1010" da 10. Si el texto tiene otro carácter o está vacío devuelve un error.
+// palabras: binario, base, dos, convertir, leer, numero, texto
+// conceptos: binario, a_numero, texto
+// caso: ["\"1010\"", "10", "nil"]
+// caso: ["\"0\"", "0", "nil"]
+// caso: ["\"11111111\"", "255", "nil"]
+// caso: ["\"102\"", "0", "error(\"no es binario\")"]
+// caso: ["\"\"", "0", "error(\"vacío\")"]
+// caso: ["\"1\"", "1", "nil"]
+package solucion
+
+import "errors"
+
+// DesdeBinario lee un número escrito en base 2.
+func DesdeBinario(s string) (int, error) {
+	if s == "" {
+		return 0, errors.New("el texto está vacío")
+	}
+	n := 0
+	for _, c := range s {
+		if c != '0' && c != '1' {
+			return 0, errors.New("solo puede tener ceros y unos")
+		}
+		n = n*2 + int(c-'0')
+	}
+	return n, nil
+}
+
+// receta: Potencia
+// titulo: Potencia entera
+// descripcion: Calcula base elevado a exp con exponenciación rápida (elevando al cuadrado). Si el exponente es negativo devuelve 0.
+// palabras: potencia, elevar, exponente, base, numero, rapida
+// conceptos: potencia, numero
+// caso: ["2", "10", "1024"]
+// caso: ["3", "0", "1"]
+// caso: ["5", "3", "125"]
+// caso: ["-2", "3", "-8"]
+// caso: ["7", "-1", "0"]
+// caso: ["10", "9", "1000000000"]
+package solucion
+
+// Potencia devuelve base^exp (0 si exp es negativo).
+func Potencia(base, exp int) int {
+	if exp < 0 {
+		return 0
+	}
+	resultado := 1
+	for exp > 0 {
+		if exp%2 == 1 {
+			resultado *= base
+		}
+		base *= base
+		exp /= 2
+	}
+	return resultado
+}
+
+// receta: RaizEntera
+// titulo: Raíz cuadrada entera
+// descripcion: Devuelve el mayor entero r con r·r ≤ n (búsqueda binaria, sin decimales). Para un número negativo devuelve -1.
+// palabras: raiz, cuadrada, entera, numero, redondear
+// conceptos: raiz, numero
+// caso: ["16", "4"]
+// caso: ["17", "4"]
+// caso: ["0", "0"]
+// caso: ["1", "1"]
+// caso: ["-4", "-1"]
+// caso: ["1000000", "1000"]
+// caso: ["99", "9"]
+package solucion
+
+// RaizEntera devuelve la parte entera de la raíz cuadrada de n (-1 si n es negativo).
+func RaizEntera(n int) int {
+	if n < 0 {
+		return -1
+	}
+	bajo, alto := 0, n
+	if alto > 3037000499 {
+		alto = 3037000499
+	}
+	for bajo < alto {
+		medio := (bajo + alto + 1) / 2
+		if medio*medio <= n {
+			bajo = medio
+		} else {
+			alto = medio - 1
+		}
+	}
+	return bajo
+}
+
+// receta: EsBisiesto
+// titulo: ¿Es bisiesto un año?
+// descripcion: Un año es bisiesto si es divisible entre 4, salvo los divisibles entre 100 que no lo son entre 400.
+// palabras: bisiesto, año, anio, fecha, calendario, comprobar
+// conceptos: comprobar, divisible_por, numero
+// caso: ["2024", "true"]
+// caso: ["2023", "false"]
+// caso: ["1900", "false"]
+// caso: ["2000", "true"]
+// caso: ["4", "true"]
+package solucion
+
+// EsBisiesto dice si el año tiene 29 de febrero.
+func EsBisiesto(anio int) bool {
+	return anio%4 == 0 && (anio%100 != 0 || anio%400 == 0)
+}
+
+// receta: FizzBuzz
+// titulo: FizzBuzz
+// descripcion: Devuelve los textos del juego FizzBuzz del 1 al n: "Fizz" para los múltiplos de 3, "Buzz" para los de 5, "FizzBuzz" para los de los dos y el número en los demás.
+// palabras: fizzbuzz, fizz, buzz, juego, multiplo, lista
+// conceptos: divisible_por, lista, a_texto
+// caso: ["5", "[\"1\", \"2\", \"Fizz\", \"4\", \"Buzz\"]"]
+// caso: ["0", "[]"]
+// caso: ["1", "[\"1\"]"]
+// caso: ["15", "[\"1\", \"2\", \"Fizz\", \"4\", \"Buzz\", \"Fizz\", \"7\", \"8\", \"Fizz\", \"Buzz\", \"11\", \"Fizz\", \"13\", \"14\", \"FizzBuzz\"]"]
+// caso: ["3", "[\"1\", \"2\", \"Fizz\"]"]
+package solucion
+
+import "strconv"
+
+// FizzBuzz devuelve los textos del 1 al n.
+func FizzBuzz(n int) []string {
+	var out []string
+	for i := 1; i <= n; i++ {
+		switch {
+		case i%15 == 0:
+			out = append(out, "FizzBuzz")
+		case i%3 == 0:
+			out = append(out, "Fizz")
+		case i%5 == 0:
+			out = append(out, "Buzz")
+		default:
+			out = append(out, strconv.Itoa(i))
+		}
+	}
+	return out
+}

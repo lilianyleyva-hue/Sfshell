@@ -60,6 +60,37 @@ func quiere(msg string) string {
 	return ""
 }
 
+// cuantos writes "1 valor" / "2 valores".
+func cuantos(n, uno, varios string) string {
+	if n == "1" {
+		return n + " " + uno
+	}
+	return n + " " + varios
+}
+
+// esperaba translates the "expected …" part of a syntax error: "comma or )" → "una coma o `)`".
+func esperaba(s string) string {
+	partes := strings.Split(s, " or ")
+	for i, x := range partes {
+		x = strings.TrimSpace(x)
+		switch x {
+		case "comma":
+			partes[i] = "una coma `,`"
+		case "name":
+			partes[i] = "un nombre"
+		case "expression":
+			partes[i] = "un valor"
+		case "type":
+			partes[i] = "un tipo"
+		case "semicolon", "newline":
+			partes[i] = "el final de la línea"
+		default:
+			partes[i] = codigo(x)
+		}
+	}
+	return strings.Join(partes, " o ")
+}
+
 func encontrado(s string) string {
 	s = strings.Trim(s, "'")
 	switch s {
@@ -139,7 +170,7 @@ func init() {
 		return codigo(m[2]) + " devuelve " + m[3] + " valores, pero recoges " + m[1] + "."
 	})
 	p(`^assignment mismatch: (\d+) variables? but (\d+) values?$`, func(m []string, _ string) string {
-		return "A la izquierda hay " + m[1] + " variables y a la derecha " + m[2] + " valores: tiene que haber los mismos."
+		return "A la izquierda hay " + cuantos(m[1], "variable", "variables") + " y a la derecha " + cuantos(m[2], "valor", "valores") + ": tiene que haber los mismos."
 	})
 	p(`^non-boolean condition in (\w+) statement$`, func(m []string, _ string) string {
 		return "La condición del " + codigo(m[1]) + " tiene que ser verdadero o falso (por ejemplo `x != 0`)."
@@ -154,6 +185,9 @@ func init() {
 		return "El operador " + codigo(m[1]) + " no se puede usar con " + codigo(m[2]) + "."
 	})
 	p(`^invalid operation: division by zero$`, fija("Estás dividiendo entre cero."))
+	p(`^(.+) \(untyped float constant(?: [^)]*)?\) truncated to (\w+)$`, func(m []string, _ string) string {
+		return "El número " + codigo(m[1]) + " tiene decimales, pero aquí se usa como entero (" + codigo(m[2]) + ")."
+	})
 	p(`^cannot assign to struct field (.+) in map$`, func(m []string, _ string) string {
 		return "No se puede cambiar " + codigo(m[1]) + " directamente: cópialo, cámbialo y guárdalo otra vez en el mapa."
 	})
@@ -213,7 +247,7 @@ func init() {
 		return "Esperaba " + codigo(m[1]) + " y encontré " + encontrado(m[2]) + "."
 	})
 	p(`^syntax error: unexpected (.+?), expected (.+)$`, func(m []string, _ string) string {
-		return "Error de escritura: encontré " + encontrado(m[1]) + " cuando esperaba " + m[2] + "."
+		return "Error de escritura: encontré " + encontrado(m[1]) + " cuando esperaba " + esperaba(m[2]) + "."
 	})
 	p(`^syntax error: unexpected (.+)$`, func(m []string, _ string) string {
 		return "Error de escritura: no esperaba " + encontrado(m[1]) + " aquí."
@@ -249,7 +283,7 @@ func Traducir(e nucleo.ErrorGo) string {
 }
 
 var (
-	reIndice    = regexp.MustCompile(`index out of range \[(-?\d+)\] with length (\d+)`)
+	reIndice    = regexp.MustCompile(`index out of range \[(-?\d+)\](?: with length (\d+))?`)
 	reCorte     = regexp.MustCompile(`slice bounds out of range \[([^\]]*)\](?: with (?:length|capacity) (\d+))?`)
 	reAtoi      = regexp.MustCompile(`strconv\.(?:Atoi|ParseInt|ParseFloat): parsing "(.*)": (invalid syntax|value out of range)`)
 	reInterfaz  = regexp.MustCompile(`interface conversion: (.+) is (.+), not (.+)`)
@@ -265,7 +299,7 @@ func TraducirPanico(msg string) string {
 		i, _ := strconv.Atoi(x[1])
 		n, _ := strconv.Atoi(x[2])
 		switch {
-		case i < 0:
+		case i < 0 || x[2] == "":
 			return "Intentaste leer la posición " + x[1] + ", que no existe: las posiciones empiezan en 0."
 		case n == 0:
 			return "Intentaste leer la posición " + x[1] + " de una lista vacía."

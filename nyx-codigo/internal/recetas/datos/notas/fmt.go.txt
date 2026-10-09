@@ -1,0 +1,102 @@
+// nota: fmt.Println
+// titulo: fmt.Println: escribir una línea
+// resumen: Escribe sus argumentos en la salida, separados por un espacio, y termina con un salto de línea. Acepta cualquier tipo de valor: números, textos, listas, mapas…
+// relacionados: fmt.Printf, fmt.Sprintf
+// palabras: escribir, imprimir, mostrar, pantalla, linea, salida, print
+// salida: Hola, mundo
+// salida: 3 7.5 true
+// salida: [1 2 3] map[a:1]
+package main
+
+import "fmt"
+
+func main() {
+	fmt.Println("Hola, mundo")
+	fmt.Println(3, 7.5, true)
+	fmt.Println([]int{1, 2, 3}, map[string]int{"a": 1})
+}
+
+// nota: fmt.Printf
+// titulo: fmt.Printf: escribir con formato
+// resumen: Escribe un texto con huecos que se rellenan con los argumentos: %d para enteros, %s para textos, %v para cualquier valor y %.2f para decimales con dos cifras. No añade salto de línea: pon \n al final.
+// relacionados: fmt.Sprintf, fmt.Println
+// palabras: escribir, formato, imprimir, decimal, plantilla, verbo, printf
+// salida: Ana tiene 30 años
+// salida: Precio: 3.50 euros
+// salida: [   42] [x    ]
+package main
+
+import "fmt"
+
+func main() {
+	nombre, edad := "Ana", 30
+	fmt.Printf("%s tiene %d años\n", nombre, edad)
+	fmt.Printf("Precio: %.2f euros\n", 3.5)
+	fmt.Printf("[%5d] [%-5s]\n", 42, "x")
+}
+
+// nota: fmt.Sprintf
+// titulo: fmt.Sprintf: crear un texto con formato
+// resumen: Funciona como fmt.Printf, pero en lugar de escribir el resultado lo devuelve como texto (string) para guardarlo en una variable.
+// relacionados: fmt.Printf, strconv.Itoa
+// palabras: texto, formato, crear, convertir, string, componer
+// salida: El 7 al cuadrado es 49
+// salida: 22
+package main
+
+import "fmt"
+
+func main() {
+	n := 7
+	frase := fmt.Sprintf("El %d al cuadrado es %d", n, n*n)
+	fmt.Println(frase)
+	fmt.Println(len(frase))
+}
+
+// nota: fmt.Scan
+// titulo: fmt.Scan: leer del teclado
+// resumen: Lee valores separados por espacios o saltos de línea y los guarda en las variables que le pasas con &. Devuelve cuántos leyó y un error si no pudo (por ejemplo, si no había más datos).
+// relacionados: bufio.Scanner, bufio.NewReader, os.Stdin
+// palabras: leer, teclado, entrada, pedir, scan, usuario
+// salida: Escribe tu nombre y tu edad:
+// salida: Ana tiene 30 años
+package main
+
+import "fmt"
+
+func main() {
+	var nombre string
+	var edad int
+	fmt.Println("Escribe tu nombre y tu edad:")
+	if _, err := fmt.Scan(&nombre, &edad); err != nil {
+		// Sin teclado (como al probarlo aquí) leo de un texto de ejemplo con fmt.Sscan.
+		fmt.Sscan("Ana 30", &nombre, &edad)
+	}
+	fmt.Printf("%s tiene %d años\n", nombre, edad)
+}
+
+// nota: fmt.Errorf
+// titulo: fmt.Errorf y %w: crear errores con más contexto
+// resumen: Crea un error con un mensaje con formato. Si usas %w con otro error, lo envuelve: el mensaje lo incluye y errors.Is o errors.As pueden encontrarlo después.
+// relacionados: errors.New, errors.Is, errors.As
+// palabras: error, envolver, wrap, mensaje, contexto, formato
+// salida: no pude leer config.txt: el archivo no existe
+// salida: true
+package main
+
+import (
+	"errors"
+	"fmt"
+)
+
+var ErrNoExiste = errors.New("el archivo no existe")
+
+func leer(nombre string) error {
+	return fmt.Errorf("no pude leer %s: %w", nombre, ErrNoExiste)
+}
+
+func main() {
+	err := leer("config.txt")
+	fmt.Println(err)
+	fmt.Println(errors.Is(err, ErrNoExiste))
+}

@@ -48,6 +48,7 @@ func init() {
 	r("tipos_distintos", `^invalid operation: (.+) \(mismatched types (.+) and (.+)\)$`, reglaTiposDistintos)
 	r("asignar_campo_mapa", `^cannot assign to struct field (.+) in map$`, reglaCampoMapa)
 	r("expresion_sin_usar", `^(.+) \((?:value|variable) of type (.+)\) is not used$`, reglaSinUsar)
+	r("convertir_tipo", `^(.+) \(untyped float constant(?: [^)]*)?\) truncated to (\w+)$`, reglaTruncado)
 	r("indice_entero", `^invalid argument: index (.+) \((.+) of type (float32|float64)\) must be integer$`, reglaIndiceEntero)
 }
 
@@ -610,12 +611,6 @@ func reglaNoUsada(a *analisis, e nucleo.ErrorGo, m []string) []edicion {
 				}
 				return append(out, a.usarBlanco(s, nombre, porque))
 			}
-			if false {
-				if a.puro(s.Rhs[0]) {
-					return []edicion{a.borrar(s, porque+": la quito")}
-				}
-				return []edicion{a.usarBlanco(s, nombre, porque)}
-			}
 			// several variables: this one becomes "_" (and ":=" becomes "=" if none is left)
 			partes := make([]string, len(s.Lhs))
 			quedan := false
@@ -848,7 +843,10 @@ func (a *analisis) conError(x ast.Expr, plantilla, destino, base string) []edici
 	if !ok {
 		return nil
 	}
-	v := a.nombreLibre(x.Pos(), "n")
+	v := "n"
+	for i := 2; (a.buscarVisible(x.Pos(), v) != nil || a.definidoEnFuncion(x.Pos(), v)) && i < 100; i++ {
+		v = "n" + strconv.Itoa(i)
+	}
 	ini := a.off(stmt.Pos())
 	ind := indentacion(a.fuente, ini)
 	llamada := strings.Replace(plantilla, "%s", a.texto(x), 1)
@@ -868,6 +866,49 @@ func (a *analisis) conError(x ast.Expr, plantilla, destino, base string) []edici
 	ed.cambio.Regla = "texto_a_numero"
 	ed.importar = []string{"strconv"}
 	ed.suposicion = sup
+	return []edicion{ed}
+}
+
+// definidoEnFuncion reports whether the function around pos declares a name (anywhere in it).
+func (a *analisis) definidoEnFuncion(pos token.Pos, nombre string) bool {
+	_, cuerpo := a.funcionEn(pos)
+	if cuerpo == nil || a.info == nil {
+		return false
+	}
+	si := false
+	ast.Inspect(cuerpo, func(n ast.Node) bool {
+		if id, ok := n.(*ast.Ident); ok && id.Name == nombre && a.info.Defs[id] != nil {
+			si = true
+		}
+		return !si
+	})
+	return si
+}
+
+// reglaTruncado: "2.5 (untyped float constant) truncated to int" in len(xs) / 2.5 → float64(len(xs)) / 2.5.
+func reglaTruncado(a *analisis, e nucleo.ErrorGo, m []string) []edicion {
+	pos := a.posDe(e)
+	x := a.exprEn(pos, m[1])
+	if x == nil {
+		return nil
+	}
+	b, ok := a.padreDe(x).(*ast.BinaryExpr)
+	if !ok {
+		return nil
+	}
+	otro := b.X
+	if otro == x {
+		otro = b.Y
+	}
+	if !esEntero(a.tipoDe(otro)) {
+		return nil
+	}
+	if tv, ok := a.info.Types[otro]; ok && tv.Value != nil {
+		return nil
+	}
+	txt := a.texto(otro)
+	ed := a.reemplazar(otro, "float64("+txt+")", "«"+m[1]+"» tiene decimales: paso «"+txt+"» a float64 para operar con decimales")
+	ed.cambio.Regla = "convertir_tipo"
 	return []edicion{ed}
 }
 

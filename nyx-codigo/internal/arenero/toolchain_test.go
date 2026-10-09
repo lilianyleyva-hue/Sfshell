@@ -133,7 +133,8 @@ func TestDesbordePila(t *testing.T) {
 	b := preparar(t, a, nucleo.Preparacion{Variantes: []string{src}, Firma: firmaIntInt("F")}) // no depth check
 	rs := probar(t, b, casosInt(0, 1, 2), nucleo.OpcionesProbar{})
 	r := rs[0]
-	if !r[0].Caida || !strings.Contains(r[0].Panico, "stack") {
+	t.Logf("pánico de la pila: %q", r[0].Panico)
+	if !r[0].Caida || !strings.Contains(r[0].Panico, "stack overflow") {
 		t.Errorf("la recursión infinita debe caer por la pila: %+v", r[0])
 	}
 	if !r[1].OK || !r[2].OK || !nucleo.Igual(r[2].Obtenido[0], 4) {

@@ -1,0 +1,372 @@
+// nota: strings.Split
+// titulo: strings.Split: partir un texto
+// resumen: Parte un texto cada vez que encuentra el separador y devuelve una lista ([]string) con los trozos. Si dos separadores van seguidos, aparece un trozo vacío; para partir por espacios usa mejor strings.Fields.
+// relacionados: strings.Fields, strings.Join
+// palabras: partir, separar, dividir, trozo, texto, lista, coma, split
+// salida: [a b c]
+// salida: 3
+// salida: ["a" "b" "" "c"]
+package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+func main() {
+	partes := strings.Split("a,b,c", ",")
+	fmt.Println(partes)
+	fmt.Println(len(partes))
+	fmt.Printf("%q\n", strings.Split("a,b,,c", ","))
+}
+
+// nota: strings.Fields
+// titulo: strings.Fields: las palabras de un texto
+// resumen: Parte un texto por los espacios (uno o varios, tabuladores y saltos de línea incluidos) y devuelve las palabras, sin trozos vacíos.
+// relacionados: strings.Split, strings.Join
+// palabras: palabra, partir, separar, espacio, texto, contar
+// salida: [uno dos tres]
+// salida: 3
+package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+func main() {
+	palabras := strings.Fields("  uno   dos\ttres \n")
+	fmt.Println(palabras)
+	fmt.Println(len(palabras))
+}
+
+// nota: strings.Join
+// titulo: strings.Join: unir textos
+// resumen: Une una lista de textos en uno solo, poniendo el separador entre cada dos. Es lo contrario de strings.Split.
+// relacionados: strings.Split, strings.Builder
+// palabras: unir, juntar, concatenar, lista, texto, separador
+// salida: rojo, verde, azul
+// salida: 2024-01-31
+package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+func main() {
+	colores := []string{"rojo", "verde", "azul"}
+	fmt.Println(strings.Join(colores, ", "))
+	fmt.Println(strings.Join([]string{"2024", "01", "31"}, "-"))
+}
+
+// nota: strings.Contains
+// titulo: strings.Contains: ¿contiene un texto a otro?
+// resumen: Dice (true o false) si un texto contiene a otro en cualquier posición. Distingue mayúsculas de minúsculas.
+// relacionados: strings.Index, strings.HasPrefix, strings.EqualFold
+// palabras: contiene, buscar, texto, incluir, aparecer, comprobar
+// salida: true
+// salida: false
+// salida: true
+package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+func main() {
+	frase := "Go es genial"
+	fmt.Println(strings.Contains(frase, "es"))
+	fmt.Println(strings.Contains(frase, "GO"))
+	fmt.Println(strings.Contains(strings.ToLower(frase), "go"))
+}
+
+// nota: strings.Index
+// titulo: strings.Index: dónde está un texto dentro de otro
+// resumen: Devuelve la posición (en bytes, empezando en 0) de la primera aparición de un texto dentro de otro, o -1 si no aparece.
+// relacionados: strings.Contains, strings.LastIndex
+// palabras: posicion, buscar, indice, donde, texto, encontrar
+// salida: 5
+// salida: -1
+// salida: mundo
+package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+func main() {
+	s := "hola mundo"
+	fmt.Println(strings.Index(s, "mundo"))
+	fmt.Println(strings.Index(s, "xyz"))
+	if i := strings.Index(s, " "); i >= 0 {
+		fmt.Println(s[i+1:])
+	}
+}
+
+// nota: strings.Replace
+// titulo: strings.Replace: cambiar trozos de un texto
+// resumen: Devuelve una copia del texto cambiando un trozo por otro; el último argumento dice cuántas veces (-1 = todas). Para cambiarlas todas es más claro strings.ReplaceAll.
+// relacionados: strings.ReplaceAll, strings.NewReplacer
+// palabras: reemplazar, cambiar, sustituir, texto, trozo
+// salida: xaa
+// salida: xxa
+// salida: xxx
+package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+func main() {
+	fmt.Println(strings.Replace("aaa", "a", "x", 1))
+	fmt.Println(strings.Replace("aaa", "a", "x", 2))
+	fmt.Println(strings.Replace("aaa", "a", "x", -1))
+}
+
+// nota: strings.ReplaceAll
+// titulo: strings.ReplaceAll: cambiar todas las apariciones
+// resumen: Devuelve una copia del texto con todas las apariciones de un trozo cambiadas por otro. El texto original no cambia (los textos en Go no se pueden modificar).
+// relacionados: strings.Replace, strings.NewReplacer
+// palabras: reemplazar, cambiar, sustituir, todos, texto
+// salida: 1.5 + 2.25
+// salida: hola mundo
+package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+func main() {
+	fmt.Println(strings.ReplaceAll("1,5 + 2,25", ",", "."))
+	original := "hola-mundo"
+	nuevo := strings.ReplaceAll(original, "-", " ")
+	fmt.Println(nuevo)
+}
+
+// nota: strings.ToUpper
+// titulo: strings.ToUpper: pasar a mayúsculas
+// resumen: Devuelve una copia del texto con todas las letras en mayúscula. Funciona también con tildes y eñes.
+// relacionados: strings.ToLower, unicode.ToUpper
+// palabras: mayuscula, convertir, texto, letra, grande
+// salida: HOLA, ÑANDÚ
+package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+func main() {
+	fmt.Println(strings.ToUpper("hola, ñandú"))
+}
+
+// nota: strings.ToLower
+// titulo: strings.ToLower: pasar a minúsculas
+// resumen: Devuelve una copia del texto con todas las letras en minúscula. Es útil para comparar sin que importen las mayúsculas.
+// relacionados: strings.ToUpper, strings.EqualFold
+// palabras: minuscula, convertir, texto, letra, pequeña
+// salida: árbol
+// salida: true
+package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+func main() {
+	fmt.Println(strings.ToLower("ÁRBOL"))
+	fmt.Println(strings.ToLower("Go") == strings.ToLower("GO"))
+}
+
+// nota: strings.TrimSpace
+// titulo: strings.TrimSpace: quitar espacios de los lados
+// resumen: Quita los espacios, tabuladores y saltos de línea del principio y del final de un texto. Es muy útil con lo que escribe el usuario.
+// relacionados: strings.Trim, strings.Fields
+// palabras: quitar, espacio, limpiar, recortar, lados, texto, trim
+// salida: [hola mundo]
+package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+func main() {
+	entrada := "   hola mundo \n"
+	fmt.Printf("[%s]\n", strings.TrimSpace(entrada))
+}
+
+// nota: strings.Trim
+// titulo: strings.Trim: quitar caracteres de los lados
+// resumen: Quita del principio y del final todos los caracteres que aparezcan en el segundo argumento (cualquiera de ellos, no el texto entero). Para quitar un prefijo concreto usa strings.TrimPrefix.
+// relacionados: strings.TrimSpace, strings.TrimPrefix, strings.TrimSuffix
+// palabras: quitar, recortar, lados, caracter, limpiar, trim
+// salida: hola
+// salida: archivo
+package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+func main() {
+	fmt.Println(strings.Trim("¡¡hola!!", "¡!"))
+	fmt.Println(strings.TrimSuffix("archivo.txt", ".txt"))
+}
+
+// nota: strings.HasPrefix
+// titulo: strings.HasPrefix: ¿empieza por…?
+// resumen: Dice si un texto empieza por otro (true o false).
+// relacionados: strings.HasSuffix, strings.TrimPrefix
+// palabras: empieza, comienza, prefijo, principio, texto, comprobar
+// salida: true
+// salida: false
+package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+func main() {
+	fmt.Println(strings.HasPrefix("https://go.dev", "https://"))
+	fmt.Println(strings.HasPrefix("go.dev", "https://"))
+}
+
+// nota: strings.HasSuffix
+// titulo: strings.HasSuffix: ¿termina en…?
+// resumen: Dice si un texto termina en otro (true o false). Sirve, por ejemplo, para mirar la extensión de un archivo.
+// relacionados: strings.HasPrefix, strings.TrimSuffix
+// palabras: termina, acaba, sufijo, final, extension, texto, comprobar
+// salida: true
+// salida: false
+package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+func main() {
+	fmt.Println(strings.HasSuffix("foto.png", ".png"))
+	fmt.Println(strings.HasSuffix("foto.png", ".jpg"))
+}
+
+// nota: strings.Repeat
+// titulo: strings.Repeat: repetir un texto
+// resumen: Devuelve el texto repetido n veces, uno detrás de otro.
+// relacionados: strings.Builder
+// palabras: repetir, veces, texto, copiar, linea
+// salida: ababab
+// salida: ----------
+package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+func main() {
+	fmt.Println(strings.Repeat("ab", 3))
+	fmt.Println(strings.Repeat("-", 10))
+}
+
+// nota: strings.Builder
+// titulo: strings.Builder: construir un texto poco a poco
+// resumen: Sirve para ir añadiendo trozos a un texto de forma eficiente (sin copiarlo entero cada vez, como pasa con +=). Añades con WriteString y al final lees el resultado con String.
+// relacionados: strings.Join, bytes.Buffer, fmt.Sprintf
+// palabras: construir, texto, concatenar, eficiente, añadir, builder, unir
+// salida: 1, 2, 3, 4, 5
+package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+func main() {
+	var sb strings.Builder
+	for i := 1; i <= 5; i++ {
+		if i > 1 {
+			sb.WriteString(", ")
+		}
+		fmt.Fprintf(&sb, "%d", i)
+	}
+	fmt.Println(sb.String())
+}
+
+// nota: strings.Count
+// titulo: strings.Count: cuántas veces aparece un texto
+// resumen: Cuenta cuántas veces aparece un trozo dentro de un texto, sin solaparse.
+// relacionados: strings.Contains, strings.Index
+// palabras: contar, veces, aparecer, texto, cuantas
+// salida: 3
+// salida: 2
+package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+func main() {
+	fmt.Println(strings.Count("banana", "a"))
+	fmt.Println(strings.Count("uno\ndos\n", "\n"))
+}
+
+// nota: strings.Title
+// titulo: strings.Title: primera letra en mayúscula (anticuada)
+// resumen: Pone en mayúscula la primera letra de cada palabra, pero está marcada como obsoleta (deprecated) desde Go 1.18 porque no trata bien todos los idiomas. Para textos sencillos puedes escribir tu propia función con unicode.ToUpper.
+// relacionados: strings.ToUpper, unicode.ToUpper
+// palabras: titulo, capitalizar, mayuscula, primera, letra, palabra
+// salida: Go Es Genial
+// salida: Go Es Genial
+package main
+
+import (
+	"fmt"
+	"strings"
+	"unicode"
+)
+
+// capitalizar hace lo mismo sin usar strings.Title.
+func capitalizar(s string) string {
+	rs := []rune(s)
+	for i, r := range rs {
+		if i == 0 || rs[i-1] == ' ' {
+			rs[i] = unicode.ToUpper(r)
+		}
+	}
+	return string(rs)
+}
+
+func main() {
+	fmt.Println(strings.Title("go es genial"))
+	fmt.Println(capitalizar("go es genial"))
+}
+
+// nota: strings.EqualFold
+// titulo: strings.EqualFold: comparar sin mirar mayúsculas
+// resumen: Dice si dos textos son iguales sin tener en cuenta mayúsculas y minúsculas. Es más rápido y correcto que pasar los dos a minúsculas.
+// relacionados: strings.ToLower, strings.Contains
+// palabras: comparar, igual, mayuscula, minuscula, texto
+// salida: true
+// salida: false
+package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+func main() {
+	fmt.Println(strings.EqualFold("Go", "GO"))
+	fmt.Println(strings.EqualFold("Go", "Goo"))
+}

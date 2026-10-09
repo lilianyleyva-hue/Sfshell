@@ -1,0 +1,121 @@
+// receta: Transponer
+// titulo: Transponer una matriz
+// descripcion: Cambia filas por columnas: el elemento de la fila i y columna j pasa a la fila j y columna i. Supone que todas las filas tienen la misma longitud.
+// palabras: transponer, matriz, fila, columna, cambiar, tabla
+// conceptos: transponer, matriz
+// caso: ["[[1, 2, 3], [4, 5, 6]]", "[[1, 4], [2, 5], [3, 6]]"]
+// caso: ["[]", "[]"]
+// caso: ["[[7]]", "[[7]]"]
+// caso: ["[[1, 2], [3, 4]]", "[[1, 3], [2, 4]]"]
+// caso: ["[[1], [2], [3]]", "[[1, 2, 3]]"]
+package solucion
+
+// Transponer devuelve la traspuesta de m.
+func Transponer(m [][]int) [][]int {
+	if len(m) == 0 {
+		return nil
+	}
+	t := make([][]int, len(m[0]))
+	for j := range t {
+		t[j] = make([]int, len(m))
+		for i := range m {
+			t[j][i] = m[i][j]
+		}
+	}
+	return t
+}
+
+// receta: SumaMatrices
+// titulo: Sumar dos matrices
+// descripcion: Suma dos matrices del mismo tamaño elemento a elemento. Si los tamaños no coinciden devuelve un error.
+// palabras: sumar, matriz, matrices, elemento, tabla
+// conceptos: sumar, matriz
+// caso: ["[[1, 2], [3, 4]]", "[[10, 20], [30, 40]]", "[[11, 22], [33, 44]]", "nil"]
+// caso: ["[]", "[]", "[]", "nil"]
+// caso: ["[[1]]", "[[1, 2]]", "nil", "error(\"tamaños distintos\")"]
+// caso: ["[[1, 2]]", "[[3, 4], [5, 6]]", "nil", "error(\"tamaños distintos\")"]
+// caso: ["[[-1, 0, 1]]", "[[1, 0, -1]]", "[[0, 0, 0]]", "nil"]
+package solucion
+
+import "errors"
+
+// SumaMatrices devuelve a + b, o un error si no tienen el mismo tamaño.
+func SumaMatrices(a, b [][]int) ([][]int, error) {
+	if len(a) != len(b) {
+		return nil, errors.New("las matrices no tienen el mismo número de filas")
+	}
+	suma := make([][]int, len(a))
+	for i := range a {
+		if len(a[i]) != len(b[i]) {
+			return nil, errors.New("las matrices no tienen el mismo número de columnas")
+		}
+		suma[i] = make([]int, len(a[i]))
+		for j := range a[i] {
+			suma[i][j] = a[i][j] + b[i][j]
+		}
+	}
+	return suma, nil
+}
+
+// receta: MultiplicarMatrices
+// titulo: Multiplicar dos matrices
+// descripcion: Multiplica a (n×m) por b (m×p) y da una matriz n×p: cada elemento es la suma de los productos de una fila de a por una columna de b. Si las columnas de a no coinciden con las filas de b devuelve un error.
+// palabras: multiplicar, producto, matriz, matrices, fila, columna
+// conceptos: multiplicar, producto, matriz
+// caso: ["[[1, 2], [3, 4]]", "[[5, 6], [7, 8]]", "[[19, 22], [43, 50]]", "nil"]
+// caso: ["[[1, 2, 3]]", "[[1], [2], [3]]", "[[14]]", "nil"]
+// caso: ["[[1, 2]]", "[[1, 2]]", "nil", "error(\"no se pueden multiplicar\")"]
+// caso: ["[[2]]", "[[3]]", "[[6]]", "nil"]
+// caso: ["[[1, 0], [0, 1]]", "[[4, 5], [6, 7]]", "[[4, 5], [6, 7]]", "nil"]
+package solucion
+
+import "errors"
+
+// MultiplicarMatrices devuelve el producto a·b.
+func MultiplicarMatrices(a, b [][]int) ([][]int, error) {
+	if len(a) == 0 || len(b) == 0 {
+		return nil, errors.New("una de las matrices está vacía")
+	}
+	m := len(b)
+	p := len(b[0])
+	for _, fila := range a {
+		if len(fila) != m {
+			return nil, errors.New("no se pueden multiplicar: las columnas de a no coinciden con las filas de b")
+		}
+	}
+	producto := make([][]int, len(a))
+	for i := range a {
+		producto[i] = make([]int, p)
+		for j := 0; j < p; j++ {
+			for k := 0; k < m; k++ {
+				producto[i][j] += a[i][k] * b[k][j]
+			}
+		}
+	}
+	return producto, nil
+}
+
+// receta: Identidad
+// titulo: Matriz identidad
+// descripcion: Devuelve la matriz identidad n×n: unos en la diagonal y ceros en el resto. Para n ≤ 0 devuelve una matriz vacía.
+// palabras: identidad, matriz, diagonal, unos, ceros, crear
+// conceptos: matriz
+// caso: ["2", "[[1, 0], [0, 1]]"]
+// caso: ["1", "[[1]]"]
+// caso: ["0", "[]"]
+// caso: ["3", "[[1, 0, 0], [0, 1, 0], [0, 0, 1]]"]
+// caso: ["-1", "[]"]
+package solucion
+
+// Identidad devuelve la matriz identidad de tamaño n.
+func Identidad(n int) [][]int {
+	if n <= 0 {
+		return nil
+	}
+	m := make([][]int, n)
+	for i := range m {
+		m[i] = make([]int, n)
+		m[i][i] = 1
+	}
+	return m
+}

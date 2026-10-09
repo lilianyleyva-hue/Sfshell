@@ -1,0 +1,167 @@
+// receta: Distancia
+// titulo: Distancia entre dos puntos
+// descripcion: Usa una estructura Punto con coordenadas X e Y y calcula la distancia en línea recta entre dos puntos con el teorema de Pitágoras.
+// palabras: distancia, punto, coordenada, plano, pitagoras, estructura
+// conceptos: raiz, cuadrado, decimal
+// caso: ["{X: 0, Y: 0}", "{X: 3, Y: 4}", "5"]
+// caso: ["{X: 1, Y: 1}", "{X: 1, Y: 1}", "0"]
+// caso: ["{X: -1, Y: 0}", "{X: 2, Y: 0}", "3"]
+// caso: ["{X: 0, Y: 0}", "{X: 1, Y: 1}", "1.4142135623730951"]
+// caso: ["{X: 2.5, Y: -1}", "{X: 2.5, Y: 3}", "4"]
+package solucion
+
+import "math"
+
+// Punto es un punto del plano.
+type Punto struct {
+	X, Y float64
+}
+
+// Distancia devuelve la distancia entre p y q.
+func Distancia(p, q Punto) float64 {
+	dx, dy := q.X-p.X, q.Y-p.Y
+	return math.Sqrt(dx*dx + dy*dy)
+}
+
+// receta: Area
+// funcion: Rectangulo.Area
+// titulo: Área de un rectángulo (método)
+// descripcion: Una estructura Rectangulo con métodos: Area devuelve ancho por alto.
+// palabras: area, rectangulo, superficie, metodo, estructura, ancho, alto
+// conceptos: multiplicar, decimal
+// caso: ["{Ancho: 3, Alto: 4}", "12"]
+// caso: ["{Ancho: 0, Alto: 5}", "0"]
+// caso: ["{Ancho: 2.5, Alto: 2}", "5"]
+// caso: ["{Ancho: 1, Alto: 1}", "1"]
+// caso: ["{Ancho: 10, Alto: 0.5}", "5"]
+// receta: Perimetro
+// funcion: Rectangulo.Perimetro
+// titulo: Perímetro de un rectángulo (método)
+// descripcion: Una estructura Rectangulo con métodos: Perimetro devuelve la suma de sus cuatro lados.
+// palabras: perimetro, rectangulo, borde, lado, metodo, estructura
+// conceptos: sumar, doble, decimal
+// caso: ["{Ancho: 3, Alto: 4}", "14"]
+// caso: ["{Ancho: 0, Alto: 0}", "0"]
+// caso: ["{Ancho: 2.5, Alto: 2}", "9"]
+// caso: ["{Ancho: 1, Alto: 1}", "4"]
+// caso: ["{Ancho: 10, Alto: 0.5}", "21"]
+package solucion
+
+// Rectangulo tiene un ancho y un alto.
+type Rectangulo struct {
+	Ancho, Alto float64
+}
+
+// Area devuelve el área del rectángulo.
+func (r Rectangulo) Area() float64 {
+	return r.Ancho * r.Alto
+}
+
+// Perimetro devuelve la suma de los cuatro lados.
+func (r Rectangulo) Perimetro() float64 {
+	return 2 * (r.Ancho + r.Alto)
+}
+
+// receta: UsarPila
+// titulo: Una pila (Push, Pop, Vacia)
+// descripcion: Define un tipo Pila con los métodos Push, Pop y Vacia: el último que entra es el primero que sale. UsarPila mete los números positivos y, con cada 0, saca uno y lo apunta.
+// palabras: pila, stack, push, pop, apilar, desapilar, ultimo, estructura
+// conceptos: agregar, eliminar, lista
+// caso: ["[1, 2, 0, 3, 0, 0]", "[2, 3, 1]"]
+// caso: ["[]", "[]"]
+// caso: ["[0]", "[]"]
+// caso: ["[5, 6, 7, 0]", "[7]"]
+// caso: ["[1, 0, 2, 0]", "[1, 2]"]
+package solucion
+
+// Pila guarda enteros: el último que entra es el primero que sale.
+type Pila struct {
+	datos []int
+}
+
+// Push mete x encima de la pila.
+func (p *Pila) Push(x int) {
+	p.datos = append(p.datos, x)
+}
+
+// Pop saca el elemento de arriba; ok es false si la pila está vacía.
+func (p *Pila) Pop() (x int, ok bool) {
+	if len(p.datos) == 0 {
+		return 0, false
+	}
+	x = p.datos[len(p.datos)-1]
+	p.datos = p.datos[:len(p.datos)-1]
+	return x, true
+}
+
+// Vacia dice si la pila no tiene elementos.
+func (p *Pila) Vacia() bool {
+	return len(p.datos) == 0
+}
+
+// UsarPila mete los números positivos y saca uno con cada 0; devuelve lo que sacó.
+func UsarPila(ops []int) []int {
+	var p Pila
+	var sacados []int
+	for _, op := range ops {
+		if op > 0 {
+			p.Push(op)
+		} else if op == 0 && !p.Vacia() {
+			x, _ := p.Pop()
+			sacados = append(sacados, x)
+		}
+	}
+	return sacados
+}
+
+// receta: UsarCola
+// titulo: Una cola (Encolar, Desencolar, Vacia)
+// descripcion: Define un tipo Cola con los métodos Encolar, Desencolar y Vacia: el primero que entra es el primero que sale. UsarCola mete los números positivos y, con cada 0, saca uno y lo apunta.
+// palabras: cola, queue, encolar, desencolar, fila, primero, estructura
+// conceptos: agregar, eliminar, lista
+// caso: ["[1, 2, 0, 3, 0, 0]", "[1, 2, 3]"]
+// caso: ["[]", "[]"]
+// caso: ["[0]", "[]"]
+// caso: ["[5, 6, 7, 0]", "[5]"]
+// caso: ["[1, 0, 2, 0]", "[1, 2]"]
+package solucion
+
+// Cola guarda enteros: el primero que entra es el primero que sale.
+type Cola struct {
+	datos []int
+}
+
+// Encolar añade x al final de la cola.
+func (c *Cola) Encolar(x int) {
+	c.datos = append(c.datos, x)
+}
+
+// Desencolar saca el primero de la cola; ok es false si está vacía.
+func (c *Cola) Desencolar() (x int, ok bool) {
+	if len(c.datos) == 0 {
+		return 0, false
+	}
+	x = c.datos[0]
+	c.datos = c.datos[1:]
+	return x, true
+}
+
+// Vacia dice si la cola no tiene elementos.
+func (c *Cola) Vacia() bool {
+	return len(c.datos) == 0
+}
+
+// UsarCola mete los números positivos y saca uno con cada 0; devuelve lo que sacó.
+func UsarCola(ops []int) []int {
+	var c Cola
+	var sacados []int
+	for _, op := range ops {
+		if op > 0 {
+			c.Encolar(op)
+		} else if op == 0 && !c.Vacia() {
+			x, _ := c.Desencolar()
+			sacados = append(sacados, x)
+		}
+	}
+	return sacados
+}

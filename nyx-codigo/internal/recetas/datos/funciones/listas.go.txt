@@ -1,0 +1,454 @@
+// receta: SumaPares
+// titulo: Suma de los números pares de una lista
+// descripcion: Recorre la lista y suma solo los números pares (los divisibles entre 2, también los negativos).
+// palabras: sumar, par, numero, lista, total
+// conceptos: sumar, par, filtrar, lista, numeros
+// caso: ["[1, 2, 3, 4]", "6"]
+// caso: ["[]", "0"]
+// caso: ["[5, 7]", "0"]
+// caso: ["[-2, 3, 8]", "6"]
+// caso: ["[0]", "0"]
+// caso: ["[10, 20, 30]", "60"]
+package solucion
+
+// SumaPares suma los números pares de nums.
+func SumaPares(nums []int) int {
+	total := 0
+	for _, n := range nums {
+		if n%2 == 0 {
+			total += n
+		}
+	}
+	return total
+}
+
+// receta: BusquedaBinaria
+// titulo: Búsqueda binaria
+// descripcion: Busca x en una lista ordenada de menor a mayor partiendo el rango por la mitad en cada paso. Devuelve su posición, o -1 si no está.
+// palabras: buscar, binaria, posicion, lista, ordenada, indice, mitad
+// conceptos: buscar, posicion, lista
+// caso: ["[1, 3, 5, 7, 9]", "7", "3"]
+// caso: ["[1, 3, 5, 7, 9]", "4", "-1"]
+// caso: ["[]", "1", "-1"]
+// caso: ["[2]", "2", "0"]
+// caso: ["[1, 3, 5, 7, 9]", "1", "0"]
+// caso: ["[1, 3, 5, 7, 9]", "9", "4"]
+// caso: ["[1, 3, 5, 7, 9]", "10", "-1"]
+package solucion
+
+// BusquedaBinaria devuelve la posición de x en xs (ordenada), o -1.
+func BusquedaBinaria(xs []int, x int) int {
+	bajo, alto := 0, len(xs)-1
+	for bajo <= alto {
+		medio := bajo + (alto-bajo)/2
+		switch {
+		case xs[medio] == x:
+			return medio
+		case xs[medio] < x:
+			bajo = medio + 1
+		default:
+			alto = medio - 1
+		}
+	}
+	return -1
+}
+
+// receta: OrdenarBurbuja
+// titulo: Ordenar con el método de la burbuja
+// descripcion: Ordena una copia de la lista de menor a mayor comparando cada par de vecinos y cambiándolos de sitio si están al revés. Es lento (n²) pero fácil de entender.
+// palabras: ordenar, burbuja, lista, menor, mayor, intercambiar, aprender
+// conceptos: ordenar, intercambiar, lista
+// caso: ["[3, 1, 2]", "[1, 2, 3]"]
+// caso: ["[]", "[]"]
+// caso: ["[5]", "[5]"]
+// caso: ["[5, 4, 3, 2, 1]", "[1, 2, 3, 4, 5]"]
+// caso: ["[2, -1, 2, 0]", "[-1, 0, 2, 2]"]
+// caso: ["[1, 2, 3]", "[1, 2, 3]"]
+package solucion
+
+// OrdenarBurbuja devuelve una copia de xs ordenada de menor a mayor.
+func OrdenarBurbuja(xs []int) []int {
+	ys := make([]int, len(xs))
+	copy(ys, xs)
+	for vuelta := 0; vuelta < len(ys)-1; vuelta++ {
+		cambiado := false
+		// en cada vuelta, el mayor que queda "sube" hasta su sitio, como una burbuja
+		for i := 0; i < len(ys)-1-vuelta; i++ {
+			if ys[i] > ys[i+1] {
+				ys[i], ys[i+1] = ys[i+1], ys[i]
+				cambiado = true
+			}
+		}
+		if !cambiado {
+			break // ya estaba ordenada
+		}
+	}
+	return ys
+}
+
+// receta: OrdenarInsercion
+// titulo: Ordenar por inserción
+// descripcion: Ordena una copia de la lista de menor a mayor metiendo cada elemento en su sitio dentro de la parte ya ordenada, como se ordenan las cartas en la mano.
+// palabras: ordenar, insercion, lista, menor, mayor, cartas
+// conceptos: ordenar, lista
+// caso: ["[3, 1, 2]", "[1, 2, 3]"]
+// caso: ["[]", "[]"]
+// caso: ["[9, 7, 8, 1]", "[1, 7, 8, 9]"]
+// caso: ["[0, 0, -3]", "[-3, 0, 0]"]
+// caso: ["[4]", "[4]"]
+package solucion
+
+// OrdenarInsercion devuelve una copia de xs ordenada de menor a mayor.
+func OrdenarInsercion(xs []int) []int {
+	ys := make([]int, len(xs))
+	copy(ys, xs)
+	for i := 1; i < len(ys); i++ {
+		actual := ys[i]
+		j := i - 1
+		for j >= 0 && ys[j] > actual {
+			ys[j+1] = ys[j]
+			j--
+		}
+		ys[j+1] = actual
+	}
+	return ys
+}
+
+// receta: Maximo
+// titulo: El mayor número de una lista
+// descripcion: Devuelve el número más grande de la lista. Si la lista está vacía devuelve 0.
+// palabras: maximo, mayor, grande, lista, numero
+// conceptos: maximo, lista, numeros
+// caso: ["[3, 1, 2]", "3"]
+// caso: ["[]", "0"]
+// caso: ["[-5, -2, -9]", "-2"]
+// caso: ["[7]", "7"]
+// caso: ["[4, 4, 1]", "4"]
+package solucion
+
+// Maximo devuelve el mayor elemento de xs (0 si está vacía).
+func Maximo(xs []int) int {
+	if len(xs) == 0 {
+		return 0
+	}
+	mayor := xs[0]
+	for _, x := range xs[1:] {
+		if x > mayor {
+			mayor = x
+		}
+	}
+	return mayor
+}
+
+// receta: Minimo
+// titulo: El menor número de una lista
+// descripcion: Devuelve el número más pequeño de la lista. Si la lista está vacía devuelve 0.
+// palabras: minimo, menor, pequeño, lista, numero
+// conceptos: minimo, lista, numeros
+// caso: ["[3, 1, 2]", "1"]
+// caso: ["[]", "0"]
+// caso: ["[-5, -2, -9]", "-9"]
+// caso: ["[7]", "7"]
+// caso: ["[4, 4, 10]", "4"]
+package solucion
+
+// Minimo devuelve el menor elemento de xs (0 si está vacía).
+func Minimo(xs []int) int {
+	if len(xs) == 0 {
+		return 0
+	}
+	menor := xs[0]
+	for _, x := range xs[1:] {
+		if x < menor {
+			menor = x
+		}
+	}
+	return menor
+}
+
+// receta: Promedio
+// titulo: Media de una lista de números
+// descripcion: Suma los números y divide entre cuántos hay, con decimales. Si la lista está vacía devuelve 0.
+// palabras: promedio, media, lista, numero, dividir
+// conceptos: promedio, lista, numeros, decimal
+// caso: ["[1, 2, 3, 4]", "2.5"]
+// caso: ["[]", "0"]
+// caso: ["[5]", "5"]
+// caso: ["[-1, 1]", "0"]
+// caso: ["[1, 2]", "1.5"]
+// caso: ["[10, 20, 31]", "20.333333333333332"]
+package solucion
+
+// Promedio devuelve la media aritmética de xs (0 si está vacía).
+func Promedio(xs []int) float64 {
+	if len(xs) == 0 {
+		return 0
+	}
+	suma := 0
+	for _, x := range xs {
+		suma += x
+	}
+	return float64(suma) / float64(len(xs))
+}
+
+// receta: Mediana
+// titulo: Mediana de una lista
+// descripcion: Ordena una copia de la lista y devuelve el valor del centro; si hay un número par de elementos, la media de los dos del centro. Si está vacía devuelve 0.
+// palabras: mediana, centro, medio, lista, numero, estadistica
+// conceptos: ordenar, lista, numeros, decimal
+// caso: ["[3, 1, 2]", "2"]
+// caso: ["[4, 1, 3, 2]", "2.5"]
+// caso: ["[]", "0"]
+// caso: ["[7]", "7"]
+// caso: ["[5, 5, 1, 9]", "5"]
+package solucion
+
+import "sort"
+
+// Mediana devuelve el valor central de xs (0 si está vacía).
+func Mediana(xs []int) float64 {
+	if len(xs) == 0 {
+		return 0
+	}
+	ys := make([]int, len(xs))
+	copy(ys, xs)
+	sort.Ints(ys)
+	medio := len(ys) / 2
+	if len(ys)%2 == 1 {
+		return float64(ys[medio])
+	}
+	return float64(ys[medio-1]+ys[medio]) / 2
+}
+
+// receta: Moda
+// titulo: El número que más se repite
+// descripcion: Cuenta cuántas veces aparece cada número con un mapa y devuelve el más frecuente. Si hay empate, el menor de ellos; si la lista está vacía, 0.
+// palabras: moda, frecuente, repetir, contar, lista, numero
+// conceptos: frecuencia, contar, lista, mapa
+// caso: ["[1, 2, 2, 3]", "2"]
+// caso: ["[]", "0"]
+// caso: ["[5, 1, 5, 1]", "1"]
+// caso: ["[7]", "7"]
+// caso: ["[3, 3, 3, -1, -1]", "3"]
+package solucion
+
+// Moda devuelve el elemento más repetido de xs (el menor si hay empate; 0 si está vacía).
+func Moda(xs []int) int {
+	veces := make(map[int]int)
+	moda, maxVeces := 0, 0
+	for _, x := range xs {
+		veces[x]++
+	}
+	for x, v := range veces {
+		if v > maxVeces || (v == maxVeces && x < moda) {
+			moda, maxVeces = x, v
+		}
+	}
+	return moda
+}
+
+// receta: SinRepetidos
+// titulo: Quitar los repetidos de una lista
+// descripcion: Devuelve la lista sin elementos repetidos, conservando la primera aparición de cada uno y el orden original.
+// palabras: quitar, repetido, duplicado, unico, lista, distinto
+// conceptos: sin_repetir, eliminar, lista
+// caso: ["[1, 2, 1, 3, 2]", "[1, 2, 3]"]
+// caso: ["[]", "[]"]
+// caso: ["[4, 4, 4]", "[4]"]
+// caso: ["[3, 2, 1]", "[3, 2, 1]"]
+// caso: ["[0, -1, 0, -1, 5]", "[0, -1, 5]"]
+package solucion
+
+// SinRepetidos devuelve xs sin repetidos, en el orden de su primera aparición.
+func SinRepetidos(xs []int) []int {
+	visto := make(map[int]bool)
+	var out []int
+	for _, x := range xs {
+		if !visto[x] {
+			visto[x] = true
+			out = append(out, x)
+		}
+	}
+	return out
+}
+
+// receta: Rotar
+// titulo: Rotar una lista
+// descripcion: Mueve los elementos k posiciones hacia la izquierda: los primeros pasan al final. Con k negativo rota hacia la derecha. Devuelve una lista nueva.
+// palabras: rotar, girar, desplazar, mover, lista, posicion
+// conceptos: lista, posicion, transformar
+// caso: ["[1, 2, 3, 4, 5]", "2", "[3, 4, 5, 1, 2]"]
+// caso: ["[1, 2, 3]", "0", "[1, 2, 3]"]
+// caso: ["[1, 2, 3]", "-1", "[3, 1, 2]"]
+// caso: ["[1, 2, 3]", "4", "[2, 3, 1]"]
+// caso: ["[]", "3", "[]"]
+package solucion
+
+// Rotar devuelve xs rotada k posiciones a la izquierda.
+func Rotar(xs []int, k int) []int {
+	n := len(xs)
+	if n == 0 {
+		return nil
+	}
+	k = ((k % n) + n) % n
+	out := make([]int, 0, n)
+	out = append(out, xs[k:]...)
+	return append(out, xs[:k]...)
+}
+
+// receta: Intercambiar
+// titulo: Intercambiar dos elementos
+// descripcion: Devuelve una copia de la lista con los elementos de las posiciones i y j cambiados de sitio. Si alguna posición no existe, la copia queda igual.
+// palabras: intercambiar, cambiar, swap, posicion, lista, elemento
+// conceptos: intercambiar, posicion, lista
+// caso: ["[1, 2, 3]", "0", "2", "[3, 2, 1]"]
+// caso: ["[1, 2, 3]", "1", "1", "[1, 2, 3]"]
+// caso: ["[1, 2]", "0", "5", "[1, 2]"]
+// caso: ["[]", "0", "0", "[]"]
+// caso: ["[7, 8]", "1", "0", "[8, 7]"]
+package solucion
+
+// Intercambiar devuelve una copia de xs con xs[i] y xs[j] intercambiados.
+func Intercambiar(xs []int, i, j int) []int {
+	ys := make([]int, len(xs))
+	copy(ys, xs)
+	if i < 0 || j < 0 || i >= len(ys) || j >= len(ys) {
+		return ys
+	}
+	ys[i], ys[j] = ys[j], ys[i]
+	return ys
+}
+
+// receta: SegundoMayor
+// titulo: El segundo número más grande
+// descripcion: Devuelve el segundo valor distinto más grande de la lista y true. Si no existe (lista vacía o todos iguales) devuelve 0 y false.
+// palabras: segundo, mayor, grande, lista, numero
+// conceptos: maximo, lista, numeros
+// caso: ["[3, 1, 2]", "2", "true"]
+// caso: ["[5, 5, 5]", "0", "false"]
+// caso: ["[]", "0", "false"]
+// caso: ["[1, 9, 9, 4]", "4", "true"]
+// caso: ["[-3, -7]", "-7", "true"]
+package solucion
+
+// SegundoMayor devuelve el segundo valor distinto más grande de xs.
+func SegundoMayor(xs []int) (int, bool) {
+	hayPrimero, haySegundo := false, false
+	primero, segundo := 0, 0
+	for _, x := range xs {
+		switch {
+		case !hayPrimero || x > primero:
+			if hayPrimero {
+				segundo, haySegundo = primero, true
+			}
+			primero, hayPrimero = x, true
+		case x < primero && (!haySegundo || x > segundo):
+			segundo, haySegundo = x, true
+		}
+	}
+	if !haySegundo {
+		return 0, false
+	}
+	return segundo, true
+}
+
+// receta: SumaAcumulada
+// titulo: Suma acumulada
+// descripcion: Devuelve una lista en la que cada posición tiene la suma de todos los elementos hasta ese punto: [1, 2, 3] da [1, 3, 6].
+// palabras: suma, acumulada, parcial, lista, total, ir
+// conceptos: acumular, sumar, lista
+// caso: ["[1, 2, 3]", "[1, 3, 6]"]
+// caso: ["[]", "[]"]
+// caso: ["[5]", "[5]"]
+// caso: ["[1, -1, 1, -1]", "[1, 0, 1, 0]"]
+// caso: ["[10, 20, 30, 40]", "[10, 30, 60, 100]"]
+package solucion
+
+// SumaAcumulada devuelve las sumas parciales de xs.
+func SumaAcumulada(xs []int) []int {
+	out := make([]int, len(xs))
+	total := 0
+	for i, x := range xs {
+		total += x
+		out[i] = total
+	}
+	return out
+}
+
+// receta: ParesQueSuman
+// titulo: Dos números que suman un objetivo
+// descripcion: Busca dos posiciones i < j cuyos números sumen el objetivo, en una sola pasada con un mapa de vistos. Devuelve las posiciones y true, o -1, -1 y false.
+// palabras: dos, suma, objetivo, pareja, posicion, buscar, lista
+// conceptos: buscar, sumar, posicion, lista, mapa
+// caso: ["[2, 7, 11, 15]", "9", "0", "1", "true"]
+// caso: ["[3, 2, 4]", "6", "1", "2", "true"]
+// caso: ["[1, 2]", "10", "-1", "-1", "false"]
+// caso: ["[]", "0", "-1", "-1", "false"]
+// caso: ["[3, 3]", "6", "0", "1", "true"]
+package solucion
+
+// ParesQueSuman busca i < j con xs[i] + xs[j] == objetivo.
+func ParesQueSuman(xs []int, objetivo int) (int, int, bool) {
+	vistos := make(map[int]int) // valor → posición
+	for j, x := range xs {
+		if i, ok := vistos[objetivo-x]; ok {
+			return i, j, true
+		}
+		if _, ok := vistos[x]; !ok {
+			vistos[x] = j
+		}
+	}
+	return -1, -1, false
+}
+
+// receta: Fusionar
+// titulo: Fusionar dos listas ordenadas
+// descripcion: Junta dos listas ya ordenadas en una sola lista ordenada, recorriéndolas a la vez (el paso de mezcla del merge sort).
+// palabras: fusionar, mezclar, juntar, unir, ordenada, lista, merge
+// conceptos: unir, ordenar, lista
+// caso: ["[1, 3, 5]", "[2, 4, 6]", "[1, 2, 3, 4, 5, 6]"]
+// caso: ["[]", "[1, 2]", "[1, 2]"]
+// caso: ["[]", "[]", "[]"]
+// caso: ["[1, 1]", "[1]", "[1, 1, 1]"]
+// caso: ["[-5, 10]", "[0]", "[-5, 0, 10]"]
+package solucion
+
+// Fusionar mezcla dos listas ordenadas en una lista ordenada.
+func Fusionar(a, b []int) []int {
+	out := make([]int, 0, len(a)+len(b))
+	i, j := 0, 0
+	for i < len(a) && j < len(b) {
+		if a[i] <= b[j] {
+			out = append(out, a[i])
+			i++
+		} else {
+			out = append(out, b[j])
+			j++
+		}
+	}
+	out = append(out, a[i:]...)
+	return append(out, b[j:]...)
+}
+
+// receta: ContarSi
+// titulo: Contar los números mayores que un valor
+// descripcion: Cuenta cuántos elementos de la lista son mayores que el límite.
+// palabras: contar, mayor, cuantos, lista, numero, limite
+// conceptos: contar, mayor_que, lista, numeros
+// caso: ["[1, 5, 10]", "4", "2"]
+// caso: ["[]", "0", "0"]
+// caso: ["[1, 2, 3]", "3", "0"]
+// caso: ["[-1, -2, 0]", "-2", "2"]
+// caso: ["[7, 7, 7]", "6", "3"]
+package solucion
+
+// ContarSi cuenta los elementos de xs mayores que limite.
+func ContarSi(xs []int, limite int) int {
+	cuenta := 0
+	for _, x := range xs {
+		if x > limite {
+			cuenta++
+		}
+	}
+	return cuenta
+}

@@ -1,0 +1,251 @@
+// plantilla: adivina_numero
+// titulo: Juego de adivinar un número
+// descripcion: El programa piensa un número al azar y te va diciendo «más alto» o «más bajo» hasta que lo aciertas. Con «-semilla N» el número es siempre el mismo (para probarlo).
+// palabras: programa, juego, adivinar, numero, azar, aleatorio, pensar, intento
+// interactivo: si
+// hueco: {"nombre": "maximo", "clase": "entero", "porDefecto": "100", "pregunta": "¿Hasta qué número puede pensar?"}
+// caso: {"huecos": {"maximo": "100"}, "caso": {"args": ["-semilla", "42"], "entrada": "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22\n23\n24\n25\n26\n27\n28\n29\n30\n31\n32\n33\n34\n35\n36\n37\n38\n39\n40\n41\n42\n43\n44\n45\n46\n47\n48\n49\n50\n51\n52\n53\n54\n55\n56\n57\n58\n59\n60\n61\n62\n63\n64\n65\n66\n67\n68\n69\n70\n71\n72\n73\n74\n75\n76\n77\n78\n79\n80\n81\n82\n83\n84\n85\n86\n87\n88\n89\n90\n91\n92\n93\n94\n95\n96\n97\n98\n99\n100\n", "esperado": "¡Acertaste", "comparar": "contiene"}}
+// caso: {"huecos": {"maximo": "10"}, "caso": {"args": ["-semilla", "7"], "entrada": "hola\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n", "esperado": "Eso no es un número entero.", "comparar": "contiene"}}
+// caso: {"huecos": {"maximo": "10"}, "caso": {"args": ["-semilla", "7"], "entrada": "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n", "esperado": "¡Acertaste", "comparar": "contiene"}}
+// caso: {"huecos": {"maximo": "10"}, "caso": {"args": ["-semilla", "3"], "entrada": "", "esperado": "Se acabaron los datos. El número era", "comparar": "contiene"}}
+// caso: {"huecos": {"maximo": "1"}, "caso": {"args": ["-semilla", "1"], "entrada": "1\n", "esperado": "¡Acertaste a la primera!", "comparar": "contiene"}}
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"math/rand"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// semilla lee «-semilla N» de los argumentos; sin ella usa la hora.
+func semilla() int64 {
+	for i := 1; i+1 < len(os.Args); i++ {
+		if os.Args[i] == "-semilla" || os.Args[i] == "--semilla" {
+			if s, err := strconv.ParseInt(os.Args[i+1], 10, 64); err == nil {
+				return s
+			}
+		}
+	}
+	return time.Now().UnixNano()
+}
+
+func main() {
+	maximo := {{go_entero .maximo}}
+	if maximo < 1 {
+		maximo = 1
+	}
+	azar := rand.New(rand.NewSource(semilla()))
+	secreto := azar.Intn(maximo) + 1
+	fmt.Printf("He pensado un número del 1 al %d. ¡Adivínalo!\n", maximo)
+	lector := bufio.NewScanner(os.Stdin)
+	intentos := 0
+	for {
+		fmt.Print("Tu número: ")
+		if !lector.Scan() {
+			fmt.Printf("\nSe acabaron los datos. El número era %d.\n", secreto)
+			return
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(lector.Text()))
+		if err != nil {
+			fmt.Println("Eso no es un número entero.")
+			continue
+		}
+		intentos++
+		switch {
+		case n < secreto:
+			fmt.Println("Más alto.")
+		case n > secreto:
+			fmt.Println("Más bajo.")
+		case intentos == 1:
+			fmt.Println("¡Acertaste a la primera!")
+			return
+		default:
+			fmt.Printf("¡Acertaste en %d intentos!\n", intentos)
+			return
+		}
+	}
+}
+
+// plantilla: piedra_papel_tijera
+// titulo: Piedra, papel o tijera
+// descripcion: Juegas a piedra, papel o tijera contra el programa, que elige al azar, hasta que escribes «salir»; al final dice el resultado. Con «-semilla N» sus jugadas son siempre las mismas.
+// palabras: programa, juego, piedra, papel, tijera, azar, jugar, ganar
+// interactivo: si
+// caso: {"huecos": {}, "caso": {"args": ["-semilla", "1"], "entrada": "piedra\npapel\ntijera\nsalir\n", "esperado": "Resultado: tú", "comparar": "contiene"}}
+// caso: {"huecos": {}, "caso": {"args": ["-semilla", "1"], "entrada": "lagarto\nsalir\n", "esperado": "No conozco «lagarto». Escribe piedra, papel o tijera.", "comparar": "contiene"}}
+// caso: {"huecos": {}, "caso": {"args": ["-semilla", "2"], "entrada": "", "esperado": "Resultado: tú 0, yo 0, empates 0.", "comparar": "contiene"}}
+// caso: {"huecos": {}, "caso": {"args": ["-semilla", "5"], "entrada": "Tijeras\n", "esperado": "Yo saco", "comparar": "contiene"}}
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"math/rand"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+)
+
+var jugadas = []string{"piedra", "papel", "tijera"}
+
+// semilla lee «-semilla N» de los argumentos; sin ella usa la hora.
+func semilla() int64 {
+	for i := 1; i+1 < len(os.Args); i++ {
+		if os.Args[i] == "-semilla" || os.Args[i] == "--semilla" {
+			if s, err := strconv.ParseInt(os.Args[i+1], 10, 64); err == nil {
+				return s
+			}
+		}
+	}
+	return time.Now().UnixNano()
+}
+
+// gana dice si la jugada a vence a la jugada b.
+func gana(a, b string) bool {
+	return (a == "piedra" && b == "tijera") || (a == "papel" && b == "piedra") || (a == "tijera" && b == "papel")
+}
+
+func main() {
+	azar := rand.New(rand.NewSource(semilla()))
+	fmt.Println("Piedra, papel o tijera. Escribe tu jugada, o «salir» para terminar.")
+	lector := bufio.NewScanner(os.Stdin)
+	tu, yo, empates := 0, 0, 0
+	for lector.Scan() {
+		jugada := strings.ToLower(strings.TrimSpace(lector.Text()))
+		if jugada == "" {
+			continue
+		}
+		if jugada == "salir" {
+			break
+		}
+		if jugada == "tijeras" {
+			jugada = "tijera"
+		}
+		valida := false
+		for _, j := range jugadas {
+			if j == jugada {
+				valida = true
+			}
+		}
+		if !valida {
+			fmt.Printf("No conozco «%s». Escribe piedra, papel o tijera.\n", jugada)
+			continue
+		}
+		mia := jugadas[azar.Intn(len(jugadas))]
+		switch {
+		case jugada == mia:
+			empates++
+			fmt.Printf("Yo saco %s. Empate.\n", mia)
+		case gana(jugada, mia):
+			tu++
+			fmt.Printf("Yo saco %s. ¡Ganas tú!\n", mia)
+		default:
+			yo++
+			fmt.Printf("Yo saco %s. Gano yo.\n", mia)
+		}
+	}
+	fmt.Printf("Resultado: tú %d, yo %d, empates %d.\n", tu, yo, empates)
+}
+
+// plantilla: lista_tareas
+// titulo: Lista de tareas
+// descripcion: Una lista de tareas en memoria con las órdenes agregar, ver, borrar y salir.
+// palabras: programa, lista, tarea, pendiente, agregar, borrar, ver, ordenes, menu
+// caso: {"huecos": {}, "caso": {"entrada": "agregar comprar pan\nagregar estudiar Go\nver\nborrar 1\nver\nsalir\n", "esperado": "Lista de tareas. Órdenes: agregar <tarea>, ver, borrar <número>, salir.\nAgregada: comprar pan\nAgregada: estudiar Go\n1. comprar pan\n2. estudiar Go\nBorrada: comprar pan\n1. estudiar Go\n¡Hasta luego!\n", "comparar": "lineas"}}
+// caso: {"huecos": {}, "caso": {"entrada": "ver\nborrar 3\nbailar\n", "esperado": "Lista de tareas. Órdenes: agregar <tarea>, ver, borrar <número>, salir.\nNo hay tareas.\nNo hay ninguna tarea con ese número.\nNo conozco la orden «bailar».\n¡Hasta luego!\n", "comparar": "lineas"}}
+// caso: {"huecos": {}, "caso": {"entrada": "agregar\n", "esperado": "¿Qué tarea agrego? Escribe, por ejemplo: agregar comprar pan", "comparar": "contiene"}}
+// caso: {"huecos": {}, "caso": {"entrada": "añadir   regar las plantas  \nver\n", "esperado": "1. regar las plantas", "comparar": "contiene"}}
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+)
+
+func main() {
+	fmt.Println("Lista de tareas. Órdenes: agregar <tarea>, ver, borrar <número>, salir.")
+	var tareas []string
+	lector := bufio.NewScanner(os.Stdin)
+	for lector.Scan() {
+		linea := strings.TrimSpace(lector.Text())
+		orden, resto, _ := strings.Cut(linea, " ")
+		resto = strings.TrimSpace(resto)
+		switch strings.ToLower(orden) {
+		case "":
+			continue
+		case "agregar", "añadir":
+			if resto == "" {
+				fmt.Println("¿Qué tarea agrego? Escribe, por ejemplo: agregar comprar pan")
+				continue
+			}
+			tareas = append(tareas, resto)
+			fmt.Printf("Agregada: %s\n", resto)
+		case "ver":
+			if len(tareas) == 0 {
+				fmt.Println("No hay tareas.")
+				continue
+			}
+			for i, t := range tareas {
+				fmt.Printf("%d. %s\n", i+1, t)
+			}
+		case "borrar":
+			n, err := strconv.Atoi(resto)
+			if err != nil || n < 1 || n > len(tareas) {
+				fmt.Println("No hay ninguna tarea con ese número.")
+				continue
+			}
+			fmt.Printf("Borrada: %s\n", tareas[n-1])
+			tareas = append(tareas[:n-1], tareas[n:]...)
+		case "salir":
+			fmt.Println("¡Hasta luego!")
+			return
+		default:
+			fmt.Printf("No conozco la orden «%s».\n", orden)
+		}
+	}
+	fmt.Println("¡Hasta luego!")
+}
+
+// plantilla: contar_texto
+// titulo: Programa que cuenta líneas, palabras y caracteres
+// descripcion: Lee todo el texto de la entrada y cuenta sus líneas, sus palabras y sus caracteres (sin contar los saltos de línea), como wc.
+// palabras: programa, contar, linea, palabra, caracter, letra, texto, leer, wc
+// caso: {"huecos": {}, "caso": {"entrada": "hola mundo\nadiós\n", "esperado": "Líneas: 2\nPalabras: 3\nCaracteres (sin saltos de línea): 15\n", "comparar": "lineas"}}
+// caso: {"huecos": {}, "caso": {"entrada": "", "esperado": "Líneas: 0\nPalabras: 0\nCaracteres (sin saltos de línea): 0\n", "comparar": "lineas"}}
+// caso: {"huecos": {}, "caso": {"entrada": "una línea sin salto", "esperado": "Líneas: 1\nPalabras: 4\nCaracteres (sin saltos de línea): 19\n", "comparar": "lineas"}}
+// caso: {"huecos": {}, "caso": {"entrada": "\n\n", "esperado": "Líneas: 2\nPalabras: 0", "comparar": "contiene"}}
+package main
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"strings"
+	"unicode/utf8"
+)
+
+func main() {
+	datos, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		fmt.Println("No pude leer el texto.")
+		return
+	}
+	texto := strings.ReplaceAll(string(datos), "\r\n", "\n")
+	lineas := strings.Count(texto, "\n")
+	if texto != "" && !strings.HasSuffix(texto, "\n") {
+		lineas++ // la última línea no tiene salto
+	}
+	palabras := len(strings.Fields(texto))
+	caracteres := utf8.RuneCountInString(strings.ReplaceAll(texto, "\n", ""))
+	fmt.Println("Líneas:", lineas)
+	fmt.Println("Palabras:", palabras)
+	fmt.Println("Caracteres (sin saltos de línea):", caracteres)
+}

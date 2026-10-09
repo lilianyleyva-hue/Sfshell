@@ -1,0 +1,323 @@
+// receta: EsPalindromo
+// titulo: ¿Es un palíndromo?
+// descripcion: Dice si un texto se lee igual al derecho y al revés, sin tener en cuenta espacios, signos, tildes ni mayúsculas: "Dábale arroz a la zorra el abad" lo es.
+// palabras: palindromo, capicua, reves, texto, palabra, frase, comprobar
+// conceptos: palindromo, texto, comprobar, invertir
+// caso: ["\"anilina\"", "true"]
+// caso: ["\"Dábale arroz a la zorra el abad\"", "true"]
+// caso: ["\"hola\"", "false"]
+// caso: ["\"\"", "true"]
+// caso: ["\"a\"", "true"]
+// caso: ["\"Anita lava la tina\"", "true"]
+// caso: ["\"ab\"", "false"]
+package solucion
+
+import (
+	"strings"
+	"unicode"
+)
+
+// EsPalindromo dice si s se lee igual al revés (sin espacios, signos, tildes ni mayúsculas).
+func EsPalindromo(s string) bool {
+	quitar := strings.NewReplacer("á", "a", "é", "e", "í", "i", "ó", "o", "ú", "u", "ü", "u")
+	var letras []rune
+	for _, r := range quitar.Replace(strings.ToLower(s)) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			letras = append(letras, r)
+		}
+	}
+	for i, j := 0, len(letras)-1; i < j; i, j = i+1, j-1 {
+		if letras[i] != letras[j] {
+			return false
+		}
+	}
+	return true
+}
+
+// receta: EsAnagrama
+// titulo: ¿Son anagramas dos palabras?
+// descripcion: Dice si dos textos tienen exactamente las mismas letras, en otro orden, sin contar espacios, tildes ni mayúsculas: "Roma" y "amor".
+// palabras: anagrama, letra, palabra, mismas, orden, comprobar
+// conceptos: anagrama, letras, palabra, comprobar
+// caso: ["\"roma\"", "\"amor\"", "true"]
+// caso: ["\"Roma\"", "\"Mora\"", "true"]
+// caso: ["\"hola\"", "\"halo\"", "true"]
+// caso: ["\"casa\"", "\"saco\"", "false"]
+// caso: ["\"\"", "\"\"", "true"]
+// caso: ["\"ab\"", "\"abb\"", "false"]
+package solucion
+
+import (
+	"strings"
+	"unicode"
+)
+
+// EsAnagrama dice si a y b tienen las mismas letras.
+func EsAnagrama(a, b string) bool {
+	return cuentaLetras(a) == cuentaLetras(b)
+}
+
+func cuentaLetras(s string) [128]int {
+	quitar := strings.NewReplacer("á", "a", "é", "e", "í", "i", "ó", "o", "ú", "u", "ü", "u", "ñ", "n")
+	var c [128]int
+	for _, r := range quitar.Replace(strings.ToLower(s)) {
+		if r < 128 && (unicode.IsLetter(r) || unicode.IsDigit(r)) {
+			c[r]++
+		}
+	}
+	return c
+}
+
+// receta: ContarPalabras
+// titulo: Contar las palabras de un texto
+// descripcion: Cuenta las palabras de un texto: trozos separados por espacios, tabuladores o saltos de línea.
+// palabras: contar, palabra, texto, frase, cuantas
+// conceptos: contar, palabras, texto
+// caso: ["\"hola mundo\"", "2"]
+// caso: ["\"\"", "0"]
+// caso: ["\"  uno   dos  tres \"", "3"]
+// caso: ["\"Go\"", "1"]
+// caso: ["\"una\\ndos\\tpalabras\"", "3"]
+package solucion
+
+import "strings"
+
+// ContarPalabras devuelve cuántas palabras tiene s.
+func ContarPalabras(s string) int {
+	return len(strings.Fields(s))
+}
+
+// receta: FrecuenciaPalabras
+// titulo: Cuántas veces sale cada palabra
+// descripcion: Devuelve un mapa de cada palabra (en minúsculas y sin signos alrededor) al número de veces que aparece en el texto.
+// palabras: frecuencia, contar, palabra, veces, texto, mapa, repetir
+// conceptos: frecuencia, palabras, mapa, contar
+// caso: ["\"uno dos uno\"", "{\"dos\": 1, \"uno\": 2}"]
+// caso: ["\"\"", "{}"]
+// caso: ["\"Hola, hola. HOLA\"", "{\"hola\": 3}"]
+// caso: ["\"a b c\"", "{\"a\": 1, \"b\": 1, \"c\": 1}"]
+// caso: ["\"¡sí! sí\"", "{\"sí\": 2}"]
+package solucion
+
+import (
+	"strings"
+	"unicode"
+)
+
+// FrecuenciaPalabras cuenta cuántas veces aparece cada palabra de s.
+func FrecuenciaPalabras(s string) map[string]int {
+	veces := make(map[string]int)
+	for _, p := range strings.Fields(strings.ToLower(s)) {
+		p = strings.TrimFunc(p, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
+		if p != "" {
+			veces[p]++
+		}
+	}
+	return veces
+}
+
+// receta: FrecuenciaLetras
+// titulo: Cuántas veces sale cada letra
+// descripcion: Devuelve un mapa de cada letra (en minúscula) al número de veces que aparece. Los espacios, números y signos no cuentan.
+// palabras: frecuencia, contar, letra, veces, texto, mapa
+// conceptos: frecuencia, letras, mapa, contar
+// caso: ["\"casa\"", "{'a': 2, 'c': 1, 's': 1}"]
+// caso: ["\"\"", "{}"]
+// caso: ["\"Aa 1!\"", "{'a': 2}"]
+// caso: ["\"ñu\"", "{'ñ': 1, 'u': 1}"]
+// caso: ["\"xyz\"", "{'x': 1, 'y': 1, 'z': 1}"]
+package solucion
+
+import "unicode"
+
+// FrecuenciaLetras cuenta cuántas veces aparece cada letra de s.
+func FrecuenciaLetras(s string) map[rune]int {
+	veces := make(map[rune]int)
+	for _, r := range s {
+		if unicode.IsLetter(r) {
+			veces[unicode.ToLower(r)]++
+		}
+	}
+	return veces
+}
+
+// receta: PalabraMasLarga
+// titulo: La palabra más larga de una frase
+// descripcion: Devuelve la palabra con más letras de un texto; si hay empate, la primera. Si no hay palabras devuelve "".
+// palabras: palabra, larga, frase, texto, longitud, mayor
+// conceptos: mas_largo, palabra, frase, longitud
+// caso: ["\"el gato negro\"", "\"negro\""]
+// caso: ["\"\"", "\"\""]
+// caso: ["\"uno dos\"", "\"uno\""]
+// caso: ["\"árbol de cerezas\"", "\"cerezas\""]
+// caso: ["\"ñandú\"", "\"ñandú\""]
+package solucion
+
+import (
+	"strings"
+	"unicode/utf8"
+)
+
+// PalabraMasLarga devuelve la palabra más larga de s (la primera si hay empate).
+func PalabraMasLarga(s string) string {
+	mejor := ""
+	for _, p := range strings.Fields(s) {
+		if utf8.RuneCountInString(p) > utf8.RuneCountInString(mejor) {
+			mejor = p
+		}
+	}
+	return mejor
+}
+
+// receta: Capitalizar
+// titulo: Poner en mayúscula la primera letra de cada palabra
+// descripcion: Cambia a mayúscula la primera letra de cada palabra y deja el resto igual: "go es genial" da "Go Es Genial". Respeta los espacios.
+// palabras: capitalizar, mayuscula, primera, letra, palabra, titulo
+// conceptos: capitalizar, titulo, mayusculas, palabras
+// caso: ["\"go es genial\"", "\"Go Es Genial\""]
+// caso: ["\"\"", "\"\""]
+// caso: ["\"árbol\"", "\"Árbol\""]
+// caso: ["\"  dos  espacios\"", "\"  Dos  Espacios\""]
+// caso: ["\"YA ESTÁ\"", "\"YA ESTÁ\""]
+package solucion
+
+import "unicode"
+
+// Capitalizar pone en mayúscula la primera letra de cada palabra de s.
+func Capitalizar(s string) string {
+	rs := []rune(s)
+	inicio := true
+	for i, r := range rs {
+		if unicode.IsSpace(r) {
+			inicio = true
+			continue
+		}
+		if inicio {
+			rs[i] = unicode.ToUpper(r)
+			inicio = false
+		}
+	}
+	return string(rs)
+}
+
+// receta: CifradoCesar
+// titulo: Cifrado César
+// descripcion: Desplaza cada letra del alfabeto inglés k posiciones (dando la vuelta de la z a la a); mayúsculas y minúsculas se respetan y el resto de caracteres no cambia. Con k negativo descifra.
+// palabras: cifrar, cesar, codigo, secreto, desplazar, letra, texto
+// conceptos: transformar, letras, texto
+// caso: ["\"abc\"", "1", "\"bcd\""]
+// caso: ["\"xyz\"", "3", "\"abc\""]
+// caso: ["\"Hola, Mundo!\"", "13", "\"Ubyn, Zhaqb!\""]
+// caso: ["\"bcd\"", "-1", "\"abc\""]
+// caso: ["\"\"", "5", "\"\""]
+// caso: ["\"Año\"", "1", "\"Bñp\""]
+package solucion
+
+// CifradoCesar desplaza las letras de s k posiciones.
+func CifradoCesar(s string, k int) string {
+	k = ((k % 26) + 26) % 26
+	rs := []rune(s)
+	for i, r := range rs {
+		switch {
+		case r >= 'a' && r <= 'z':
+			rs[i] = 'a' + (r-'a'+rune(k))%26
+		case r >= 'A' && r <= 'Z':
+			rs[i] = 'A' + (r-'A'+rune(k))%26
+		}
+	}
+	return string(rs)
+}
+
+// receta: QuitarAcentos
+// titulo: Quitar las tildes
+// descripcion: Cambia á, é, í, ó, ú y ü (también en mayúscula) por la vocal sin tilde. La ñ se queda como está.
+// palabras: quitar, tilde, acento, vocal, texto, limpiar
+// conceptos: reemplazar, texto, vocal
+// caso: ["\"canción\"", "\"cancion\""]
+// caso: ["\"\"", "\"\""]
+// caso: ["\"ÁRBOL pingüino\"", "\"ARBOL pinguino\""]
+// caso: ["\"niño\"", "\"niño\""]
+// caso: ["\"sin tildes\"", "\"sin tildes\""]
+package solucion
+
+import "strings"
+
+var sinTildes = strings.NewReplacer(
+	"á", "a", "é", "e", "í", "i", "ó", "o", "ú", "u", "ü", "u",
+	"Á", "A", "É", "E", "Í", "I", "Ó", "O", "Ú", "U", "Ü", "U",
+)
+
+// QuitarAcentos devuelve s sin tildes ni diéresis.
+func QuitarAcentos(s string) string {
+	return sinTildes.Replace(s)
+}
+
+// receta: ContarVocales
+// titulo: Contar las vocales
+// descripcion: Cuenta las vocales de un texto, con o sin tilde y en mayúscula o minúscula.
+// palabras: contar, vocal, letra, texto, cuantas
+// conceptos: contar, vocal, letras, texto
+// caso: ["\"casa\"", "2"]
+// caso: ["\"árbol\"", "2"]
+// caso: ["\"\"", "0"]
+// caso: ["\"xyz\"", "0"]
+// caso: ["\"AEIOU aeiou\"", "10"]
+// caso: ["\"pingüino\"", "4"]
+package solucion
+
+import "strings"
+
+// ContarVocales devuelve cuántas vocales tiene s.
+func ContarVocales(s string) int {
+	cuenta := 0
+	for _, r := range strings.ToLower(s) {
+		if strings.ContainsRune("aeiouáéíóúü", r) {
+			cuenta++
+		}
+	}
+	return cuenta
+}
+
+// receta: Invertir
+// titulo: Dar la vuelta a un texto
+// descripcion: Devuelve el texto al revés, carácter a carácter (funciona con tildes y eñes porque trabaja con runas).
+// palabras: invertir, reves, vuelta, texto, palabra, caracter
+// conceptos: invertir, texto
+// caso: ["\"hola\"", "\"aloh\""]
+// caso: ["\"\"", "\"\""]
+// caso: ["\"ñandú\"", "\"údnañ\""]
+// caso: ["\"a\"", "\"a\""]
+// caso: ["\"Go es genial\"", "\"laineg se oG\""]
+package solucion
+
+// Invertir devuelve s al revés.
+func Invertir(s string) string {
+	rs := []rune(s)
+	for i, j := 0, len(rs)-1; i < j; i, j = i+1, j-1 {
+		rs[i], rs[j] = rs[j], rs[i]
+	}
+	return string(rs)
+}
+
+// receta: ContarCaracter
+// titulo: Cuántas veces aparece una letra
+// descripcion: Cuenta cuántas veces aparece el carácter c en el texto (distingue mayúsculas de minúsculas).
+// palabras: contar, letra, caracter, veces, texto, aparecer
+// conceptos: contar, letra, texto
+// caso: ["\"banana\"", "'a'", "3"]
+// caso: ["\"\"", "'x'", "0"]
+// caso: ["\"Ana\"", "'a'", "1"]
+// caso: ["\"ñoño\"", "'ñ'", "2"]
+// caso: ["\"aaa\"", "'b'", "0"]
+package solucion
+
+// ContarCaracter cuenta las apariciones de c en s.
+func ContarCaracter(s string, c rune) int {
+	cuenta := 0
+	for _, r := range s {
+		if r == c {
+			cuenta++
+		}
+	}
+	return cuenta
+}

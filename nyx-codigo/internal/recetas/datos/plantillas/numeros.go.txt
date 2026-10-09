@@ -1,0 +1,267 @@
+// plantilla: tabla_multiplicar
+// titulo: Tabla de multiplicar
+// descripcion: Escribe la tabla de multiplicar de un número, del 1 al 10.
+// palabras: programa, tabla, multiplicar, multiplicacion, numero, escribir
+// hueco: {"nombre": "numero", "clase": "entero", "porDefecto": "7", "pregunta": "¿De qué número hago la tabla?"}
+// caso: {"huecos": {"numero": "7"}, "caso": {"entrada": "", "esperado": "Tabla del 7:\n7 x 1 = 7\n7 x 2 = 14\n7 x 3 = 21\n7 x 4 = 28\n7 x 5 = 35\n7 x 6 = 42\n7 x 7 = 49\n7 x 8 = 56\n7 x 9 = 63\n7 x 10 = 70\n", "comparar": "lineas"}}
+// caso: {"huecos": {"numero": "3"}, "caso": {"entrada": "", "esperado": "3 x 9 = 27", "comparar": "contiene"}}
+// caso: {"huecos": {"numero": "-2"}, "caso": {"entrada": "", "esperado": "-2 x 3 = -6", "comparar": "contiene"}}
+// caso: {"huecos": {}, "caso": {"entrada": "", "esperado": "Tabla del 7:", "comparar": "contiene"}}
+package main
+
+import "fmt"
+
+func main() {
+	n := {{go_entero .numero}}
+	fmt.Printf("Tabla del %d:\n", n)
+	for i := 1; i <= 10; i++ {
+		fmt.Printf("%d x %d = %d\n", n, i, n*i)
+	}
+}
+
+// plantilla: fizzbuzz
+// titulo: FizzBuzz
+// descripcion: Escribe los números del 1 al límite, cambiando los múltiplos de 3 por Fizz, los de 5 por Buzz y los de los dos por FizzBuzz.
+// palabras: programa, fizzbuzz, fizz, buzz, juego, multiplo, numero, contar
+// hueco: {"nombre": "hasta", "clase": "entero", "porDefecto": "100", "pregunta": "¿Hasta qué número llego?"}
+// caso: {"huecos": {"hasta": "15"}, "caso": {"entrada": "", "esperado": "1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz\n", "comparar": "lineas"}}
+// caso: {"huecos": {}, "caso": {"entrada": "", "esperado": "97\n98\nFizz\nBuzz", "comparar": "contiene"}}
+// caso: {"huecos": {"hasta": "0"}, "caso": {"entrada": "", "esperado": "", "comparar": "lineas"}}
+// caso: {"huecos": {"hasta": "5"}, "caso": {"entrada": "", "esperado": "1\n2\nFizz\n4\nBuzz\n", "comparar": "lineas"}}
+package main
+
+import "fmt"
+
+func main() {
+	hasta := {{go_entero .hasta}}
+	for i := 1; i <= hasta; i++ {
+		switch {
+		case i%15 == 0:
+			fmt.Println("FizzBuzz")
+		case i%3 == 0:
+			fmt.Println("Fizz")
+		case i%5 == 0:
+			fmt.Println("Buzz")
+		default:
+			fmt.Println(i)
+		}
+	}
+}
+
+// plantilla: primos_hasta
+// titulo: Programa que escribe los primos hasta un número
+// descripcion: Escribe todos los números primos desde 2 hasta el límite y cuántos hay.
+// palabras: programa, primo, numero, hasta, lista, escribir, todos
+// hueco: {"nombre": "hasta", "clase": "entero", "porDefecto": "50", "pregunta": "¿Hasta qué número busco primos?"}
+// caso: {"huecos": {"hasta": "30"}, "caso": {"entrada": "", "esperado": "Primos hasta 30: 2 3 5 7 11 13 17 19 23 29\nHay 10.\n", "comparar": "lineas"}}
+// caso: {"huecos": {"hasta": "1"}, "caso": {"entrada": "", "esperado": "No hay primos hasta 1.\n", "comparar": "lineas"}}
+// caso: {"huecos": {}, "caso": {"entrada": "", "esperado": "43 47", "comparar": "contiene"}}
+// caso: {"huecos": {"hasta": "2"}, "caso": {"entrada": "", "esperado": "Primos hasta 2: 2\nHay 1.\n", "comparar": "lineas"}}
+package main
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
+
+func esPrimo(n int) bool {
+	if n < 2 {
+		return false
+	}
+	for d := 2; d*d <= n; d++ {
+		if n%d == 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func main() {
+	hasta := {{go_entero .hasta}}
+	var primos []string
+	for n := 2; n <= hasta; n++ {
+		if esPrimo(n) {
+			primos = append(primos, strconv.Itoa(n))
+		}
+	}
+	if len(primos) == 0 {
+		fmt.Printf("No hay primos hasta %d.\n", hasta)
+		return
+	}
+	fmt.Printf("Primos hasta %d: %s\n", hasta, strings.Join(primos, " "))
+	fmt.Printf("Hay %d.\n", len(primos))
+}
+
+// plantilla: promedio_notas
+// titulo: Programa que calcula la media de unas notas
+// descripcion: Lee notas (una por línea) hasta una línea vacía y escribe cuántas hay y su media, redondeada a dos decimales.
+// palabras: programa, promedio, media, nota, calificacion, leer, numero, varios
+// caso: {"huecos": {}, "caso": {"entrada": "7\n8\n\n", "esperado": "Has escrito 2 notas. La media es 7.5.", "comparar": "contiene"}}
+// caso: {"huecos": {}, "caso": {"entrada": "5\n6,5\n9\n", "esperado": "Has escrito 3 notas. La media es 6.83.", "comparar": "contiene"}}
+// caso: {"huecos": {}, "caso": {"entrada": "\n", "esperado": "No has escrito ninguna nota.", "comparar": "contiene"}}
+// caso: {"huecos": {}, "caso": {"entrada": "10\nseis\n", "esperado": "«seis» no es un número; no lo cuento.\nHas escrito 1 nota. La media es 10.", "comparar": "contiene"}}
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"math"
+	"os"
+	"strconv"
+	"strings"
+)
+
+func main() {
+	fmt.Println("Escribe las notas, una por línea. Deja una línea vacía para terminar.")
+	lector := bufio.NewScanner(os.Stdin)
+	suma, n := 0.0, 0
+	for lector.Scan() {
+		texto := strings.TrimSpace(lector.Text())
+		if texto == "" {
+			break
+		}
+		nota, err := strconv.ParseFloat(strings.ReplaceAll(texto, ",", "."), 64)
+		if err != nil {
+			fmt.Printf("«%s» no es un número; no lo cuento.\n", texto)
+			continue
+		}
+		suma += nota
+		n++
+	}
+	if n == 0 {
+		fmt.Println("No has escrito ninguna nota.")
+		return
+	}
+	media := math.Round(suma/float64(n)*100) / 100
+	palabra := "notas"
+	if n == 1 {
+		palabra = "nota"
+	}
+	fmt.Printf("Has escrito %d %s. La media es %s.\n", n, palabra, strconv.FormatFloat(media, 'f', -1, 64))
+}
+
+// plantilla: conversor_temperatura
+// titulo: Conversor de temperaturas
+// descripcion: Pide una temperatura y la pasa de grados Celsius a Fahrenheit o al revés, redondeando a dos decimales.
+// palabras: programa, convertir, temperatura, grado, celsius, fahrenheit, centigrado, conversor
+// hueco: {"nombre": "direccion", "clase": "opcion", "opciones": ["de Celsius a Fahrenheit", "de Fahrenheit a Celsius"], "porDefecto": "de Celsius a Fahrenheit", "pregunta": "¿Hacia dónde convierto?"}
+// caso: {"huecos": {"direccion": "de Celsius a Fahrenheit"}, "caso": {"entrada": "100\n", "esperado": "100 °C son 212 °F", "comparar": "contiene"}}
+// caso: {"huecos": {"direccion": "de Celsius a Fahrenheit"}, "caso": {"entrada": "37\n", "esperado": "37 °C son 98.6 °F", "comparar": "contiene"}}
+// caso: {"huecos": {}, "caso": {"entrada": "-40\n", "esperado": "-40 °C son -40 °F", "comparar": "contiene"}}
+// caso: {"huecos": {"direccion": "de fahrenheit a celsius"}, "caso": {"entrada": "212\n", "esperado": "212 °F son 100 °C", "comparar": "contiene"}}
+// caso: {"huecos": {"direccion": "de Fahrenheit a Celsius"}, "caso": {"entrada": "0\n", "esperado": "0 °F son -17.78 °C", "comparar": "contiene"}}
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"math"
+	"os"
+	"strconv"
+	"strings"
+)
+
+// leerNumero pregunta hasta que le dan un número (acepta coma o punto decimal).
+func leerNumero(lector *bufio.Reader, pregunta string) float64 {
+	for {
+		fmt.Print(pregunta)
+		linea, err := lector.ReadString('\n')
+		texto := strings.ReplaceAll(strings.TrimSpace(linea), ",", ".")
+		if n, e := strconv.ParseFloat(texto, 64); e == nil {
+			return n
+		}
+		if err != nil {
+			fmt.Println()
+			fmt.Println("No hay más datos.")
+			os.Exit(1)
+		}
+		fmt.Println("Eso no es un número. Prueba otra vez.")
+	}
+}
+
+// bonito redondea a dos decimales y quita los ceros que sobran.
+func bonito(x float64) string {
+	r := math.Round(x*100) / 100
+	if r == 0 {
+		r = 0 // evita escribir -0
+	}
+	return strconv.FormatFloat(r, 'f', -1, 64)
+}
+
+func main() {
+	lector := bufio.NewReader(os.Stdin)
+{{- if eq .direccion "de Fahrenheit a Celsius"}}
+	f := leerNumero(lector, "Escribe la temperatura en grados Fahrenheit: ")
+	c := (f - 32) * 5 / 9
+	fmt.Printf("%s °F son %s °C\n", bonito(f), bonito(c))
+{{- else}}
+	c := leerNumero(lector, "Escribe la temperatura en grados Celsius: ")
+	f := c*9/5 + 32
+	fmt.Printf("%s °C son %s °F\n", bonito(c), bonito(f))
+{{- end}}
+}
+
+// plantilla: calculadora
+// titulo: Calculadora
+// descripcion: Lee operaciones como «2 + 3» (con + - * x /), una por línea, y escribe el resultado de cada una hasta que escribes «salir».
+// palabras: programa, calculadora, calcular, operacion, sumar, restar, multiplicar, dividir, linea
+// caso: {"huecos": {}, "caso": {"entrada": "2 + 3\n10 / 4\n6 x 7\nsalir\n", "esperado": "Calculadora: escribe operaciones como 2 + 3 (con + - * / y espacios) o «salir» para terminar.\n2 + 3 = 5\n10 / 4 = 2.5\n6 x 7 = 42\n¡Adiós!\n", "comparar": "lineas"}}
+// caso: {"huecos": {}, "caso": {"entrada": "1 / 0\n", "esperado": "No se puede dividir entre cero.", "comparar": "contiene"}}
+// caso: {"huecos": {}, "caso": {"entrada": "7 % 2\nsalir\n", "esperado": "No conozco la operación «%».", "comparar": "contiene"}}
+// caso: {"huecos": {}, "caso": {"entrada": "hola\n", "esperado": "No entiendo «hola». Escribe, por ejemplo: 2 + 3", "comparar": "contiene"}}
+// caso: {"huecos": {}, "caso": {"entrada": "1,5 * 2\n", "esperado": "1,5 * 2 = 3", "comparar": "contiene"}}
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+)
+
+func main() {
+	fmt.Println("Calculadora: escribe operaciones como 2 + 3 (con + - * / y espacios) o «salir» para terminar.")
+	lector := bufio.NewScanner(os.Stdin)
+	for lector.Scan() {
+		linea := strings.TrimSpace(lector.Text())
+		if linea == "" {
+			continue
+		}
+		if strings.EqualFold(linea, "salir") {
+			break
+		}
+		partes := strings.Fields(linea)
+		if len(partes) != 3 {
+			fmt.Println("No entiendo «" + linea + "». Escribe, por ejemplo: 2 + 3")
+			continue
+		}
+		a, errA := strconv.ParseFloat(strings.ReplaceAll(partes[0], ",", "."), 64)
+		b, errB := strconv.ParseFloat(strings.ReplaceAll(partes[2], ",", "."), 64)
+		if errA != nil || errB != nil {
+			fmt.Println("Los dos lados tienen que ser números.")
+			continue
+		}
+		var r float64
+		switch partes[1] {
+		case "+":
+			r = a + b
+		case "-":
+			r = a - b
+		case "*", "x":
+			r = a * b
+		case "/":
+			if b == 0 {
+				fmt.Println("No se puede dividir entre cero.")
+				continue
+			}
+			r = a / b
+		default:
+			fmt.Println("No conozco la operación «" + partes[1] + "».")
+			continue
+		}
+		fmt.Println(linea, "=", strconv.FormatFloat(r, 'g', 10, 64))
+	}
+	fmt.Println("¡Adiós!")
+}
