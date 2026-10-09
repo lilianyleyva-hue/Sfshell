@@ -1,0 +1,87 @@
+package main
+
+import "fmt"
+
+var contador int
+
+func Factorial(n int) int { if nyx__p++; nyx__p > nyx__maxPila { panic(nyx__Hondo{}) }; defer func() { nyx__p-- }(); nyx__f--; if nyx__f < 0 { panic(nyx__SinComb{}) };
+	nyx__c[0]++; if n <= 1 {
+		nyx__c[1]++; return 1
+	}
+	nyx__c[2]++; return n * Factorial(n-1)
+}
+
+func esPar(n int) bool { if nyx__p++; nyx__p > nyx__maxPila { panic(nyx__Hondo{}) }; defer func() { nyx__p-- }(); nyx__f--; if nyx__f < 0 { panic(nyx__SinComb{}) };
+	nyx__c[3]++; if n == 0 {
+		nyx__c[4]++; return true
+	}
+	nyx__c[5]++; return esImpar(n - 1)
+}
+
+func esImpar(n int) bool { if nyx__p++; nyx__p > nyx__maxPila { panic(nyx__Hondo{}) }; defer func() { nyx__p-- }(); nyx__f--; if nyx__f < 0 { panic(nyx__SinComb{}) };
+	nyx__c[6]++; if n == 0 {
+		nyx__c[7]++; return false
+	}
+	nyx__c[8]++; return esPar(n - 1)
+}
+
+func Cuenta(xs []int) (pares int) { nyx__f--; if nyx__f < 0 { panic(nyx__SinComb{}) };
+	nyx__c[9]++; for i := 0; i < len(xs); i++ { nyx__f--; if nyx__f < 0 { panic(nyx__SinComb{}) }; nyx__ev(29, "i", i);
+		nyx__c[10]++; if esPar(xs[i]) {
+			nyx__c[11]++; pares++; nyx__ev(31, "pares", pares)
+		}
+	}
+	nyx__c[12]++; return
+}
+
+func Busca(m [][]int, x int) (int, int) { nyx__f--; if nyx__f < 0 { panic(nyx__SinComb{}) };
+nyx__c[13]++; fuera:
+	for i, fila := range m { nyx__f--; if nyx__f < 0 { panic(nyx__SinComb{}) }; nyx__ev(39, "i", i); nyx__ev(39, "fila", fila);
+		nyx__c[14]++; for j := range fila { nyx__f--; if nyx__f < 0 { panic(nyx__SinComb{}) }; nyx__ev(40, "j", j);
+			nyx__c[15]++; if fila[j] == x {
+				nyx__c[16]++; return i, j
+			}
+			nyx__c[17]++; if fila[j] > x {
+				nyx__c[18]++; continue fuera
+			}
+		}
+	}
+	nyx__c[19]++; return -1, -1
+}
+
+func Salta(n int) int { nyx__f--; if nyx__f < 0 { panic(nyx__SinComb{}) };
+	nyx__c[20]++; i := 0; nyx__ev(53, "i", i)
+nyx__c[21]++; otra:
+	nyx__f--; if nyx__f < 0 { panic(nyx__SinComb{}) }; i++; nyx__ev(55, "i", i)
+	nyx__c[22]++; if i < n {
+		nyx__c[23]++; goto otra
+	}
+	nyx__c[24]++; return i
+}
+
+func main() { nyx__f--; if nyx__f < 0 { panic(nyx__SinComb{}) };
+	nyx__c[25]++; var fib func(int) int
+	nyx__c[26]++; fib = func(n int) int { if nyx__p++; nyx__p > nyx__maxPila { panic(nyx__Hondo{}) }; defer func() { nyx__p-- }(); nyx__f--; if nyx__f < 0 { panic(nyx__SinComb{}) };
+		nyx__c[27]++; if n < 2 {
+			nyx__c[28]++; return n
+		}
+		nyx__c[29]++; return fib(n-1) + fib(n-2)
+	}
+	nyx__c[30]++; for { nyx__f--; if nyx__f < 0 { panic(nyx__SinComb{}) };
+		nyx__c[31]++; contador++
+		nyx__c[32]++; if contador > 3 { nyx__c[33]++; break }
+	}
+	nyx__c[34]++; if x := fib(10); x > 50 { nyx__ev(74, "x", x);
+		nyx__c[35]++; fmt.Println("grande", x)
+	} else { nyx__ev(74, "x", x);
+		nyx__c[36]++; fmt.Println("pequeño", x)
+	}
+	nyx__c[37]++; switch y := Factorial(4); {
+	case y > 20: nyx__ev(79, "y", y);
+		nyx__c[38]++; fmt.Println(y)
+	}
+	nyx__c[39]++; var a, b = 1, 2; nyx__ev(83, "a", a); nyx__ev(83, "b", b)
+	nyx__c[40]++; a, b = b, a; nyx__ev(84, "a", a); nyx__ev(84, "b", b)
+	nyx__c[41]++; fmt.Println(a, b, Cuenta([]int{1, 2, 3, 4}), Salta(3))
+	nyx__c[42]++; fmt.Println(Busca([][]int{{1, 2}, {3, 4}}, 3))
+}

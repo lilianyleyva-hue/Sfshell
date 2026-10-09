@@ -1,0 +1,14 @@
+[
+  {
+    "archivo": "x/x.go",
+    "linea": 4,
+    "col": 2,
+    "msg": "undefined: fmt"
+  },
+  {
+    "archivo": "x/x.go",
+    "linea": 4,
+    "col": 14,
+    "msg": "undefined: strings"
+  }
+]

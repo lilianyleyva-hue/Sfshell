@@ -1,0 +1,8 @@
+[
+  {
+    "archivo": "x/x.go",
+    "linea": 9,
+    "col": 1,
+    "msg": "missing return"
+  }
+]

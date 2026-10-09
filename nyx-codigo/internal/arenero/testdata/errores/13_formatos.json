@@ -1,0 +1,20 @@
+[
+  {
+    "archivo": "x.go",
+    "linea": 12,
+    "col": 5,
+    "msg": "undefined: algo"
+  },
+  {
+    "archivo": "x.go",
+    "linea": 3,
+    "col": 0,
+    "msg": "syntax error: non-declaration statement outside function body"
+  },
+  {
+    "archivo": "x.go",
+    "linea": 7,
+    "col": 2,
+    "msg": "unreachable code"
+  }
+]

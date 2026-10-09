@@ -1,0 +1,2 @@
+# nyxprueba/x
+x/x.go:5:2: "strings" imported and not used

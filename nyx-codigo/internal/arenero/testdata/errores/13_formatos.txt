@@ -1,0 +1,3 @@
+./x.go:12:5: undefined: algo
+x.go:3: syntax error: non-declaration statement outside function body
+vet: ./x.go:7:2: unreachable code

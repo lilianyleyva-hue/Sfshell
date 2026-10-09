@@ -1,0 +1,2 @@
+# nyxprueba/x
+x/x.go:9:16: cannot use Cuadrado{} (value of struct type Cuadrado) as Figura value in variable declaration: Cuadrado does not implement Figura (method Area has pointer receiver)

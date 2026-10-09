@@ -1,0 +1,35 @@
+package solucion
+
+import "strings"
+
+// Clasifica says what kind of number n is.
+func Clasifica(n int) string { nyx__f--; if nyx__f < 0 { panic(nyx__SinComb{}) };
+	nyx__c[0]++; if n > 0 {
+		nyx__c[1]++; return "positivo"
+	} else {
+		nyx__c[2]++; return "no positivo"
+	}
+}
+
+func Dia(d int) string { nyx__f--; if nyx__f < 0 { panic(nyx__SinComb{}) };
+	nyx__c[3]++; nombre := ""; nyx__ev(15, "nombre", nombre)
+	nyx__c[4]++; switch d {
+	case 1:
+		nyx__c[5]++; nombre = "lunes"; nyx__ev(18, "nombre", nombre)
+	case 2:
+		nyx__c[6]++; nombre = "martes"; nyx__ev(20, "nombre", nombre)
+	default:
+		nyx__c[7]++; nombre = "otro"; nyx__ev(22, "nombre", nombre)
+	}
+	nyx__c[8]++; return strings.ToUpper(nombre)
+}
+
+func SumaPares(nums []int) int { nyx__f--; if nyx__f < 0 { panic(nyx__SinComb{}) };
+	nyx__c[9]++; total := 0; nyx__ev(28, "total", total)
+	nyx__c[10]++; for _, n := range nums { nyx__f--; if nyx__f < 0 { panic(nyx__SinComb{}) }; nyx__ev(29, "n", n);
+		nyx__c[11]++; if n%2 == 0 {
+			nyx__c[12]++; total += n; nyx__ev(31, "total", total)
+		}
+	}
+	nyx__c[13]++; return total
+}

@@ -1,0 +1,8 @@
+[
+  {
+    "archivo": "x/x.go",
+    "linea": 9,
+    "col": 16,
+    "msg": "cannot use Cuadrado{} (value of struct type Cuadrado) as Figura value in variable declaration: Cuadrado does not implement Figura (method Area has pointer receiver)"
+  }
+]

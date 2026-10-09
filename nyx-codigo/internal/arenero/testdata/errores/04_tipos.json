@@ -1,0 +1,8 @@
+[
+  {
+    "archivo": "x/x.go",
+    "linea": 4,
+    "col": 9,
+    "msg": "invalid operation: a + b (mismatched types int and string)"
+  }
+]

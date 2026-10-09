@@ -1,0 +1,7 @@
+[
+  {
+    "linea": 0,
+    "col": 0,
+    "msg": "runtime.main_main·f: function main is undeclared in the main package"
+  }
+]

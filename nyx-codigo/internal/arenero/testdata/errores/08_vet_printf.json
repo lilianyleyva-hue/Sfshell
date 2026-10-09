@@ -1,0 +1,8 @@
+[
+  {
+    "archivo": "x/x.go",
+    "linea": 7,
+    "col": 2,
+    "msg": "fmt.Printf format %d has arg s of wrong type string"
+  }
+]

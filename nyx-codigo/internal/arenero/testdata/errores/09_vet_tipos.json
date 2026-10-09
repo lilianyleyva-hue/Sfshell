@@ -1,0 +1,8 @@
+[
+  {
+    "archivo": "x/x.go",
+    "linea": 4,
+    "col": 14,
+    "msg": "cannot use \"x\" (untyped string constant) as int value in variable declaration"
+  }
+]

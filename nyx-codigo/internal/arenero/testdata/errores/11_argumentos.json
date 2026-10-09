@@ -1,0 +1,8 @@
+[
+  {
+    "archivo": "x/x.go",
+    "linea": 5,
+    "col": 25,
+    "msg": "not enough arguments in call to f\nhave (number)\nwant (int, int)"
+  }
+]

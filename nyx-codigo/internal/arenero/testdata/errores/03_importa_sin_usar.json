@@ -1,0 +1,8 @@
+[
+  {
+    "archivo": "x/x.go",
+    "linea": 5,
+    "col": 2,
+    "msg": "\"strings\" imported and not used"
+  }
+]

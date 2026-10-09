@@ -1,0 +1,4 @@
+# nyxprueba/x
+x/x.go:5:25: not enough arguments in call to f
+	have (number)
+	want (int, int)
