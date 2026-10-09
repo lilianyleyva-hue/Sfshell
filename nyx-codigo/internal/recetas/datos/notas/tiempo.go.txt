@@ -1,0 +1,124 @@
+// nota: time.Now
+// titulo: time.Now: la fecha y la hora de ahora
+// resumen: Devuelve el momento actual como un time.Time, del que puedes sacar el año, el mes, el día o la hora. Para escribir una fecha con formato se usa la fecha de referencia de Go: 02/01/2006 15:04 significa día/mes/año hora:minuto.
+// relacionados: time.Since, time.Duration
+// palabras: fecha, hora, ahora, actual, hoy, dia, tiempo, reloj, formato
+// salida: true
+// salida: 15/03/2024 10:30
+// salida: Friday
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func main() {
+	ahora := time.Now()
+	fmt.Println(ahora.Year() >= 2024)
+	fecha := time.Date(2024, time.March, 15, 10, 30, 0, 0, time.UTC)
+	fmt.Println(fecha.Format("02/01/2006 15:04"))
+	fmt.Println(fecha.Weekday())
+}
+
+// nota: time.Since
+// titulo: time.Since: cuánto tiempo ha pasado
+// resumen: time.Since(inicio) devuelve el tiempo que ha pasado desde inicio, como un time.Duration. Sirve para medir cuánto tarda un trozo de código: guarda time.Now() antes y llama a time.Since después.
+// relacionados: time.Now, time.Duration
+// palabras: medir, tiempo, tardar, duracion, cronometro, rapido, lento
+// salida: 499999500000
+// salida: true
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func main() {
+	inicio := time.Now()
+	suma := 0
+	for i := 0; i < 1000000; i++ {
+		suma += i
+	}
+	duracion := time.Since(inicio)
+	fmt.Println(suma)
+	// El tiempo exacto cambia en cada ejecución; normalmente lo escribirías con fmt.Println(duracion).
+	fmt.Println(duracion >= 0)
+}
+
+// nota: time.Duration
+// titulo: time.Duration: una cantidad de tiempo
+// resumen: Es un número de nanosegundos con nombre propio. Se construye multiplicando constantes como time.Second o time.Minute, y se escribe de forma legible (1h30m0s). Los métodos Hours, Minutes y Seconds la pasan a float64.
+// relacionados: time.Since, time.Sleep
+// palabras: duracion, tiempo, segundos, minutos, horas, milisegundos
+// salida: 1h30m0s
+// salida: 1.5
+// salida: 2.5s
+// salida: 90
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func main() {
+	d := 90 * time.Minute
+	fmt.Println(d)
+	fmt.Println(d.Hours())
+	fmt.Println(2*time.Second + 500*time.Millisecond)
+	otra, err := time.ParseDuration("1m30s")
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	fmt.Println(otra.Seconds())
+}
+
+// nota: time.Sleep
+// titulo: time.Sleep: esperar un rato
+// resumen: Detiene la goroutine actual durante el tiempo indicado, por ejemplo time.Sleep(500 * time.Millisecond). Los programas que pruebo automáticamente no pueden usarla, para que las pruebas no se alarguen.
+// relacionados: time.Duration, goroutine, select
+// palabras: esperar, pausa, dormir, detener, retraso, segundos, sleep
+// salida: Espero...
+// salida: true
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func main() {
+	inicio := time.Now()
+	fmt.Println("Espero...")
+	time.Sleep(50 * time.Millisecond)
+	fmt.Println(time.Since(inicio) >= 50*time.Millisecond)
+}
+
+// nota: rand.Intn
+// alias: math/rand, rand
+// titulo: rand.Intn: un número al azar
+// resumen: rand.Intn(n) devuelve un entero al azar entre 0 y n-1, así que un dado es rand.Intn(6) + 1. Si creas tu propio generador con una semilla fija (rand.New(rand.NewSource(42))), saldrán siempre los mismos números, lo que viene bien para hacer pruebas.
+// relacionados: time.Now, slices.Contains
+// palabras: azar, aleatorio, random, dado, sorteo, numero, semilla
+// salida: [5 7 8 0 3]
+// salida: true
+package main
+
+import (
+	"fmt"
+	"math/rand"
+)
+
+func main() {
+	azar := rand.New(rand.NewSource(42))
+	var tiradas []int
+	for i := 0; i < 5; i++ {
+		tiradas = append(tiradas, azar.Intn(10))
+	}
+	fmt.Println(tiradas)
+	dado := rand.Intn(6) + 1
+	fmt.Println(dado >= 1 && dado <= 6)
+}

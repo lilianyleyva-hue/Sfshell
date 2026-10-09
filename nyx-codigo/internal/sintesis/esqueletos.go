@@ -1026,6 +1026,43 @@ func constantesMarco(m *nucleo.Marco) []V {
 	return out
 }
 
+// sondasMarco builds probe inputs around the frame's numbers (so "mayores que 5" is told apart from
+// "mayores que 0"), then fills up with the default probes.
+func sondasMarco(m *nucleo.Marco, f nucleo.Firma) [][]nucleo.Valor {
+	var nums []int
+	for _, x := range constantesMarco(m) {
+		if n, ok := x.(int); ok && n > -1000 && n < 1000 {
+			nums = append(nums, n)
+		}
+	}
+	var out [][]nucleo.Valor
+	for i, n := range nums {
+		if i >= 2 {
+			break
+		}
+		fila := make([]nucleo.Valor, len(f.Params))
+		ok := true
+		for j, p := range f.Params {
+			switch {
+			case mismoTipo(p.Tipo, tLI):
+				fila[j] = []nucleo.Valor{n - 1, n, n + 1, 2*n + 3, -n - 2}
+			case mismoTipo(p.Tipo, tI):
+				fila[j] = n + 1
+			case mismoTipo(p.Tipo, tS):
+				fila[j] = "un " + strings.Repeat("a", max(n, 0)) + " " + strings.Repeat("b", max(n+1, 1)) + " c"
+			case mismoTipo(p.Tipo, tLS):
+				fila[j] = []nucleo.Valor{strings.Repeat("a", max(n, 0)), strings.Repeat("b", max(n+1, 1)), "c"}
+			default:
+				ok = false
+			}
+		}
+		if ok {
+			out = append(out, fila)
+		}
+	}
+	return append(out, SondasPorDefecto(f, nil, maxSondas-len(out))...)
+}
+
 // DesdeConceptos returns up to k programs for a request without examples: the frame's sketches with the
 // modifiers as lambdas, then the smallest programs whose primitives cover every action and modifier concept
 // (at most 50 000 candidates or 1 s). Cheapest first.
@@ -1041,7 +1078,7 @@ func DesdeConceptos(ctx context.Context, m *nucleo.Marco, f nucleo.Firma, r *Reg
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	esp := Especificacion{Firma: f, Conceptos: pesosMarco(m), Constantes: constantesMarco(m)}
+	esp := Especificacion{Firma: f, Conceptos: pesosMarco(m), Constantes: constantesMarco(m), Sondas: sondasMarco(m, f)}
 	op := Opciones{MaxCosto: 70, MaxBanco: 150000}.normalizar()
 	s, err := nuevaSesion(ctx, esp, r, op, true)
 	if err != nil || len(s.envs) == 0 {
@@ -1083,22 +1120,50 @@ func DesdeConceptos(ctx context.Context, m *nucleo.Marco, f nucleo.Firma, r *Reg
 	}
 	s.construirPools(time.Now().Add(500 * time.Millisecond))
 	s.prepararMotor()
-	var cands []candSol
-	agregar := func(c candSol) {
+	cubre := func(e *Expr) int {
+		tiene := map[string]bool{}
+		for _, c := range conceptosDe(e) {
+			tiene[c] = true
+		}
+		n := 0
+		for _, c := range req {
+			if tiene[c] {
+				n++
+			}
+		}
+		return n
+	}
+	constante := func(vec []V) bool {
+		for _, v := range vec[1:] {
+			if !igualExacto(v, vec[0]) {
+				return false
+			}
+		}
+		return len(s.envs) > 1
+	}
+	type candDC struct {
+		candSol
+		esq       bool
+		cubre     int
+		constante bool
+	}
+	var cands []candDC
+	agregar := func(c candSol, esq bool) {
+		n := candDC{candSol: c, esq: esq, cubre: cubre(c.expr), constante: constante(c.vec)}
 		for i, o := range cands {
 			if igualVec(o.vec, c.vec) {
-				if c.costo < o.costo {
-					cands[i] = c
+				if n.cubre > o.cubre || n.cubre == o.cubre && (n.esq && !o.esq || n.esq == o.esq && c.costo < o.costo) {
+					cands[i] = n
 				}
 				return
 			}
 		}
-		cands = append(cands, c)
+		cands = append(cands, n)
 	}
 	limiteEsq := time.Now().Add(500 * time.Millisecond)
 	for _, sk := range sks {
 		for _, c := range s.completar(sk, limiteEsq, nil) {
-			agregar(c)
+			agregar(c, true)
 			break // the cheapest filling of each sketch
 		}
 	}
@@ -1106,25 +1171,41 @@ func DesdeConceptos(ctx context.Context, m *nucleo.Marco, f nucleo.Firma, r *Reg
 		mo := s.mo
 		mo.limite = time.Now().Add(time.Second)
 		visto := 0
+		completos := 0
 		for c := 1; c <= op.MaxCosto && !mo.parar && mo.explorados < 50000; c++ {
 			mo.correr(c)
 			for _, id := range mo.objetivos[visto:] {
 				e := &mo.entradas[id]
-				if e.conc&todo == todo {
-					agregar(candSol{expr: mo.expr(id), costo: e.costo, vec: e.vec})
+				if e.conc&todo != todo {
+					continue
+				}
+				x := mo.expr(id)
+				if cubre(x) == len(req) {
+					agregar(candSol{expr: x, costo: e.costo, vec: e.vec}, false)
+					completos++
 				}
 			}
 			visto = len(mo.objetivos)
-			if len(cands) >= 3*k {
+			if completos >= 3*k {
 				break
 			}
 		}
 	}
 	sort.SliceStable(cands, func(i, j int) bool {
-		if cands[i].costo != cands[j].costo {
-			return cands[i].costo < cands[j].costo
+		a, b := cands[i], cands[j]
+		if a.cubre != b.cubre {
+			return a.cubre > b.cubre
 		}
-		return Tamano(cands[i].expr) < Tamano(cands[j].expr)
+		if a.esq != b.esq {
+			return a.esq
+		}
+		if a.constante != b.constante {
+			return !a.constante
+		}
+		if a.costo != b.costo {
+			return a.costo < b.costo
+		}
+		return Tamano(a.expr) < Tamano(b.expr)
 	})
 	var out []Solucion
 	for _, c := range cands {

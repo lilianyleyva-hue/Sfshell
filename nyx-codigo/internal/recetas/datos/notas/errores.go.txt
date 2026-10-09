@@ -1,0 +1,96 @@
+// nota: errors.New
+// titulo: errors.New: crear un error
+// resumen: Crea un error con un mensaje fijo. Una función que puede fallar lo devuelve como último resultado, y nil si todo fue bien. Si guardas el error en una variable (var ErrX = errors.New(...)), quien llama puede compararlo con errors.Is.
+// relacionados: fmt.Errorf, errors.Is, error
+// palabras: error, crear, fallo, mensaje, devolver, nuevo
+// salida: 5 <nil>
+// salida: error: no se puede dividir entre cero
+package main
+
+import (
+	"errors"
+	"fmt"
+)
+
+var ErrDivisionCero = errors.New("no se puede dividir entre cero")
+
+func dividir(a, b int) (int, error) {
+	if b == 0 {
+		return 0, ErrDivisionCero
+	}
+	return a / b, nil
+}
+
+func main() {
+	r, err := dividir(10, 2)
+	fmt.Println(r, err)
+	if _, err := dividir(1, 0); err != nil {
+		fmt.Println("error:", err)
+	}
+}
+
+// nota: errors.Is
+// titulo: errors.Is: ¿es este error (o lo envuelve)?
+// resumen: Dice si un error es un error concreto o lo lleva envuelto dentro (con fmt.Errorf y %w). Es mejor que comparar con ==, porque == no ve los errores envueltos.
+// relacionados: errors.As, fmt.Errorf, errors.New
+// palabras: error, comparar, envuelto, comprobar, tipo, igual
+// salida: buscar a Pepe: no encontrado
+// salida: true
+// salida: false
+package main
+
+import (
+	"errors"
+	"fmt"
+)
+
+var ErrNoEncontrado = errors.New("no encontrado")
+
+func buscar(nombre string) error {
+	return fmt.Errorf("buscar a %s: %w", nombre, ErrNoEncontrado)
+}
+
+func main() {
+	err := buscar("Pepe")
+	fmt.Println(err)
+	fmt.Println(errors.Is(err, ErrNoEncontrado))
+	fmt.Println(err == ErrNoEncontrado)
+}
+
+// nota: errors.As
+// titulo: errors.As: sacar un error de un tipo concreto
+// resumen: Busca dentro de un error (y de los que envuelve) uno de cierto tipo y, si lo encuentra, lo guarda en tu variable para que leas sus campos. Se le pasa la dirección de la variable: errors.As(err, &destino).
+// relacionados: errors.Is, fmt.Errorf, interfaz
+// palabras: error, tipo, campo, extraer, envuelto, as
+// salida: guardar ficha: la edad -3 no es válida
+// salida: edad mala: -3
+package main
+
+import (
+	"errors"
+	"fmt"
+)
+
+type ErrorEdad struct {
+	Edad int
+}
+
+func (e *ErrorEdad) Error() string {
+	return fmt.Sprintf("la edad %d no es válida", e.Edad)
+}
+
+func guardar(edad int) error {
+	if edad < 0 {
+		return fmt.Errorf("guardar ficha: %w", &ErrorEdad{Edad: edad})
+	}
+	return nil
+}
+
+func main() {
+	err := guardar(-3)
+	fmt.Println(err)
+	var e *ErrorEdad
+	if errors.As(err, &e) {
+		fmt.Println("edad mala:", e.Edad)
+	}
+}

@@ -1,0 +1,744 @@
+// nota: variable
+// alias: variables, var, declarar, :=
+// titulo: Variables
+// resumen: Una variable guarda un valor con un nombre. Se declara con var nombre tipo = valor, o dentro de una función con nombre := valor, y Go deduce el tipo. Una variable sin valor empieza con el valor cero de su tipo: 0, "" o false.
+// relacionados: tipos, constante/iota
+// palabras: variable, declarar, guardar, valor, asignar, var
+// salida: Ana 30 Madrid 0
+// salida: 2 1
+package main
+
+import "fmt"
+
+func main() {
+	var edad int = 30
+	var nombre = "Ana"
+	ciudad := "Madrid"
+	var contador int
+	fmt.Println(nombre, edad, ciudad, contador)
+	a, b := 1, 2
+	a, b = b, a
+	fmt.Println(a, b)
+}
+
+// nota: tipos
+// alias: tipo, type, conversion, convertir tipo, int, float64, bool
+// titulo: Tipos básicos y conversiones
+// resumen: Cada valor tiene un tipo: int (enteros), float64 (decimales), string (textos), bool (verdadero o falso), rune (un carácter). Go no mezcla tipos solo: para multiplicar un int por un float64 conviértelo con float64(n). La división entre enteros quita los decimales.
+// relacionados: variable, strconv.Itoa, cadena y runa
+// palabras: tipo, entero, decimal, texto, convertir, conversion, int, float
+// salida: 17.5
+// salida: int float64 string bool
+// salida: 3 3.5
+package main
+
+import "fmt"
+
+func main() {
+	var n int = 7
+	var x float64 = 2.5
+	fmt.Println(float64(n) * x)
+	fmt.Printf("%T %T %T %T\n", n, x, "hola", true)
+	fmt.Println(n/2, float64(n)/2)
+}
+
+// nota: slice
+// alias: slices, rebanada, lista, []int
+// titulo: Slices (listas)
+// resumen: Un slice es una lista que puede crecer con append. Un trozo como nums[1:3] no copia nada: comparte los elementos con la lista original, así que cambiar uno cambia el otro. Su valor cero es nil, que se comporta como una lista vacía.
+// relacionados: array, append, len, copy
+// palabras: lista, slice, elementos, trozo, crecer, rebanada
+// salida: [20 30] 2
+// salida: [10 99 30 40]
+// salida: [10 99 30 40 50]
+package main
+
+import "fmt"
+
+func main() {
+	nums := []int{10, 20, 30, 40}
+	parte := nums[1:3]
+	fmt.Println(parte, len(parte))
+	parte[0] = 99
+	fmt.Println(nums)
+	nums = append(nums, 50)
+	fmt.Println(nums)
+}
+
+// nota: array
+// alias: arreglo, arrays, vector
+// titulo: Arreglos (arrays)
+// resumen: Un arreglo tiene un tamaño fijo que forma parte de su tipo: [3]string no es lo mismo que [4]string. Al asignarlo a otra variable se copia entero. En la práctica casi siempre se usan slices.
+// relacionados: slice, len
+// palabras: arreglo, array, fijo, tamaño, vector, lista
+// salida: lunes 3
+// salida: [7 9 5 10] [0 9 5 10]
+package main
+
+import "fmt"
+
+func main() {
+	var dias [3]string
+	dias[0] = "lunes"
+	fmt.Println(dias[0], len(dias))
+	notas := [4]int{7, 9, 5, 10}
+	copia := notas
+	copia[0] = 0
+	fmt.Println(notas, copia)
+}
+
+// nota: map
+// alias: mapa, mapas, diccionario
+// titulo: Mapas (map)
+// resumen: Un mapa guarda parejas clave → valor y encuentra un valor por su clave muy rápido. Si la clave no está, devuelve el valor cero; con v, ok := m[k] sabes si estaba. El orden al recorrerlo con for range cambia en cada ejecución.
+// relacionados: make, delete, maps.Keys, for/range
+// palabras: mapa, diccionario, clave, valor, pareja, buscar, contar
+// salida: 30
+// salida: 0 false
+// salida: 2 map[Ana:30 Eva:42]
+package main
+
+import "fmt"
+
+func main() {
+	edades := map[string]int{"Ana": 30, "Luis": 17}
+	edades["Eva"] = 42
+	fmt.Println(edades["Ana"])
+	e, ok := edades["Pepe"]
+	fmt.Println(e, ok)
+	delete(edades, "Luis")
+	fmt.Println(len(edades), edades)
+}
+
+// nota: struct
+// alias: estructura, estructuras, structs, registro
+// titulo: Estructuras (struct)
+// resumen: Una estructura junta varios datos con nombre en un solo tipo, como una ficha. Los campos se leen y cambian con un punto: p.Edad. Los campos que empiezan por mayúscula se ven desde otros paquetes.
+// relacionados: método, puntero, json.Marshal
+// palabras: estructura, campo, ficha, registro, tipo, struct, datos
+// salida: Ana 31
+// salida: {Ana 31}
+// salida: {Nombre:Ana Edad:31}
+package main
+
+import "fmt"
+
+type Persona struct {
+	Nombre string
+	Edad   int
+}
+
+func main() {
+	p := Persona{Nombre: "Ana", Edad: 30}
+	p.Edad++
+	fmt.Println(p.Nombre, p.Edad)
+	fmt.Println(p)
+	fmt.Printf("%+v\n", p)
+}
+
+// nota: puntero
+// alias: punteros, pointer, &, *
+// titulo: Punteros
+// resumen: Un puntero guarda la dirección de una variable: &x da la dirección y *p el valor al que apunta. Si una función recibe un puntero, puede cambiar la variable original. Un puntero que no apunta a nada vale nil.
+// relacionados: new, método, nil
+// palabras: puntero, direccion, referencia, cambiar, modificar, original
+// salida: 10 10
+// salida: true
+package main
+
+import "fmt"
+
+func duplicar(n *int) {
+	*n *= 2
+}
+
+func main() {
+	x := 5
+	p := &x
+	duplicar(p)
+	fmt.Println(x, *p)
+	var q *int
+	fmt.Println(q == nil)
+}
+
+// nota: método
+// alias: metodo, metodos, métodos, method, receptor
+// titulo: Métodos
+// resumen: Un método es una función unida a un tipo; se declara con un receptor: func (r Rectangulo) Area() float64. Si el receptor es un puntero (*Rectangulo), el método puede cambiar el valor original.
+// relacionados: struct, puntero, interfaz
+// palabras: metodo, receptor, funcion, tipo, estructura
+// salida: 12
+// salida: {6 8} 48
+package main
+
+import "fmt"
+
+type Rectangulo struct {
+	Ancho, Alto float64
+}
+
+func (r Rectangulo) Area() float64 {
+	return r.Ancho * r.Alto
+}
+
+func (r *Rectangulo) Escalar(f float64) {
+	r.Ancho *= f
+	r.Alto *= f
+}
+
+func main() {
+	r := Rectangulo{3, 4}
+	fmt.Println(r.Area())
+	r.Escalar(2)
+	fmt.Println(r, r.Area())
+}
+
+// nota: interfaz
+// alias: interface, interfaces, interfaces de go
+// titulo: Interfaces
+// resumen: Una interfaz es una lista de métodos. Cualquier tipo que tenga esos métodos la cumple, sin tener que decirlo. Así una función puede trabajar con tipos distintos que se comportan igual.
+// relacionados: método, struct, error
+// palabras: interfaz, interface, metodos, comportamiento, polimorfismo, tipo
+// salida: main.Cuadrado: 4.00
+// salida: main.Circulo: 3.14
+// salida: Total: 7.14
+package main
+
+import (
+	"fmt"
+	"math"
+)
+
+type Figura interface {
+	Area() float64
+}
+
+type Cuadrado struct{ Lado float64 }
+
+type Circulo struct{ Radio float64 }
+
+func (c Cuadrado) Area() float64 { return c.Lado * c.Lado }
+
+func (c Circulo) Area() float64 { return math.Pi * c.Radio * c.Radio }
+
+func main() {
+	figuras := []Figura{Cuadrado{2}, Circulo{1}}
+	total := 0.0
+	for _, f := range figuras {
+		fmt.Printf("%T: %.2f\n", f, f.Area())
+		total += f.Area()
+	}
+	fmt.Printf("Total: %.2f\n", total)
+}
+
+// nota: error
+// alias: errores, manejo de errores, err, if err != nil
+// titulo: Errores
+// resumen: En Go los errores son valores: una función que puede fallar devuelve un error como último resultado. Quien la llama lo comprueba con if err != nil y decide qué hacer. nil significa que no hubo error.
+// relacionados: errors.New, fmt.Errorf, errors.Is, panic
+// palabras: error, fallo, comprobar, devolver, err, nil
+// salida: 3.5
+// salida: error: división entre cero
+// salida: 0 strconv.Atoi: parsing "12a": invalid syntax
+package main
+
+import (
+	"errors"
+	"fmt"
+	"strconv"
+)
+
+func dividir(a, b float64) (float64, error) {
+	if b == 0 {
+		return 0, errors.New("división entre cero")
+	}
+	return a / b, nil
+}
+
+func main() {
+	if r, err := dividir(7, 2); err == nil {
+		fmt.Println(r)
+	}
+	if _, err := dividir(1, 0); err != nil {
+		fmt.Println("error:", err)
+	}
+	n, err := strconv.Atoi("12a")
+	fmt.Println(n, err)
+}
+
+// nota: defer
+// alias: diferir, defers
+// titulo: defer: dejar algo para el final
+// resumen: defer apunta una llamada para que se haga cuando termine la función, pase lo que pase (también si hay un pánico). Se usa para cerrar archivos o liberar cerrojos justo después de abrirlos. Si hay varios, se ejecutan al revés: el último apuntado va primero.
+// relacionados: recover, os.Open, sync.Mutex
+// palabras: defer, final, cerrar, liberar, terminar, diferir
+// salida: abro el archivo
+// salida: trabajo con el archivo
+// salida: cierro el archivo
+// salida: primero
+// salida: segundo
+// salida: tercero
+package main
+
+import "fmt"
+
+func trabajar() {
+	fmt.Println("abro el archivo")
+	defer fmt.Println("cierro el archivo")
+	fmt.Println("trabajo con el archivo")
+}
+
+func main() {
+	trabajar()
+	defer fmt.Println("tercero")
+	defer fmt.Println("segundo")
+	fmt.Println("primero")
+}
+
+// nota: panic/recover
+// alias: panico, pánico, excepcion, excepciones
+// titulo: Pánicos: panic y recover
+// resumen: Un pánico es un error grave que para el programa: un índice fuera de rango, dividir entre cero o una llamada a panic. Dentro de un defer, recover() lo detiene y el programa sigue. Go no tiene excepciones: para errores normales se devuelven valores error.
+// relacionados: panic, recover, defer, error
+// palabras: panico, recuperar, excepcion, error, grave, parar
+// salida: 5 true
+// salida: recuperado: runtime error: integer divide by zero
+// salida: 0 false
+package main
+
+import "fmt"
+
+func dividirSeguro(a, b int) (r int, ok bool) {
+	defer func() {
+		if e := recover(); e != nil {
+			fmt.Println("recuperado:", e)
+			ok = false
+		}
+	}()
+	return a / b, true
+}
+
+func main() {
+	fmt.Println(dividirSeguro(10, 2))
+	fmt.Println(dividirSeguro(1, 0))
+}
+
+// nota: goroutine
+// alias: goroutines, gorutina, gorrutina, go, concurrencia
+// titulo: Goroutines
+// resumen: Escribir go delante de una llamada la ejecuta a la vez que el resto del programa, en una goroutine. Para recoger sus resultados se usan canales o sync.WaitGroup. El programa termina cuando acaba main, aunque queden goroutines.
+// relacionados: canal, sync.WaitGroup, select, sync.Mutex
+// palabras: goroutine, concurrencia, paralelo, simultaneo, hilo, go
+// salida: 1² = 1, 2² = 4, 3² = 9
+package main
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+)
+
+func cuadrado(n int, resultados chan<- string) {
+	resultados <- fmt.Sprintf("%d² = %d", n, n*n)
+}
+
+func main() {
+	resultados := make(chan string)
+	for i := 1; i <= 3; i++ {
+		go cuadrado(i, resultados)
+	}
+	var todos []string
+	for i := 0; i < 3; i++ {
+		todos = append(todos, <-resultados)
+	}
+	sort.Strings(todos) // llegan en cualquier orden
+	fmt.Println(strings.Join(todos, ", "))
+}
+
+// nota: canal
+// alias: canales, chan, channel, channels
+// titulo: Canales
+// resumen: Un canal es un tubo para pasar valores entre goroutines: c <- v envía y v := <-c recibe. Sin capacidad, enviar espera a que alguien reciba. Quien envía puede cerrarlo con close, y for v := range c lee hasta que se cierra.
+// relacionados: goroutine, select, make
+// palabras: canal, enviar, recibir, comunicar, goroutine, chan, cerrar
+// salida: recibo 10
+// salida: recibo 20
+// salida: recibo 30
+// salida: 2 2
+package main
+
+import "fmt"
+
+func main() {
+	c := make(chan int)
+	go func() {
+		for i := 1; i <= 3; i++ {
+			c <- i * 10
+		}
+		close(c)
+	}()
+	for v := range c {
+		fmt.Println("recibo", v)
+	}
+	b := make(chan string, 2)
+	b <- "a"
+	b <- "b"
+	fmt.Println(len(b), cap(b))
+}
+
+// nota: select
+// alias: selección de canales
+// titulo: select: esperar a varios canales
+// resumen: select espera a que uno de varios canales esté listo y ejecuta ese caso. Con default no espera nada si ninguno está listo, y con time.After se pone un tiempo máximo.
+// relacionados: canal, goroutine, time.Duration
+// palabras: select, esperar, canales, varios, tiempo, maximo, default
+// salida: llegó: listo
+// salida: no hay nada que leer
+// salida: tiempo agotado
+package main
+
+import (
+	"fmt"
+	"time"
+)
+
+func main() {
+	rapido := make(chan string, 1)
+	rapido <- "listo"
+	select {
+	case m := <-rapido:
+		fmt.Println("llegó:", m)
+	case <-time.After(time.Second):
+		fmt.Println("tiempo agotado")
+	}
+
+	vacio := make(chan string)
+	select {
+	case m := <-vacio:
+		fmt.Println(m)
+	default:
+		fmt.Println("no hay nada que leer")
+	}
+
+	lento := make(chan string)
+	select {
+	case m := <-lento:
+		fmt.Println(m)
+	case <-time.After(20 * time.Millisecond):
+		fmt.Println("tiempo agotado")
+	}
+}
+
+// nota: for/range
+// alias: for, range, bucle, bucles, loop, while, repetir
+// titulo: Bucles: for y range
+// resumen: Go solo tiene un bucle, for: con contador (for i := 0; i < n; i++), con condición (for x < 100, como el while de otros lenguajes) o infinito (for {}). for i, x := range lista recorre una lista, un texto, un mapa o un canal; desde Go 1.22 también un número: for i := range 3.
+// relacionados: slice, map, switch
+// palabras: bucle, repetir, recorrer, for, range, contador, iterar
+// salida: suma: 10
+// salida: 0 pera
+// salida: 1 uva
+// salida: 243
+// salida: vuelta 0
+// salida: vuelta 1
+package main
+
+import "fmt"
+
+func main() {
+	suma := 0
+	for i := 1; i <= 4; i++ {
+		suma += i
+	}
+	fmt.Println("suma:", suma)
+	for i, f := range []string{"pera", "uva"} {
+		fmt.Println(i, f)
+	}
+	n := 1
+	for n < 100 {
+		n *= 3
+	}
+	fmt.Println(n)
+	for i := range 2 {
+		fmt.Println("vuelta", i)
+	}
+}
+
+// nota: switch
+// alias: case, casos, segun
+// titulo: switch: elegir entre varios casos
+// resumen: switch compara un valor con varios casos y ejecuta el primero que coincide; no hace falta break. Sin valor (switch { case x > 5: … }) sirve como una cadena de if-else más clara.
+// relacionados: for/range, if
+// palabras: switch, casos, elegir, opcion, condicion, case
+// salida: fin de semana
+// salida: notable
+package main
+
+import "fmt"
+
+func main() {
+	dia := 6
+	switch dia {
+	case 6, 7:
+		fmt.Println("fin de semana")
+	default:
+		fmt.Println("entre semana")
+	}
+	nota := 7.5
+	switch {
+	case nota >= 9:
+		fmt.Println("sobresaliente")
+	case nota >= 7:
+		fmt.Println("notable")
+	case nota >= 5:
+		fmt.Println("aprobado")
+	default:
+		fmt.Println("suspenso")
+	}
+}
+
+// nota: función anónima/closure
+// alias: closure, closures, clausura, funcion anonima, función anónima, lambda, func literal
+// titulo: Funciones anónimas y closures
+// resumen: Una función se puede escribir sin nombre y guardar en una variable o pasar a otra función. Si usa variables de fuera, las recuerda aunque la función de fuera ya haya terminado: eso es un closure.
+// relacionados: sort.Slice, defer, goroutine
+// palabras: funcion, anonima, closure, lambda, variable, recordar
+// salida: 42
+// salida: 3
+package main
+
+import "fmt"
+
+func nuevoContador() func() int {
+	n := 0
+	return func() int {
+		n++
+		return n
+	}
+}
+
+func main() {
+	doble := func(x int) int { return 2 * x }
+	fmt.Println(doble(21))
+	contar := nuevoContador()
+	contar()
+	contar()
+	fmt.Println(contar())
+}
+
+// nota: paquete/módulo
+// alias: paquete, paquetes, package, import, modulo, módulo, modulos
+// titulo: Paquetes y módulos
+// resumen: Cada archivo empieza con package; los programas ejecutables son package main y empiezan en func main(). Con import usas otros paquetes, y solo se ven desde fuera los nombres que empiezan por mayúscula. Un módulo (archivo go.mod) es un conjunto de paquetes con un nombre.
+// relacionados: go mod, go run/build/test
+// palabras: paquete, modulo, import, importar, package, main, organizar
+// salida: LOS PAQUETES SE IMPORTAN POR SU RUTA
+// salida: hola
+package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+// saludo empieza por minúscula: solo se puede usar dentro de este paquete.
+func saludo() string {
+	return "hola"
+}
+
+func main() {
+	fmt.Println(strings.ToUpper("los paquetes se importan por su ruta"))
+	fmt.Println(saludo())
+}
+
+// nota: go mod
+// alias: go.mod, go mod init, go mod tidy, dependencias, go get
+// titulo: go mod: módulos y dependencias
+// resumen: go mod init nombre crea el archivo go.mod, que da nombre a tu módulo y dice qué versión de Go usa. go get añade una dependencia y go mod tidy añade las que faltan y quita las que sobran.
+// relacionados: paquete/módulo, go run/build/test
+// palabras: modulo, dependencias, go.mod, init, tidy, instalar, proyecto
+// salida: go mod init ejemplo.com/hola
+// salida: go run .
+// salida: go mod tidy
+package main
+
+import "fmt"
+
+func main() {
+	// Pasos para empezar un proyecto en una carpeta vacía:
+	pasos := []string{
+		"go mod init ejemplo.com/hola", // crea go.mod
+		"go run .",                     // compila y ejecuta
+		"go mod tidy",                  // ordena las dependencias
+	}
+	for _, p := range pasos {
+		fmt.Println(p)
+	}
+}
+
+// nota: go run/build/test
+// alias: go run, go build, go test, go vet, compilar, ejecutar programa
+// titulo: go run, go build y go test
+// resumen: go run . compila y ejecuta el programa de la carpeta. go build crea un ejecutable que puedes copiar. go test ejecuta las funciones TestXxx de los archivos que terminan en _test.go.
+// relacionados: go mod, paquete/módulo
+// palabras: compilar, ejecutar, probar, pruebas, test, build, run, comando
+// salida: 42
+package main
+
+import "fmt"
+
+// Doble se podría probar en un archivo doble_test.go con:
+//
+//	func TestDoble(t *testing.T) {
+//		if Doble(21) != 42 {
+//			t.Error("Doble(21) debería ser 42")
+//		}
+//	}
+func Doble(x int) int {
+	return 2 * x
+}
+
+func main() {
+	fmt.Println(Doble(21))
+}
+
+// nota: genéricos
+// alias: genericos, generico, genérico, generics, type parameters, parametros de tipo
+// titulo: Genéricos (Go 1.18)
+// resumen: Una función genérica tiene parámetros de tipo entre corchetes y sirve para muchos tipos a la vez: func Maximo[T cmp.Ordered](xs []T) T. La restricción (cmp.Ordered, any o una interfaz como ~int | ~float64) dice qué tipos valen.
+// relacionados: interfaz, slices.Sort
+// palabras: generico, tipo, parametro, cualquier, reutilizar, generics
+// salida: 9
+// salida: uva
+// salida: 4
+package main
+
+import (
+	"cmp"
+	"fmt"
+)
+
+func Maximo[T cmp.Ordered](xs []T) T {
+	m := xs[0]
+	for _, x := range xs[1:] {
+		if x > m {
+			m = x
+		}
+	}
+	return m
+}
+
+type Numero interface {
+	~int | ~float64
+}
+
+func Sumar[T Numero](xs []T) T {
+	var s T
+	for _, x := range xs {
+		s += x
+	}
+	return s
+}
+
+func main() {
+	fmt.Println(Maximo([]int{3, 9, 2}))
+	fmt.Println(Maximo([]string{"pera", "uva", "kiwi"}))
+	fmt.Println(Sumar([]float64{1.5, 2.5}))
+}
+
+// nota: constante/iota
+// alias: constante, constantes, const, iota, enumeracion
+// titulo: Constantes e iota
+// resumen: Una constante (const) es un valor que no cambia y se conoce al compilar. Dentro de un bloque const, iota vale 0, 1, 2… en cada línea, y sirve para numerar opciones como los días de la semana.
+// relacionados: variable, tipos
+// palabras: constante, const, iota, enumerar, fijo, valor
+// salida: 6.28318
+// salida: 0 1 2
+// salida: 1024 1048576
+package main
+
+import "fmt"
+
+const Pi = 3.14159
+
+type Dia int
+
+const (
+	Lunes Dia = iota
+	Martes
+	Miercoles
+)
+
+const (
+	_  = iota
+	KB = 1 << (10 * iota)
+	MB
+)
+
+func main() {
+	fmt.Println(Pi * 2)
+	fmt.Println(Lunes, Martes, Miercoles)
+	fmt.Println(KB, MB)
+}
+
+// nota: cadena y runa
+// alias: string, rune, runa, runas, cadena, cadenas, texto, byte
+// titulo: Cadenas (string) y runas (rune)
+// resumen: Un string es una secuencia de bytes en UTF-8 que no se puede cambiar; las letras con tilde y la ñ ocupan 2 bytes. Una rune es un carácter (un número Unicode). Para cambiar letras convierte a []rune y luego otra vez a string.
+// relacionados: utf8.RuneCountInString, len, strings.Builder, unicode.IsLetter
+// palabras: texto, cadena, string, runa, caracter, letra, byte, utf8
+// salida: 5 4
+// salida: 110 n
+// salida: 0 n
+// salida: 1 i
+// salida: 2 ñ
+// salida: 4 o
+// salida: Niño
+package main
+
+import (
+	"fmt"
+	"unicode/utf8"
+)
+
+func main() {
+	s := "niño"
+	fmt.Println(len(s), utf8.RuneCountInString(s))
+	fmt.Println(s[0], string(s[0]))
+	for i, r := range s {
+		fmt.Println(i, string(r))
+	}
+	rs := []rune(s)
+	rs[0] = 'N'
+	fmt.Println(string(rs))
+}
+
+// nota: nil
+// alias: null, nulo, none, vacio
+// titulo: nil: el valor «nada»
+// resumen: nil es el valor cero de punteros, slices, mapas, canales, funciones, interfaces y error. Un slice nil se puede leer y usar con append, pero escribir en un mapa nil provoca un pánico: créalo antes con make.
+// relacionados: puntero, error, make, map
+// palabras: nil, nulo, vacio, cero, nada, null
+// salida: true 0
+// salida: true 0
+// salida: true true
+// salida: [1]
+// salida: map[x:1]
+package main
+
+import "fmt"
+
+func main() {
+	var s []int
+	var m map[string]int
+	var p *int
+	var err error
+	fmt.Println(s == nil, len(s))
+	fmt.Println(m == nil, m["x"])
+	fmt.Println(p == nil, err == nil)
+	s = append(s, 1)
+	fmt.Println(s)
+	m = make(map[string]int)
+	m["x"] = 1
+	fmt.Println(m)
+}

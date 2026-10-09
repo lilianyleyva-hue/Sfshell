@@ -1,0 +1,142 @@
+// nota: unicode.IsLetter
+// titulo: unicode.IsLetter: ¿es una letra?
+// resumen: Dice si una runa (un carácter) es una letra de cualquier idioma, también ñ y las vocales con tilde. Recorre un texto con for range para mirar sus caracteres uno a uno.
+// relacionados: unicode.IsDigit, unicode.IsSpace, cadena y runa
+// palabras: letra, caracter, comprobar, contar, alfabetico, runa
+// salida: true
+// salida: false
+// salida: Letras: 9
+package main
+
+import (
+	"fmt"
+	"unicode"
+)
+
+func main() {
+	fmt.Println(unicode.IsLetter('ñ'))
+	fmt.Println(unicode.IsLetter('3'))
+	letras := 0
+	for _, r := range "¡Hola, mundo 2024!" {
+		if unicode.IsLetter(r) {
+			letras++
+		}
+	}
+	fmt.Println("Letras:", letras)
+}
+
+// nota: unicode.IsDigit
+// titulo: unicode.IsDigit: ¿es una cifra?
+// resumen: Dice si una runa es una cifra del 0 al 9 (o una cifra de otro alfabeto). Para pasar la cifra a número, réstale '0'.
+// relacionados: unicode.IsLetter, strconv.Atoi
+// palabras: digito, cifra, numero, caracter, comprobar, contar
+// salida: Cifras: 4
+// salida: Suma de las cifras: 10
+package main
+
+import (
+	"fmt"
+	"unicode"
+)
+
+func main() {
+	cifras, suma := 0, 0
+	for _, r := range "abc123def4" {
+		if unicode.IsDigit(r) {
+			cifras++
+			suma += int(r - '0')
+		}
+	}
+	fmt.Println("Cifras:", cifras)
+	fmt.Println("Suma de las cifras:", suma)
+}
+
+// nota: unicode.IsUpper
+// titulo: unicode.IsUpper: ¿es una mayúscula?
+// resumen: Dice si una runa es una letra mayúscula, también Ñ o Á. Su pareja unicode.IsLower dice si es minúscula.
+// relacionados: unicode.ToUpper, strings.ToUpper
+// palabras: mayuscula, minuscula, letra, comprobar, contar, caracter
+// salida: true
+// salida: Mayúsculas: 4
+package main
+
+import (
+	"fmt"
+	"unicode"
+)
+
+func main() {
+	fmt.Println(unicode.IsUpper('Ñ'))
+	n := 0
+	for _, r := range "Hola Mundo GO" {
+		if unicode.IsUpper(r) {
+			n++
+		}
+	}
+	fmt.Println("Mayúsculas:", n)
+}
+
+// nota: unicode.ToUpper
+// titulo: unicode.ToUpper: una letra en mayúscula
+// resumen: Pasa una sola runa a mayúscula (unicode.ToLower la pasa a minúscula). Para cambiar solo la primera letra de una palabra, conviértela en []rune, cambia la primera y vuelve a string.
+// relacionados: strings.ToUpper, unicode.IsUpper
+// palabras: mayuscula, letra, convertir, primera, capitalizar, caracter
+// salida: Ñ
+// salida: Árbol
+package main
+
+import (
+	"fmt"
+	"unicode"
+)
+
+func main() {
+	fmt.Println(string(unicode.ToUpper('ñ')))
+	rs := []rune("árbol")
+	rs[0] = unicode.ToUpper(rs[0])
+	fmt.Println(string(rs))
+}
+
+// nota: unicode.IsSpace
+// titulo: unicode.IsSpace: ¿es un espacio?
+// resumen: Dice si una runa es un espacio en blanco: el espacio, el tabulador, el salto de línea y otros. Es lo que usa strings.Fields para separar palabras.
+// relacionados: strings.Fields, strings.TrimSpace
+// palabras: espacio, blanco, tabulador, salto, linea, caracter, contar
+// salida: Espacios: 3
+package main
+
+import (
+	"fmt"
+	"unicode"
+)
+
+func main() {
+	n := 0
+	for _, r := range "uno dos\ttres\n" {
+		if unicode.IsSpace(r) {
+			n++
+		}
+	}
+	fmt.Println("Espacios:", n)
+}
+
+// nota: utf8.RuneCountInString
+// alias: unicode/utf8, utf8
+// titulo: utf8.RuneCountInString: cuántos caracteres tiene un texto
+// resumen: len(s) cuenta bytes, y las letras con tilde o la ñ ocupan más de un byte. utf8.RuneCountInString(s) cuenta los caracteres de verdad (las runas). Está en el paquete unicode/utf8.
+// relacionados: len, cadena y runa
+// palabras: contar, caracteres, letras, longitud, largo, texto, runas, bytes, tilde
+// salida: 7 6
+// salida: 4 3
+package main
+
+import (
+	"fmt"
+	"unicode/utf8"
+)
+
+func main() {
+	s := "camión"
+	fmt.Println(len(s), utf8.RuneCountInString(s))
+	fmt.Println(len("año"), utf8.RuneCountInString("año"))
+}

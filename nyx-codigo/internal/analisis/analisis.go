@@ -65,13 +65,14 @@ var ErrVacio = errors.New("analisis: no hay código")
 
 // archivo is a parsed (and, when possible, type-checked) source file.
 type archivo struct {
-	fset    *token.FileSet
-	f       *ast.File
-	info    *types.Info
-	pkg     *types.Package
-	errores []nucleo.ErrorGo
-	envuelto bool // bare statements were wrapped in func main() (same lines)
-	prefijo  int  // bytes added before the user's code on line 1
+	fset     *token.FileSet
+	f        *ast.File
+	info     *types.Info
+	pkg      *types.Package
+	errores  []nucleo.ErrorGo
+	envuelto bool   // bare statements were wrapped in func main() (same lines)
+	prefijo  int    // bytes added before the user's code on line 1
+	texto    string // the text that was parsed (with the added prefix and suffix)
 }
 
 const (
@@ -130,24 +131,24 @@ func parsear(src string) (*archivo, error) {
 		if f == nil {
 			return nil, err
 		}
-		a.f, a.errores = f, erroresDeParse(err, 0)
+		a.f, a.errores, a.texto = f, erroresDeParse(err, 0), src
 		return a, nil
 	}
 	f, err := parser.ParseFile(a.fset, "x.go", prefijoPaquete+src, modo)
 	if err == nil {
-		a.f, a.prefijo = f, len(prefijoPaquete)
+		a.f, a.prefijo, a.texto = f, len(prefijoPaquete), prefijoPaquete+src
 		return a, nil
 	}
 	fset2 := token.NewFileSet()
 	f2, err2 := parser.ParseFile(fset2, "x.go", prefijoMain+src+"\n}", modo)
 	if err2 == nil {
-		a.fset, a.f, a.prefijo, a.envuelto = fset2, f2, len(prefijoMain), true
+		a.fset, a.f, a.prefijo, a.envuelto, a.texto = fset2, f2, len(prefijoMain), true, prefijoMain+src+"\n}"
 		return a, nil
 	}
 	if f == nil {
 		return nil, err
 	}
-	a.f, a.prefijo, a.errores = f, len(prefijoPaquete), erroresDeParse(err, len(prefijoPaquete))
+	a.f, a.prefijo, a.errores, a.texto = f, len(prefijoPaquete), erroresDeParse(err, len(prefijoPaquete)), prefijoPaquete+src
 	return a, nil
 }
 

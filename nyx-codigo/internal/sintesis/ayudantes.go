@@ -13,14 +13,21 @@ var ayudantes = map[string]string{
 }`,
 	"potencia": `func potencia(base, exp int) int {
 	r := 1
-	for i := 0; i < exp; i++ {
-		r *= base
+	for exp > 0 {
+		if exp%2 == 1 {
+			r *= base
+		}
+		base *= base
+		exp /= 2
 	}
 	return r
 }`,
 	"esPrimo": `func esPrimo(n int) bool {
 	if n < 2 {
 		return false
+	}
+	if n > 1<<40 {
+		return big.NewInt(int64(n)).ProbablyPrime(20)
 	}
 	for d := 2; d <= n/d; d++ {
 		if n%d == 0 {
@@ -55,6 +62,9 @@ var ayudantes = map[string]string{
 	return true
 }`,
 	"factorial": `func factorial(n int) int {
+	if n > 20 {
+		return 0 // no cabe en un int
+	}
 	f := 1
 	for i := 2; i <= n; i++ {
 		f *= i
@@ -62,6 +72,9 @@ var ayudantes = map[string]string{
 	return f
 }`,
 	"fibonacci": `func fibonacci(n int) int {
+	if n > 92 {
+		return 0 // no cabe en un int
+	}
 	a, b := 0, 1
 	for i := 0; i < n; i++ {
 		a, b = b, a+b
@@ -325,6 +338,7 @@ var ayudantes = map[string]string{
 }
 
 var importsAyudantes = map[string][]string{
+	"esPrimo":            {"math/big"},
 	"esCuadrado":         {"math"},
 	"raizEntera":         {"math"},
 	"esCapicua":          {"strconv"},

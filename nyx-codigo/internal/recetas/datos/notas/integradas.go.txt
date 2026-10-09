@@ -1,0 +1,246 @@
+// nota: append
+// titulo: append: añadir elementos a una lista
+// resumen: append(lista, x) devuelve la lista con x añadido al final; hay que guardar el resultado: lista = append(lista, x). Puedes añadir varios a la vez, o todos los de otra lista con append(lista, otra...).
+// relacionados: slice, len, cap, copy
+// palabras: agregar, añadir, anadir, insertar, final, lista, elemento, append
+// salida: [1 2 3 4 5] 5
+// salida: [hola]
+package main
+
+import "fmt"
+
+func main() {
+	var nums []int
+	nums = append(nums, 1)
+	nums = append(nums, 2, 3)
+	otros := []int{4, 5}
+	nums = append(nums, otros...)
+	fmt.Println(nums, len(nums))
+	var palabras []string
+	palabras = append(palabras, "hola")
+	fmt.Println(palabras)
+}
+
+// nota: len
+// titulo: len: la longitud
+// resumen: Devuelve cuántos elementos tiene una lista, un arreglo, un mapa o un canal. Con un texto cuenta bytes, no letras: «año» tiene 4 bytes; para contar letras usa utf8.RuneCountInString.
+// relacionados: cap, utf8.RuneCountInString, slice
+// palabras: longitud, largo, tamaño, cuantos, contar, elementos, len
+// salida: 4
+// salida: 4
+// salida: 3
+// salida: 2
+package main
+
+import "fmt"
+
+func main() {
+	fmt.Println(len("hola"))
+	fmt.Println(len("año"))
+	fmt.Println(len([]int{7, 8, 9}))
+	fmt.Println(len(map[string]int{"a": 1, "b": 2}))
+}
+
+// nota: cap
+// titulo: cap: la capacidad de una lista
+// resumen: Dice cuántos elementos caben en la memoria reservada de una lista antes de que append tenga que buscar un sitio más grande. Si sabes cuántos vas a añadir, reserva el sitio con make([]T, 0, n).
+// relacionados: len, make, append
+// palabras: capacidad, reservar, memoria, lista, cap
+// salida: 0 10
+// salida: 3 10
+package main
+
+import "fmt"
+
+func main() {
+	s := make([]int, 0, 10)
+	fmt.Println(len(s), cap(s))
+	s = append(s, 1, 2, 3)
+	fmt.Println(len(s), cap(s))
+}
+
+// nota: make
+// titulo: make: crear listas, mapas y canales
+// resumen: Crea una lista con una longitud (make([]int, 3) son tres ceros), un mapa vacío listo para usar, o un canal. Un mapa declarado con var vale nil y no se puede escribir en él: hay que crearlo con make.
+// relacionados: new, map, slice, canal
+// palabras: crear, inicializar, reservar, lista, mapa, canal, make
+// salida: [0 0 0]
+// salida: map[a:2]
+// salida: 0 2
+package main
+
+import "fmt"
+
+func main() {
+	s := make([]int, 3)
+	fmt.Println(s)
+	m := make(map[string]int)
+	m["a"]++
+	m["a"]++
+	fmt.Println(m)
+	c := make(chan int, 2)
+	fmt.Println(len(c), cap(c))
+}
+
+// nota: copy
+// titulo: copy: copiar elementos de una lista a otra
+// resumen: copy(destino, origen) copia tantos elementos como quepan en destino y devuelve cuántos copió. Sirve para tener una copia independiente: si cambias la copia, la original no cambia.
+// relacionados: append, slice
+// palabras: copiar, duplicar, lista, independiente, clonar, copy
+// salida: 2 [7 8]
+// salida: [1 2 3] [99 2 3]
+package main
+
+import "fmt"
+
+func main() {
+	destino := make([]int, 2)
+	n := copy(destino, []int{7, 8, 9})
+	fmt.Println(n, destino)
+	original := []int{1, 2, 3}
+	copia := make([]int, len(original))
+	copy(copia, original)
+	copia[0] = 99
+	fmt.Println(original, copia)
+}
+
+// nota: delete
+// titulo: delete: borrar una clave de un mapa
+// resumen: delete(m, clave) quita esa clave y su valor del mapa. Si la clave no estaba, no pasa nada (no es un error).
+// relacionados: map, make
+// palabras: borrar, eliminar, quitar, mapa, clave, delete
+// salida: map[b:2]
+// salida: 1
+package main
+
+import "fmt"
+
+func main() {
+	m := map[string]int{"a": 1, "b": 2}
+	delete(m, "a")
+	delete(m, "z")
+	fmt.Println(m)
+	fmt.Println(len(m))
+}
+
+// nota: new
+// titulo: new: reservar un valor y obtener su puntero
+// resumen: new(T) crea un valor de tipo T con su valor cero y devuelve un puntero a él. Con estructuras se suele escribir &T{...}, que hace lo mismo y además permite dar valores.
+// relacionados: puntero, make, struct
+// palabras: puntero, crear, reservar, nuevo, memoria, new
+// salida: 5
+// salida: {3 0}
+// salida: &{1 2}
+package main
+
+import "fmt"
+
+type Punto struct {
+	X, Y int
+}
+
+func main() {
+	p := new(int)
+	*p = 5
+	fmt.Println(*p)
+	q := new(Punto)
+	q.X = 3
+	fmt.Println(*q)
+	r := &Punto{X: 1, Y: 2}
+	fmt.Println(r)
+}
+
+// nota: panic
+// titulo: panic: parar el programa por un error grave
+// resumen: panic detiene la función en curso, ejecuta los defer pendientes y, si nadie lo recupera con recover, termina el programa con un mensaje. Úsalo solo para errores que no deberían pasar nunca; para errores normales devuelve un error.
+// relacionados: recover, panic/recover, error, defer
+// palabras: panico, parar, error, grave, abortar, fallo, panic
+// salida: edad correcta: 30
+// salida: el programa se paró por: edad imposible: -1
+package main
+
+import "fmt"
+
+func comprobarEdad(edad int) {
+	if edad < 0 {
+		panic(fmt.Sprintf("edad imposible: %d", edad))
+	}
+	fmt.Println("edad correcta:", edad)
+}
+
+func main() {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("el programa se paró por:", r)
+		}
+	}()
+	comprobarEdad(30)
+	comprobarEdad(-1)
+	fmt.Println("esto no se escribe")
+}
+
+// nota: recover
+// titulo: recover: recuperarse de un pánico
+// resumen: Dentro de una función diferida (defer), recover() detiene un pánico y devuelve su valor; si no había pánico, devuelve nil. Así una función puede convertir un pánico en un error normal.
+// relacionados: panic, defer, panic/recover
+// palabras: recuperar, panico, defer, error, capturar, recover
+// salida: todo bien
+// salida: <nil>
+// salida: recuperado: runtime error: index out of range [3] with length 0
+package main
+
+import "fmt"
+
+func seguro(f func()) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("recuperado: %v", r)
+		}
+	}()
+	f()
+	return nil
+}
+
+func main() {
+	fmt.Println(seguro(func() { fmt.Println("todo bien") }))
+	var xs []int
+	fmt.Println(seguro(func() { _ = xs[3] }))
+}
+
+// nota: min
+// titulo: min: el menor de varios valores (Go 1.21)
+// resumen: min(a, b, …) devuelve el menor de sus argumentos, que pueden ser números o textos del mismo tipo. Para el menor de una lista usa slices.Min.
+// relacionados: max, slices.Min, math.Min
+// palabras: minimo, menor, comparar, valores, min
+// salida: 1
+// salida: 1
+// salida: manzana
+package main
+
+import "fmt"
+
+func main() {
+	fmt.Println(min(3, 1, 2))
+	fmt.Println(min(2.5, 1))
+	fmt.Println(min("pera", "manzana"))
+}
+
+// nota: max
+// titulo: max: el mayor de varios valores (Go 1.21)
+// resumen: max(a, b, …) devuelve el mayor de sus argumentos, del mismo tipo. Va bien para ir guardando el mayor dentro de un bucle; para el mayor de una lista usa slices.Max.
+// relacionados: min, slices.Max, math.Max
+// palabras: maximo, mayor, comparar, valores, max
+// salida: 7
+// salida: 9
+package main
+
+import "fmt"
+
+func main() {
+	fmt.Println(max(3, 7, 5))
+	mayor := 0
+	for _, x := range []int{4, 9, 2} {
+		mayor = max(mayor, x)
+	}
+	fmt.Println(mayor)
+}

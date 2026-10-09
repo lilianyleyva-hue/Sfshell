@@ -41,9 +41,9 @@ type Receta struct {
 
 // Hueco is a slot of a program template.
 type Hueco struct {
-	Nombre     string   `json:"nombre"`     // "op"
-	Clase      string   `json:"clase"`      // "operacion" | "entero" | "texto" | "palabra" | "opcion"
-	Opciones   []string `json:"opciones"`   // for operacion: ["suma","resta","multiplicación","división"]
+	Nombre     string   `json:"nombre"`   // "op"
+	Clase      string   `json:"clase"`    // "operacion" | "entero" | "texto" | "palabra" | "opcion"
+	Opciones   []string `json:"opciones"` // for operacion: ["suma","resta","multiplicación","división"]
 	PorDefecto string   `json:"porDefecto"`
 	Pregunta   string   `json:"pregunta"` // "¿Qué operación hago con los dos números?"
 }
@@ -95,7 +95,9 @@ type contenido struct {
 	funciones  []Receta
 	plantillas []Plantilla
 	notas      []Nota
-	errores    []error // problems in the shipped data (tests require none)
+	errores    []error        // problems in the shipped data (tests require none)
+	alias      map[string]int // normalized alias ("closure", "heap.push") → index in notas
+	aliasNota  [][]string     // the aliases of each note, for the retrieval index
 
 	idxFunciones  *indice
 	idxPlantillas *indice
@@ -115,7 +117,7 @@ func cargado() *contenido {
 		c.notas = c.cargarNotas()
 		c.idxFunciones = indiceFunciones(c.funciones)
 		c.idxPlantillas = indicePlantillas(c.plantillas)
-		c.idxNotas = indiceNotas(c.notas)
+		c.idxNotas = indiceNotas(c.notas, c.aliasNota)
 		todo = c
 	})
 	return todo
@@ -486,6 +488,33 @@ func (c *contenido) cargarPlantillas() []Plantilla {
 func (c *contenido) cargarNotas() []Nota {
 	var out []Nota
 	claves := map[string]bool{}
+	c.alias = map[string]int{}
+	type aliasPendiente struct {
+		e     entrada
+		alias string
+		i     int
+	}
+	var alias []aliasPendiente
+	defer func() {
+		normales := map[string]int{}
+		for i, n := range out {
+			normales[nucleo.Normalizar(n.Clave)] = i
+		}
+		for _, a := range alias {
+			na := nucleo.Normalizar(a.alias)
+			if j, ok := normales[na]; ok {
+				if j != a.i {
+					c.fallo(a.e, "el alias %q de la nota %s es la clave de otra nota", a.alias, out[a.i].Clave)
+				}
+				continue
+			}
+			if j, ya := c.alias[na]; ya && j != a.i {
+				c.fallo(a.e, "el alias %q está en dos notas: %s y %s", a.alias, out[j].Clave, out[a.i].Clave)
+				continue
+			}
+			c.alias[na] = a.i
+		}
+	}()
 	for _, e := range c.leerDir("notas", "nota") {
 		n := Nota{
 			Clave:        e.uno("nota"),
@@ -508,6 +537,11 @@ func (c *contenido) cargarNotas() []Nota {
 			continue
 		}
 		claves[n.Clave] = true
+		as := e.lista("alias")
+		for _, a := range as {
+			alias = append(alias, aliasPendiente{e, a, len(out)})
+		}
+		c.aliasNota = append(c.aliasNota, as)
 		out = append(out, n)
 	}
 	return out

@@ -48,6 +48,9 @@ func (d *descriptor) expr(e *Expr) string {
 	if s, ok := d.especial(e); ok {
 		return s
 	}
+	if s, ok := d.letras(e); ok {
+		return s
+	}
 	return d.plantilla(e.Op.Frase, e)
 }
 
@@ -97,9 +100,7 @@ func (d *descriptor) conVars(l *Lambda, f func() string) string {
 	if len(nombres) != len(l.Params) {
 		nombres = nombresLambda(len(l.Params), nil)
 	}
-	base := varMinima(l.Cuerpo)
 	viejos := map[int]string{}
-	_ = base
 	for i := range l.Params {
 		slot := d.slotLambda(l, i)
 		viejos[slot] = d.nombres[slot]
@@ -259,6 +260,9 @@ func (d *descriptor) fuente(xs *Expr) (desc string, elem nucleo.Tipo) {
 	if xs.Op != nil && xs.Op.Nombre == "runas" && len(xs.Hijos) == 1 {
 		return d.expr(xs.Hijos[0]), tR
 	}
+	if xs.Op != nil && xs.Op.Nombre == "palabras" && len(xs.Hijos) == 1 {
+		return d.expr(xs.Hijos[0]), tS
+	}
 	if xs.Tipo.Elem != nil {
 		elem = *xs.Tipo.Elem
 	}
@@ -341,4 +345,26 @@ func fraseAprendida(nombre, descripcion string, f nucleo.Firma) string {
 		return nombre + "(" + strings.Join(partes, ", ") + ")"
 	}
 	return frase
+}
+
+// letras describes comparisons of a word length with a number: "p tiene más de 3 letras".
+func (d *descriptor) letras(e *Expr) (string, bool) {
+	if len(e.Hijos) != 2 || !e.Hijos[1].EsConst || e.Hijos[0].Op == nil || e.Hijos[0].Op.Nombre != "largoS" ||
+		len(e.Hijos[0].Hijos) != 1 {
+		return "", false
+	}
+	x, c := d.expr(e.Hijos[0].Hijos[0]), d.expr(e.Hijos[1])
+	switch e.Op.Nombre {
+	case ">":
+		return x + " tiene más de " + c + " letras", true
+	case "<":
+		return x + " tiene menos de " + c + " letras", true
+	case ">=":
+		return x + " tiene " + c + " letras o más", true
+	case "<=":
+		return x + " tiene " + c + " letras o menos", true
+	case "==":
+		return x + " tiene " + c + " letras", true
+	}
+	return "", false
 }

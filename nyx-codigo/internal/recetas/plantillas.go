@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"text/template"
+	"text/template/parse"
 	"unicode"
 	"unicode/utf8"
 
@@ -50,9 +51,67 @@ var funcionesPlantilla = template.FuncMap{
 	},
 }
 
-// plantillaGo parses the template text.
+// plantillaGo parses the template text and checks that every action that writes something into the
+// program goes through go_texto, go_entero or go_op, so that a slot value can never become code.
 func plantillaGo(p Plantilla) (*template.Template, error) {
-	return template.New(p.Nombre).Funcs(funcionesPlantilla).Option("missingkey=error").Parse(p.Fuente)
+	t, err := template.New(p.Nombre).Funcs(funcionesPlantilla).Option("missingkey=error").Parse(p.Fuente)
+	if err != nil {
+		return nil, err
+	}
+	if t.Tree != nil {
+		if err := accionesSeguras(t.Tree.Root); err != nil {
+			return nil, err
+		}
+	}
+	return t, nil
+}
+
+// accionesSeguras walks the template tree: an action that prints must end in a call to a go_ helper.
+func accionesSeguras(n parse.Node) error {
+	switch x := n.(type) {
+	case *parse.ListNode:
+		if x == nil {
+			return nil
+		}
+		for _, h := range x.Nodes {
+			if err := accionesSeguras(h); err != nil {
+				return err
+			}
+		}
+	case *parse.ActionNode:
+		if len(x.Pipe.Decl) > 0 {
+			return nil // {{$v := …}} prints nothing
+		}
+		cmds := x.Pipe.Cmds
+		if len(cmds) > 0 && len(cmds[len(cmds)-1].Args) > 0 {
+			if id, ok := cmds[len(cmds)-1].Args[0].(*parse.IdentifierNode); ok {
+				switch id.Ident {
+				case "go_texto", "go_entero", "go_op":
+					return nil
+				}
+			}
+		}
+		return fmt.Errorf("la acción %s escribe en el código sin pasar por go_texto, go_entero o go_op", x.String())
+	case *parse.IfNode:
+		return seguroRama(&x.BranchNode)
+	case *parse.RangeNode:
+		return seguroRama(&x.BranchNode)
+	case *parse.WithNode:
+		return seguroRama(&x.BranchNode)
+	case *parse.TemplateNode:
+		return fmt.Errorf("las plantillas no pueden incluir otras plantillas (%s)", x.String())
+	}
+	return nil
+}
+
+func seguroRama(b *parse.BranchNode) error {
+	if err := accionesSeguras(b.List); err != nil {
+		return err
+	}
+	if b.ElseList != nil {
+		return accionesSeguras(b.ElseList)
+	}
+	return nil
 }
 
 // validarHueco checks a value against the slot's class and returns the canonical value.

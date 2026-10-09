@@ -900,43 +900,49 @@ func textoMotivo(m string) string {
 	return m
 }
 
-// buscar runs the bottom-up levels with conditionals until the stopping rule.
+// buscar runs the bottom-up levels with conditionals until the stopping rule. A decision tree found by
+// Unificar waits until the levels reach its cost (a cheaper plain program wins), but at most one more second,
+// and it is kept when the time runs out.
 func (s *sesion) buscar() string {
 	mo := s.mo
 	un := &unificador{mo: mo}
 	var pendiente *arbolCond
 	si := s.reg.buscarTipos("si", tB, s.firma.Res[0], s.firma.Res[0])
+	aceptar := func() {
+		if pendiente != nil {
+			s.agregarSol(un.expr(pendiente, si), pendiente.costo, un.vector(pendiente))
+			pendiente = nil
+		}
+	}
 	for c := mo.nivelHecho + 1; c <= s.op.MaxCosto; c++ {
 		if len(s.sols) > 0 && c > s.tope {
+			aceptar()
 			return "encontrado"
 		}
 		if len(s.sols) >= s.op.MaxSoluciones {
 			return "encontrado"
 		}
 		mo.correr(c)
-		if pendiente == nil && len(s.sols) == 0 && si != nil {
-			if a := un.intentar(); a != nil {
+		if len(s.sols) == 0 && si != nil {
+			if a := un.intentar(); a != nil && (pendiente == nil || a.costo < pendiente.costo) {
 				pendiente = a
-			}
-		} else if pendiente != nil && len(s.sols) == 0 && si != nil {
-			if a := un.intentar(); a != nil && a.costo < pendiente.costo {
-				pendiente = a
+				if mo.tPrimera.IsZero() {
+					mo.tPrimera = time.Now()
+				}
 			}
 		}
 		if pendiente != nil && pendiente.costo <= c {
-			s.agregarSol(un.expr(pendiente, si), pendiente.costo, un.vector(pendiente))
-			pendiente = nil
+			aceptar()
 		}
 		if mo.parar {
+			aceptar()
 			if len(s.sols) > 0 {
 				return "encontrado"
 			}
 			return mo.motivo
 		}
 	}
-	if pendiente != nil {
-		s.agregarSol(un.expr(pendiente, si), pendiente.costo, un.vector(pendiente))
-	}
+	aceptar()
 	if len(s.sols) > 0 {
 		return "encontrado"
 	}

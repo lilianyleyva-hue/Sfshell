@@ -106,9 +106,14 @@ func nuevoIndice(docs [][]string) *indice {
 	}
 	for _, tf := range tfs {
 		v := map[string]float64{}
+		ts := make([]string, 0, len(tf))
+		for t := range tf {
+			ts = append(ts, t)
+		}
+		sort.Strings(ts)
 		norma := 0.0
-		for t, k := range tf {
-			w := (1 + math.Log(float64(k))) * ix.idf[t]
+		for _, t := range ts {
+			w := (1 + math.Log(float64(tf[t]))) * ix.idf[t]
 			v[t] = w
 			norma += w * w
 		}
@@ -125,14 +130,19 @@ func nuevoIndice(docs [][]string) *indice {
 func (ix *indice) puntuar(consulta []string) []float64 {
 	out := make([]float64, len(ix.docs))
 	q := map[string]float64{}
+	var ts []string // sorted, so that the sums (and ties) are the same on every call
 	for _, t := range terminos(consulta) {
 		if idf, ok := ix.idf[t]; ok {
+			if _, ya := q[t]; !ya {
+				ts = append(ts, t)
+			}
 			q[t] = idf
 		}
 	}
+	sort.Strings(ts)
 	norma := 0.0
-	for _, w := range q {
-		norma += w * w
+	for _, t := range ts {
+		norma += q[t] * q[t]
 	}
 	if norma == 0 {
 		return out
@@ -140,8 +150,8 @@ func (ix *indice) puntuar(consulta []string) []float64 {
 	norma = math.Sqrt(norma)
 	for i, d := range ix.docs {
 		s := 0.0
-		for t, w := range q {
-			s += w * d[t]
+		for _, t := range ts {
+			s += q[t] * d[t]
 		}
 		out[i] = s / norma
 	}
@@ -164,10 +174,13 @@ func indicePlantillas(ps []Plantilla) *indice {
 	return nuevoIndice(docs)
 }
 
-func indiceNotas(ns []Nota) *indice {
+func indiceNotas(ns []Nota, alias [][]string) *indice {
 	docs := make([][]string, len(ns))
 	for i, n := range ns {
 		docs[i] = append(append([]string(nil), n.Palabras...), n.Clave)
+		if i < len(alias) {
+			docs[i] = append(docs[i], alias[i]...)
+		}
 	}
 	return nuevoIndice(docs)
 }
@@ -220,30 +233,16 @@ func BuscarPlantillas(lemas []string, k int) []PuntuadaPlantilla {
 	return out
 }
 
-// BuscarNotas returns up to k notes: an exact Clave match for simbolo first ("strings.Split", "defer";
-// case-insensitive, accents ignored), then the best TF-IDF matches for lemas and the symbol's words.
+// BuscarNotas returns up to k notes (k ≤ 0: no limit): the note for simbolo first, when there is one
+// ("strings.Split", "defer"; also "math/rand.Intn", "Defer", "closure", "heap.Push" through the notes'
+// aliases), then the best TF-IDF matches for lemas and the symbol's words.
 func BuscarNotas(lemas []string, simbolo string, k int) []Nota {
 	c := cargado()
 	var out []Nota
 	usado := map[int]bool{}
-	if s := strings.TrimSpace(simbolo); s != "" {
-		for i, n := range c.notas {
-			if n.Clave == s {
-				out = append(out, n)
-				usado[i] = true
-				break
-			}
-		}
-		if len(out) == 0 {
-			ns := nucleo.Normalizar(s)
-			for i, n := range c.notas {
-				if nucleo.Normalizar(n.Clave) == ns {
-					out = append(out, n)
-					usado[i] = true
-					break
-				}
-			}
-		}
+	if i := c.notaExacta(simbolo); i >= 0 {
+		out = append(out, c.notas[i])
+		usado[i] = true
 	}
 	consulta := append([]string(nil), lemas...)
 	if simbolo != "" {
@@ -263,4 +262,45 @@ func BuscarNotas(lemas []string, simbolo string, k int) []Nota {
 		out[i].Palabras = append([]string(nil), out[i].Palabras...)
 	}
 	return out
+}
+
+// notaExacta finds the note for a symbol or concept: exact Clave, then the part after the last "/"
+// ("math/rand.Intn" → "rand.Intn"), then the same ignoring case and accents, then the aliases, then the
+// singular of a plain word ("goroutines"). It returns -1 when there is none.
+func (c *contenido) notaExacta(simbolo string) int {
+	s := strings.TrimSuffix(strings.TrimSpace(simbolo), "()")
+	if s == "" {
+		return -1
+	}
+	cands := []string{s}
+	if i := strings.LastIndex(s, "/"); i >= 0 && i+1 < len(s) && strings.Contains(s[i+1:], ".") {
+		cands = append(cands, s[i+1:])
+	}
+	for _, x := range cands {
+		for i, n := range c.notas {
+			if n.Clave == x {
+				return i
+			}
+		}
+	}
+	for _, x := range cands {
+		nx := nucleo.Normalizar(x)
+		for i, n := range c.notas {
+			if nucleo.Normalizar(n.Clave) == nx {
+				return i
+			}
+		}
+		if i, ok := c.alias[nx]; ok {
+			return i
+		}
+	}
+	if !strings.ContainsAny(s, " ./") {
+		rs := raiz(s)
+		for i, n := range c.notas {
+			if !strings.ContainsAny(n.Clave, " ./") && raiz(n.Clave) == rs {
+				return i
+			}
+		}
+	}
+	return -1
 }

@@ -1,0 +1,299 @@
+// nota: bufio.Scanner
+// alias: bufio.NewScanner, Scanner
+// titulo: bufio.Scanner: leer línea a línea
+// resumen: Lee un texto poco a poco: cada llamada a Scan avanza una línea y Text devuelve esa línea sin el salto. Para leer del teclado usa bufio.NewScanner(os.Stdin); con Split(bufio.ScanWords) lee palabra a palabra.
+// relacionados: bufio.NewReader, os.Stdin, os.Open
+// palabras: leer, linea, lineas, entrada, teclado, archivo, recorrer, scanner
+// salida: 1: primera línea
+// salida: 2: segunda línea
+// salida: 3: tercera
+// salida: Palabras: 4
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"strings"
+)
+
+func main() {
+	texto := "primera línea\nsegunda línea\ntercera"
+	lector := bufio.NewScanner(strings.NewReader(texto))
+	n := 0
+	for lector.Scan() {
+		n++
+		fmt.Printf("%d: %s\n", n, lector.Text())
+	}
+	if err := lector.Err(); err != nil {
+		fmt.Println("error:", err)
+	}
+	palabras := bufio.NewScanner(strings.NewReader("uno dos\ntres cuatro"))
+	palabras.Split(bufio.ScanWords)
+	cuantas := 0
+	for palabras.Scan() {
+		cuantas++
+	}
+	fmt.Println("Palabras:", cuantas)
+}
+
+// nota: bufio.NewReader
+// alias: bufio.Reader, ReadString
+// titulo: bufio.NewReader: leer lo que escribe el usuario
+// resumen: Crea un lector con memoria intermedia. ReadString('\n') lee hasta el salto de línea, que queda incluido: quítalo con strings.TrimSpace. Para leer del teclado usa bufio.NewReader(os.Stdin).
+// relacionados: bufio.Scanner, os.Stdin, fmt.Scan
+// palabras: leer, linea, teclado, entrada, pedir, usuario, reader
+// salida: Nombre: "Ana"
+// salida: Edad: 42
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"strconv"
+	"strings"
+)
+
+func main() {
+	// Con el teclado sería bufio.NewReader(os.Stdin); aquí leo de un texto de ejemplo.
+	lector := bufio.NewReader(strings.NewReader("Ana\n42\n"))
+	nombre, _ := lector.ReadString('\n')
+	linea, _ := lector.ReadString('\n')
+	edad, err := strconv.Atoi(strings.TrimSpace(linea))
+	if err != nil {
+		fmt.Println("la edad no es un número")
+		return
+	}
+	fmt.Printf("Nombre: %q\n", strings.TrimSpace(nombre))
+	fmt.Println("Edad:", edad)
+}
+
+// nota: os.Args
+// titulo: os.Args: los argumentos del programa
+// resumen: Es una lista con lo que se escribió al lanzar el programa: os.Args[0] es el nombre del programa y lo demás son los argumentos. Para opciones como -n 5 es más cómodo el paquete flag.
+// relacionados: os.Stdin, strconv.Atoi
+// palabras: argumentos, linea, comandos, parametros, programa, opciones, args
+// salida: Argumentos recibidos: 0
+// salida: Prueba: go run . uno dos
+package main
+
+import (
+	"fmt"
+	"os"
+)
+
+func main() {
+	fmt.Println("Argumentos recibidos:", len(os.Args)-1)
+	for i, a := range os.Args[1:] {
+		fmt.Printf("%d: %s\n", i+1, a)
+	}
+	if len(os.Args) < 2 {
+		fmt.Println("Prueba: go run . uno dos")
+	}
+}
+
+// nota: os.Stdin
+// titulo: os.Stdin: la entrada estándar
+// resumen: Es lo que el usuario escribe con el teclado, o lo que llega por una tubería (echo hola | programa). Se suele leer con bufio.Scanner, bufio.NewReader o fmt.Scan; al acabarse los datos, la lectura se detiene.
+// relacionados: bufio.Scanner, bufio.NewReader, fmt.Scan, io.ReadAll
+// palabras: entrada, teclado, leer, stdin, usuario, tuberia
+// salida: Líneas leídas: 0
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+)
+
+func main() {
+	lector := bufio.NewScanner(os.Stdin)
+	lineas := 0
+	for lector.Scan() {
+		lineas++
+	}
+	fmt.Println("Líneas leídas:", lineas)
+}
+
+// nota: os.ReadFile
+// titulo: os.ReadFile: leer un archivo entero
+// resumen: Lee todo el contenido de un archivo y lo devuelve como []byte; conviértelo con string(...). Si el archivo no existe devuelve un error, y errors.Is(err, os.ErrNotExist) lo confirma.
+// relacionados: os.WriteFile, os.Open, bufio.Scanner
+// palabras: leer, archivo, fichero, contenido, cargar, abrir, entero
+// salida: hola
+// salida: adiós
+// salida: true
+package main
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+)
+
+func main() {
+	dir, err := os.MkdirTemp("", "nota")
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	defer os.RemoveAll(dir)
+	ruta := filepath.Join(dir, "saludo.txt")
+	if err := os.WriteFile(ruta, []byte("hola\nadiós\n"), 0o644); err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	datos, err := os.ReadFile(ruta)
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	fmt.Print(string(datos))
+	_, err = os.ReadFile(filepath.Join(dir, "no-existe.txt"))
+	fmt.Println(errors.Is(err, os.ErrNotExist))
+}
+
+// nota: os.WriteFile
+// titulo: os.WriteFile: escribir un archivo entero
+// resumen: Crea el archivo (o lo vacía si ya existía) y escribe en él unos bytes. El número 0o644 son los permisos: tú puedes leer y escribir, los demás solo leer.
+// relacionados: os.ReadFile, os.Create
+// palabras: escribir, guardar, archivo, fichero, crear, salvar
+// salida: Escribí 15 bytes
+// salida: primera línea
+package main
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+func main() {
+	dir, err := os.MkdirTemp("", "nota")
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	defer os.RemoveAll(dir)
+	ruta := filepath.Join(dir, "notas.txt")
+	texto := "primera línea\n"
+	if err := os.WriteFile(ruta, []byte(texto), 0o644); err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	fmt.Println("Escribí", len(texto), "bytes")
+	datos, _ := os.ReadFile(ruta)
+	fmt.Println(strings.TrimSpace(string(datos)))
+}
+
+// nota: os.Open
+// titulo: os.Open: abrir un archivo para leerlo
+// resumen: Abre un archivo solo para leer y devuelve un *os.File y un error. Escribe defer f.Close() justo después de comprobar el error, y lee con bufio.Scanner si es largo.
+// relacionados: os.Create, os.ReadFile, bufio.Scanner, defer
+// palabras: abrir, archivo, fichero, leer, linea, cerrar, open
+// salida: 1 manzana
+// salida: 2 pera
+// salida: open: true
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"path/filepath"
+)
+
+func main() {
+	dir, err := os.MkdirTemp("", "nota")
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	defer os.RemoveAll(dir)
+	ruta := filepath.Join(dir, "frutas.txt")
+	os.WriteFile(ruta, []byte("manzana\npera\n"), 0o644)
+
+	f, err := os.Open(ruta)
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	defer f.Close()
+	lector := bufio.NewScanner(f)
+	n := 0
+	for lector.Scan() {
+		n++
+		fmt.Println(n, lector.Text())
+	}
+	_, err = os.Open(filepath.Join(dir, "no-existe.txt"))
+	fmt.Println("open:", err != nil)
+}
+
+// nota: os.Create
+// titulo: os.Create: crear un archivo para escribir
+// resumen: Crea un archivo (si existía, lo deja vacío) y lo abre para escribir. Escribe en él con fmt.Fprintln o f.WriteString y ciérralo con Close; comprueba el error de Close, porque ahí puede fallar la escritura.
+// relacionados: os.Open, os.WriteFile, fmt.Println
+// palabras: crear, archivo, fichero, escribir, guardar, nuevo, cerrar
+// salida: tabla del 2
+// salida: 2 x 1 = 2
+// salida: 2 x 2 = 4
+package main
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+)
+
+func main() {
+	dir, err := os.MkdirTemp("", "nota")
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	defer os.RemoveAll(dir)
+	ruta := filepath.Join(dir, "tabla.txt")
+	f, err := os.Create(ruta)
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	fmt.Fprintln(f, "tabla del 2")
+	for i := 1; i <= 2; i++ {
+		fmt.Fprintf(f, "2 x %d = %d\n", i, 2*i)
+	}
+	if err := f.Close(); err != nil {
+		fmt.Println("error al cerrar:", err)
+		return
+	}
+	datos, _ := os.ReadFile(ruta)
+	fmt.Print(string(datos))
+}
+
+// nota: io.ReadAll
+// titulo: io.ReadAll: leer todo de una vez
+// resumen: Lee de cualquier lector (un archivo, os.Stdin, la respuesta de una web…) hasta el final y devuelve todos los bytes juntos. Es cómodo para datos pequeños; para textos enormes es mejor leer por líneas.
+// relacionados: os.ReadFile, bufio.Scanner, http.Get
+// palabras: leer, todo, entero, contenido, bytes, lector, reader
+// salida: 26
+// salida: todo el contenido
+// salida: de golpe
+package main
+
+import (
+	"fmt"
+	"io"
+	"strings"
+)
+
+func main() {
+	r := strings.NewReader("todo el contenido\nde golpe")
+	datos, err := io.ReadAll(r)
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	fmt.Println(len(datos))
+	fmt.Println(string(datos))
+}

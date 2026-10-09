@@ -1,0 +1,349 @@
+// nota: regexp.MustCompile
+// alias: regexp, regexp.Compile
+// titulo: regexp.MustCompile: preparar una expresión regular
+// resumen: Convierte un patrón (como \d+ para «una o más cifras») en un *regexp.Regexp que puedes usar muchas veces. Si el patrón está mal escrito provoca un pánico; regexp.Compile, en cambio, devuelve un error. Escribe el patrón entre comillas invertidas para no tener que duplicar las barras.
+// relacionados: regexp.MatchString, regexp.FindAllString
+// palabras: expresion, regular, patron, buscar, reemplazar, regex
+// salida: 3
+// salida: a#b#c#
+// salida: true
+package main
+
+import (
+	"fmt"
+	"regexp"
+)
+
+func main() {
+	cifras := regexp.MustCompile(`\d+`)
+	fmt.Println(cifras.FindString("tengo 3 gatos y 12 peces"))
+	fmt.Println(cifras.ReplaceAllString("a1b22c333", "#"))
+	fmt.Println(cifras.MatchString("año 2024"))
+}
+
+// nota: regexp.MatchString
+// titulo: regexp.MatchString: ¿encaja el texto con el patrón?
+// resumen: Dice si un texto contiene algo que encaja con el patrón; con ^ y $ obligas a que encaje el texto entero. Devuelve también un error si el patrón está mal escrito.
+// relacionados: regexp.MustCompile, strings.Contains
+// palabras: comprobar, validar, patron, encajar, correo, formato, expresion, regular
+// salida: true <nil>
+// salida: false
+// salida: true
+package main
+
+import (
+	"fmt"
+	"regexp"
+)
+
+func main() {
+	ok, err := regexp.MatchString(`^[a-z]+@[a-z]+\.[a-z]{2,}$`, "ana@correo.es")
+	fmt.Println(ok, err)
+	ok, _ = regexp.MatchString(`^\d{5}$`, "2800")
+	fmt.Println(ok)
+	ok, _ = regexp.MatchString(`^\d{5}$`, "28001")
+	fmt.Println(ok)
+}
+
+// nota: regexp.FindAllString
+// alias: FindAllString, Regexp.FindAllString
+// titulo: FindAllString: todos los trozos que encajan
+// resumen: re.FindAllString(texto, n) devuelve una lista con los trozos del texto que encajan con el patrón; n = -1 significa «todos». Si no encuentra ninguno devuelve nil, que tiene longitud 0.
+// relacionados: regexp.MustCompile, strings.Fields
+// palabras: buscar, todos, extraer, numeros, patron, expresion, regular, encontrar
+// salida: [3 12 7]
+// salida: [3 12]
+// salida: 0
+package main
+
+import (
+	"fmt"
+	"regexp"
+)
+
+func main() {
+	cifras := regexp.MustCompile(`\d+`)
+	texto := "3 gatos, 12 peces y 7 pájaros"
+	fmt.Println(cifras.FindAllString(texto, -1))
+	fmt.Println(cifras.FindAllString(texto, 2))
+	fmt.Println(len(cifras.FindAllString("sin números", -1)))
+}
+
+// nota: json.Marshal
+// alias: encoding/json, json, json.MarshalIndent
+// titulo: json.Marshal: convertir datos a JSON
+// resumen: Convierte un valor (estructura, mapa, lista…) en texto JSON, como []byte. Solo se guardan los campos que empiezan por mayúscula, y las etiquetas `json:"nombre"` eligen el nombre en el JSON. json.MarshalIndent lo escribe con sangría, más fácil de leer.
+// relacionados: json.Unmarshal, struct
+// palabras: json, convertir, guardar, exportar, serializar, texto, estructura
+// salida: {"nombre":"Ana","edad":30,"gustos":["leer","nadar"]}
+// salida: {
+// salida:   "a": 1,
+// salida:   "b": 2
+// salida: }
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+)
+
+type Persona struct {
+	Nombre string   `json:"nombre"`
+	Edad   int      `json:"edad"`
+	Gustos []string `json:"gustos,omitempty"`
+}
+
+func main() {
+	p := Persona{Nombre: "Ana", Edad: 30, Gustos: []string{"leer", "nadar"}}
+	datos, err := json.Marshal(p)
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	fmt.Println(string(datos))
+	bonito, _ := json.MarshalIndent(map[string]int{"b": 2, "a": 1}, "", "  ")
+	fmt.Println(string(bonito))
+}
+
+// nota: json.Unmarshal
+// titulo: json.Unmarshal: leer datos en JSON
+// resumen: Lee un texto JSON y rellena la variable cuya dirección le pasas (&p). Los campos del JSON se emparejan con los de la estructura por su etiqueta o por su nombre; si no sabes la forma, usa un map[string]any. Si el JSON no encaja, devuelve un error.
+// relacionados: json.Marshal, struct, map
+// palabras: json, leer, convertir, cargar, importar, deserializar, estructura
+// salida: Luis 17 [7.5 9]
+// salida: 1 [true a]
+// salida: true
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+)
+
+type Alumno struct {
+	Nombre string    `json:"nombre"`
+	Edad   int       `json:"edad"`
+	Notas  []float64 `json:"notas"`
+}
+
+func main() {
+	texto := `{"nombre":"Luis","edad":17,"notas":[7.5,9]}`
+	var a Alumno
+	if err := json.Unmarshal([]byte(texto), &a); err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	fmt.Println(a.Nombre, a.Edad, a.Notas)
+	var cualquiera map[string]any
+	json.Unmarshal([]byte(`{"x": 1, "y": [true, "a"]}`), &cualquiera)
+	fmt.Println(cualquiera["x"], cualquiera["y"])
+	err := json.Unmarshal([]byte(`{"edad": "mucha"}`), &a)
+	fmt.Println(err != nil)
+}
+
+// nota: bytes.Buffer
+// alias: Buffer
+// titulo: bytes.Buffer: ir juntando bytes
+// resumen: Es un trozo de memoria que crece mientras escribes en él con WriteString, WriteByte o fmt.Fprintf. Al final, String() te da todo el texto junto; para construir solo texto, strings.Builder es parecido y algo más ligero.
+// relacionados: strings.Builder, fmt.Sprintf
+// palabras: buffer, juntar, construir, texto, bytes, escribir, concatenar
+// salida: Hola, Ana tiene 30 años
+// salida: 24
+package main
+
+import (
+	"bytes"
+	"fmt"
+)
+
+func main() {
+	var b bytes.Buffer
+	b.WriteString("Hola")
+	b.WriteByte(',')
+	fmt.Fprintf(&b, " %s tiene %d años", "Ana", 30)
+	fmt.Println(b.String())
+	fmt.Println(b.Len())
+}
+
+// nota: container/heap
+// alias: heap, heap.Push, heap.Pop, heap.Init
+// titulo: container/heap: un montículo (cola de prioridad)
+// resumen: Mantiene una lista de forma que el menor elemento está siempre el primero, y sacarlo o meter uno nuevo es rápido (O(log n)). Tu tipo tiene que tener los métodos Len, Less, Swap, Push y Pop, y luego usas heap.Init, heap.Push y heap.Pop.
+// relacionados: sort.Slice, método, interfaz
+// palabras: monticulo, heap, prioridad, cola, menor, ordenar, extraer
+// salida: el menor: 1
+// salida: [1 2 5 8]
+package main
+
+import (
+	"container/heap"
+	"fmt"
+)
+
+// MonticuloMin es un montículo de enteros: el menor queda arriba.
+type MonticuloMin []int
+
+func (h MonticuloMin) Len() int           { return len(h) }
+func (h MonticuloMin) Less(i, j int) bool { return h[i] < h[j] }
+func (h MonticuloMin) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+
+func (h *MonticuloMin) Push(x any) { *h = append(*h, x.(int)) }
+
+func (h *MonticuloMin) Pop() any {
+	viejo := *h
+	n := len(viejo)
+	x := viejo[n-1]
+	*h = viejo[:n-1]
+	return x
+}
+
+func main() {
+	h := &MonticuloMin{5, 2, 8}
+	heap.Init(h)
+	heap.Push(h, 1)
+	fmt.Println("el menor:", (*h)[0])
+	var orden []int
+	for h.Len() > 0 {
+		orden = append(orden, heap.Pop(h).(int))
+	}
+	fmt.Println(orden)
+}
+
+// nota: sync.WaitGroup
+// alias: WaitGroup
+// titulo: sync.WaitGroup: esperar a varias goroutines
+// resumen: Cuenta goroutines pendientes: Add(1) antes de lanzar cada una, Done() cuando termina (normalmente con defer) y Wait() espera a que lleguen a cero. Si cada goroutine escribe en su propia posición de una lista, no se pisan.
+// relacionados: goroutine, sync.Mutex, canal
+// palabras: esperar, goroutine, concurrencia, paralelo, terminar, grupo
+// salida: [0 1 4 9 16]
+package main
+
+import (
+	"fmt"
+	"sync"
+)
+
+func main() {
+	var wg sync.WaitGroup
+	cuadrados := make([]int, 5)
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			cuadrados[i] = i * i
+		}()
+	}
+	wg.Wait()
+	fmt.Println(cuadrados)
+}
+
+// nota: sync.Mutex
+// alias: Mutex
+// titulo: sync.Mutex: un cerrojo para datos compartidos
+// resumen: Cuando varias goroutines cambian la misma variable, protégela con un cerrojo: Lock() antes de tocarla y Unlock() después (o defer Unlock()). Así solo una goroutine la cambia a la vez y no se pierden cambios.
+// relacionados: sync.WaitGroup, goroutine, canal
+// palabras: cerrojo, bloquear, compartido, concurrencia, goroutine, carrera, mutex
+// salida: 100
+package main
+
+import (
+	"fmt"
+	"sync"
+)
+
+type Contador struct {
+	mu sync.Mutex
+	n  int
+}
+
+func (c *Contador) Sumar() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.n++
+}
+
+func main() {
+	var c Contador
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c.Sumar()
+		}()
+	}
+	wg.Wait()
+	fmt.Println(c.n)
+}
+
+// nota: http.Get
+// alias: net/http, http, net/http.Get
+// titulo: http.Get: pedir una página web
+// resumen: Hace una petición GET a una dirección y devuelve la respuesta: resp.StatusCode (200 si fue bien) y resp.Body, que se lee con io.ReadAll y se cierra siempre con defer resp.Body.Close(). En este ejemplo el servidor es local (httptest) para no depender de internet.
+// relacionados: http.ListenAndServe, io.ReadAll, defer
+// palabras: web, pagina, internet, descargar, peticion, url, http, get
+// salida: 200
+// salida: hola desde el servidor
+package main
+
+import (
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+)
+
+func main() {
+	servidor := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "hola desde el servidor")
+	}))
+	defer servidor.Close()
+
+	resp, err := http.Get(servidor.URL)
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	defer resp.Body.Close()
+	cuerpo, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println("error:", err)
+		return
+	}
+	fmt.Println(resp.StatusCode)
+	fmt.Println(string(cuerpo))
+}
+
+// nota: http.ListenAndServe
+// alias: net/http.ListenAndServe, servidor web, http.HandleFunc
+// titulo: http.ListenAndServe: hacer un servidor web
+// resumen: Pone un servidor web a escuchar en una dirección (como ":8080") y atiende cada petición con tus manejadores; no termina nunca salvo que haya un error. Los manejadores se pueden probar sin abrir ningún puerto con httptest.NewRecorder.
+// relacionados: http.Get, función anónima/closure
+// palabras: servidor, web, escuchar, puerto, pagina, manejador, http
+// salida: 200 ¡Hola, Ana!
+// salida: falló: true
+package main
+
+import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+)
+
+func main() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/hola", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "¡Hola, %s!", r.URL.Query().Get("nombre"))
+	})
+
+	// Pruebo el manejador sin abrir ningún puerto:
+	req := httptest.NewRequest("GET", "/hola?nombre=Ana", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	fmt.Println(rec.Code, rec.Body.String())
+
+	// Normalmente: log.Fatal(http.ListenAndServe(":8080", mux)), que se queda escuchando.
+	// Con una dirección imposible vuelve enseguida con un error:
+	err := http.ListenAndServe("127.0.0.1:-1", mux)
+	fmt.Println("falló:", err != nil)
+}

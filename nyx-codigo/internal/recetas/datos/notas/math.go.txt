@@ -1,0 +1,232 @@
+// nota: math.Sqrt
+// titulo: math.Sqrt: raíz cuadrada
+// resumen: Devuelve la raíz cuadrada de un número float64. Con un número negativo devuelve NaN («no es un número»), no un error. Si tienes un int, conviértelo antes: math.Sqrt(float64(n)).
+// relacionados: math.Pow, math.Abs
+// palabras: raiz, cuadrada, sqrt, numero, decimal, calcular
+// salida: 4
+// salida: 1.4142135623730951
+// salida: NaN
+// salida: 3
+package main
+
+import (
+	"fmt"
+	"math"
+)
+
+func main() {
+	fmt.Println(math.Sqrt(16))
+	fmt.Println(math.Sqrt(2))
+	fmt.Println(math.Sqrt(-1))
+	n := 9
+	fmt.Println(math.Sqrt(float64(n)))
+}
+
+// nota: math.Pow
+// titulo: math.Pow: potencias
+// resumen: math.Pow(x, y) calcula x elevado a y, con números float64. También sirve para raíces (exponente 0.5) y exponentes negativos. Para potencias enteras pequeñas de un int, un bucle que multiplica es exacto.
+// relacionados: math.Sqrt
+// palabras: potencia, elevar, exponente, cuadrado, cubo, pow
+// salida: 1024
+// salida: 3
+// salida: 0.5
+// salida: 81
+package main
+
+import (
+	"fmt"
+	"math"
+)
+
+func main() {
+	fmt.Println(math.Pow(2, 10))
+	fmt.Println(math.Pow(9, 0.5))
+	fmt.Println(math.Pow(2, -1))
+	// con enteros, multiplicando:
+	resultado := 1
+	for i := 0; i < 4; i++ {
+		resultado *= 3
+	}
+	fmt.Println(resultado)
+}
+
+// nota: math.Abs
+// titulo: math.Abs: valor absoluto
+// resumen: Devuelve el número sin signo (el valor absoluto) de un float64. Para un int no hay función en la biblioteca: se hace con un if.
+// relacionados: math.Max, math.Min
+// palabras: absoluto, signo, positivo, negativo, distancia, abs
+// salida: 3.5
+// salida: 2
+// salida: 7
+package main
+
+import (
+	"fmt"
+	"math"
+)
+
+func main() {
+	fmt.Println(math.Abs(-3.5))
+	fmt.Println(math.Abs(2))
+	n := -7
+	if n < 0 {
+		n = -n
+	}
+	fmt.Println(n)
+}
+
+// nota: math.Max
+// titulo: math.Max: el mayor de dos decimales
+// resumen: Devuelve el mayor de dos números float64. Desde Go 1.21 existe además max, que funciona con cualquier tipo de número y con más de dos valores.
+// relacionados: math.Min, max, slices.Max
+// palabras: maximo, mayor, comparar, dos, numero, max
+// salida: 7.5
+// salida: 9
+package main
+
+import (
+	"fmt"
+	"math"
+)
+
+func main() {
+	fmt.Println(math.Max(3, 7.5))
+	fmt.Println(max(3, 9, 4))
+}
+
+// nota: math.Min
+// titulo: math.Min: el menor de dos decimales
+// resumen: Devuelve el menor de dos números float64. Para enteros, o para más de dos valores, usa min (Go 1.21).
+// relacionados: math.Max, min, slices.Min
+// palabras: minimo, menor, comparar, dos, numero, min
+// salida: -2
+// salida: 1
+package main
+
+import (
+	"fmt"
+	"math"
+)
+
+func main() {
+	fmt.Println(math.Min(-2, 5))
+	fmt.Println(min(4, 1, 8))
+}
+
+// nota: math.Floor
+// titulo: math.Floor: redondear hacia abajo
+// resumen: Devuelve el mayor número entero que no pasa del valor: quita los decimales hacia abajo. Con negativos baja: math.Floor(-2.3) es -3.
+// relacionados: math.Ceil, math.Round
+// palabras: redondear, abajo, suelo, entero, decimal, truncar, floor
+// salida: 2
+// salida: -3
+// salida: 2
+package main
+
+import (
+	"fmt"
+	"math"
+)
+
+func main() {
+	fmt.Println(math.Floor(2.7))
+	fmt.Println(math.Floor(-2.3))
+	x := 2.99
+	fmt.Println(int(math.Floor(x)))
+}
+
+// nota: math.Ceil
+// titulo: math.Ceil: redondear hacia arriba
+// resumen: Devuelve el menor número entero que no es menor que el valor: sube al siguiente entero si hay decimales. Sirve, por ejemplo, para saber cuántas cajas hacen falta.
+// relacionados: math.Floor, math.Round
+// palabras: redondear, arriba, techo, entero, decimal, ceil
+// salida: 3
+// salida: -2
+// salida: Hacen falta 4 cajas
+package main
+
+import (
+	"fmt"
+	"math"
+)
+
+func main() {
+	fmt.Println(math.Ceil(2.1))
+	fmt.Println(math.Ceil(-2.7))
+	libros, porCaja := 22, 6
+	cajas := int(math.Ceil(float64(libros) / float64(porCaja)))
+	fmt.Printf("Hacen falta %d cajas\n", cajas)
+}
+
+// nota: math.Round
+// titulo: math.Round: redondear al entero más cercano
+// resumen: Redondea al entero más cercano; los empates (.5) se alejan del cero. Para redondear a dos decimales, multiplica por 100, redondea y divide entre 100.
+// relacionados: math.Floor, math.Ceil, fmt.Printf
+// palabras: redondear, cercano, entero, decimal, decimales, round
+// salida: 3
+// salida: -3
+// salida: 3.14
+package main
+
+import (
+	"fmt"
+	"math"
+)
+
+func main() {
+	fmt.Println(math.Round(2.5))
+	fmt.Println(math.Round(-2.5))
+	fmt.Println(math.Round(3.14159*100) / 100)
+}
+
+// nota: math.MaxInt
+// titulo: math.MaxInt: el int más grande
+// resumen: Es una constante con el mayor valor que cabe en un int (en ordenadores de 64 bits, unos 9,2 trillones). Si sumas uno más, el número da la vuelta y se hace negativo, sin avisar. Hay también math.MinInt, math.MaxInt32 y otros.
+// relacionados: math.Inf, tipos
+// palabras: maximo, entero, limite, grande, desbordamiento, int, maxint
+// salida: 9223372036854775807
+// salida: -9223372036854775808
+// salida: 2147483647
+// salida: true
+package main
+
+import (
+	"fmt"
+	"math"
+)
+
+func main() {
+	fmt.Println(math.MaxInt)
+	fmt.Println(math.MinInt)
+	fmt.Println(math.MaxInt32)
+	x := math.MaxInt
+	x++
+	fmt.Println(x < 0)
+}
+
+// nota: math.Inf
+// titulo: math.Inf: infinito
+// resumen: math.Inf(1) es +∞ y math.Inf(-1) es −∞, como float64. Es útil como valor inicial al buscar un mínimo o un máximo. math.IsInf dice si un número es infinito.
+// relacionados: math.MaxInt, math.Min
+// palabras: infinito, minimo, maximo, inicial, decimal, inf
+// salida: +Inf -Inf
+// salida: 1.5
+// salida: true
+package main
+
+import (
+	"fmt"
+	"math"
+)
+
+func main() {
+	fmt.Println(math.Inf(1), math.Inf(-1))
+	menor := math.Inf(1)
+	for _, x := range []float64{3, 1.5, 7} {
+		if x < menor {
+			menor = x
+		}
+	}
+	fmt.Println(menor)
+	fmt.Println(math.IsInf(math.Inf(-1), -1))
+}

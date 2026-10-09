@@ -1176,6 +1176,12 @@ func (n *narrador) asignacion(x *ast.AssignStmt) string {
 		if call, ok := quitarParen(x.Rhs[0]).(*ast.CallExpr); ok && esIdent(x.Lhs[1], "err") {
 			return "llama a " + l.m(codigo(call.Fun)) + " y guarda el resultado en " + l.sujeto(x.Lhs[0]) + " y el posible error en `err`"
 		}
+		if esIdent(x.Lhs[1], "_") && !esIdent(x.Lhs[0], "_") {
+			if x.Tok == token.DEFINE {
+				return "crea " + l.sujeto(x.Lhs[0]) + " con " + l.es(x.Rhs[0]) + " (el segundo resultado se descarta)"
+			}
+			return l.sujeto(x.Lhs[0]) + " pasa a valer " + l.es(x.Rhs[0]) + " (el segundo resultado se descarta)"
+		}
 	}
 	if len(x.Lhs) != 1 || len(x.Rhs) != 1 {
 		var izq, der []string

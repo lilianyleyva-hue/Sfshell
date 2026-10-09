@@ -151,8 +151,8 @@ func partirTrozos(src string) []trozo {
 	}
 	off := func(p token.Pos) int { return fset.Position(p).Offset }
 	var out []trozo
-	inicio := 0     // byte offset of the current statement run
-	prof := 0       // bracket depth
+	inicio := 0 // byte offset of the current statement run
+	prof := 0   // bracket depth
 	inicioLinea := true
 	for i := 0; i < len(toks); i++ {
 		t := toks[i]

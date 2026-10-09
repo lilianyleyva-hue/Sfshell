@@ -104,7 +104,6 @@ type motor struct {
 	maxBanco  int
 	maxTam    int
 	usarConc  bool
-	llenoMax  int // stop after this many entries of the target type (0 = no limit)
 	nivelHecho int
 
 	explorados int

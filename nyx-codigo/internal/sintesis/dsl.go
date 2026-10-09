@@ -46,10 +46,7 @@ type Primitiva struct {
 	adjetivo    string // plural adjective for predicates used in filters: "pares"
 	sustantivo  string // plural noun for rune/string predicates: "vocales"
 	femenino    bool   // gender of sustantivo
-	deps        []string
 	firma       *nucleo.Firma // learned components and inventions
-	invento     bool
-	orden       int
 }
 
 // LambdaTipo is the type of a lambda argument.
@@ -166,7 +163,6 @@ type Registro struct {
 	todas     []*Primitiva
 	porNombre map[string][]*Primitiva
 	porRes    map[string][]*Primitiva
-	sig       int
 }
 
 func nuevoRegistro() *Registro {
@@ -199,7 +195,6 @@ func (r *Registro) clonar() *Registro {
 	for k, v := range r.porRes {
 		c.porRes[k] = append([]*Primitiva(nil), v...)
 	}
-	c.sig = r.sig
 	return c
 }
 
@@ -233,14 +228,11 @@ func (r *Registro) Agregar(p *Primitiva) {
 	clave := clavePrim(p)
 	for i, q := range r.todas {
 		if clavePrim(q) == clave {
-			p.orden = q.orden
 			r.todas[i] = p
 			r.reemplazar(q, p)
 			return
 		}
 	}
-	r.sig++
-	p.orden = r.sig
 	r.todas = append(r.todas, p)
 	r.porNombre[p.Nombre] = append(r.porNombre[p.Nombre], p)
 	k := p.Res.ClaveTipo()
@@ -482,30 +474,6 @@ func usaVar(e *Expr, i int) int {
 	return n
 }
 
-// varMinima returns the smallest variable index used in e (or a big number).
-func varMinima(e *Expr) int {
-	m := 1 << 30
-	var rec func(x *Expr)
-	rec = func(x *Expr) {
-		if x == nil {
-			return
-		}
-		if x.esVar() && x.Var < m {
-			m = x.Var
-		}
-		for _, h := range x.Hijos {
-			rec(h)
-		}
-		for _, l := range x.Lambdas {
-			if l != nil {
-				rec(l.Cuerpo)
-			}
-		}
-	}
-	rec(e)
-	return m
-}
-
 func tieneHuecos(e *Expr) bool {
 	if e == nil {
 		return false
@@ -697,22 +665,15 @@ func compilar(e *Expr, base int) evaluador {
 	for i, h := range e.Hijos {
 		hijos[i] = compilar(h, base)
 	}
-	type lam struct {
-		cuerpo  evaluador
-		cerrada bool
-		nparams int
-	}
-	lams := make([]lam, len(e.Lambdas))
+	// a lambda body sees the enclosing environment followed by its own parameters
+	lams := make([]evaluador, len(e.Lambdas))
 	for i, l := range e.Lambdas {
 		if l == nil {
 			return func([]nucleo.Valor) (nucleo.Valor, error) {
 				return nil, errors.New("sintesis: falta una función")
 			}
 		}
-		lams[i].nparams = len(l.Params)
-		// closed lambdas (that use only their own parameters) are compiled to read args directly
-		lams[i].cuerpo = compilar(l.Cuerpo, base)
-		lams[i].cerrada = false
+		lams[i] = compilar(l.Cuerpo, base)
 	}
 	if p.perezosa && p.Nombre == "si" && len(hijos) == 3 {
 		return func(env []nucleo.Valor) (nucleo.Valor, error) {
@@ -753,7 +714,7 @@ func compilar(e *Expr, base int) evaluador {
 		if len(lams) > 0 {
 			fs = make([]Funcion, len(lams))
 			for i := range lams {
-				cuerpo := lams[i].cuerpo
+				cuerpo := lams[i]
 				fs[i] = func(a []nucleo.Valor) (nucleo.Valor, error) {
 					nenv := make([]nucleo.Valor, len(env)+len(a))
 					copy(nenv, env)
