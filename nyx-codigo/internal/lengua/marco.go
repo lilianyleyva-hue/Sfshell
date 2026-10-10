@@ -248,7 +248,7 @@ func (v *vista) leeTras(i int) []string {
 			cuenta = 1
 			continue
 		}
-		if v.es(k, "el|la|los|las|su|sus|al|a|usuario|usuaria|de|del|varios|varias|algunos|algunas") {
+		if v.es(k, "el|la|los|las|su|sus|tu|tus|mi|mis|al|a|usuario|usuaria|de|del|varios|varias|algunos|algunas") {
 			continue
 		}
 		var tipo string

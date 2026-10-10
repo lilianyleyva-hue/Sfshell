@@ -177,7 +177,7 @@ func Fusionar(anterior *nucleo.Pregunta, nueva *nucleo.Pregunta) *nucleo.Pregunt
 				}
 			}
 			// an action that only came from the modifiers ("ahora con impares" → filtrar) does not replace
-			if n.Accion != "" && !(n.Accion == "filtrar" && len(n.Mods) > 0 && !nueva.tieneVerbo()) {
+			if n.Accion != "" && !(n.Accion == "filtrar" && len(n.Mods) > 0 && !tieneVerbo(nueva)) {
 				sustituye(&m.Accion, n.Accion)
 			}
 			if n.Entrada != "" {

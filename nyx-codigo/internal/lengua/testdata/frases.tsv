@@ -1,0 +1,135 @@
+# texto	intención	firma (Forma)	marco (k=v;…)	ejemplos (pares | prog:N)
+haz una función que sume los números pares de una lista	crear_funcion	([]int)int	accion=sumar;mods=par;nombre=SumaPares	0
+[1,2,3,4] -> 6; [5,7] -> 0; [] -> 0	crear_funcion	([]int)int	-	3
+[1,2,3] -> 6	crear_funcion	([]int)int	-	1
+cuenta las vocales: casa -> 2, árbol -> 2	crear_funcion	(string)int	accion=contar;elemento=vocal;nombre=CuentaVocales	2
+invierte una cadena: hola -> aloh	crear_funcion	(string)string	accion=invertir	1
+función que diga si una palabra es palíndromo	crear_funcion	(string)bool	accion=palindromo;salida=booleano	0
+devuelve el máximo de una lista de números	crear_funcion	([]int)int	accion=maximo	0
+de "go es genial" sale "Go Es Genial"	crear_funcion	(string)string	-	1
+devuelve la palabra más larga de una frase	crear_funcion	(string)string	accion=mas_largo;plural=false;nombre=PalabraMasLarga	0
+la palabra más larga	-	(string)string	accion=mas_largo;plural=false	0
+las palabras más largas	-	(string)[]string	accion=mas_largo;plural=true	0
+devuelve las palabras más largas de una frase	crear_funcion	(string)[]string	accion=mas_largo;plural=true;nombre=PalabrasMasLargas	0
+devuelve las palabras con más de 3 letras	crear_funcion	([]string)[]string	accion=filtrar;mods=longitud_mayor	0
+primos hasta n: 10 -> [2,3,5,7]	crear_funcion	(int)[]int	accion=primos	1
+factorial: 5 -> 120, 0 -> 1	crear_funcion	(int)int	accion=factorial	2
+cuántas veces aparece cada palabra en un texto	crear_funcion	(string)map[string]int	accion=frecuencia	0
+haz un programa que pida dos números y los sume	crear_programa	(int,int)int	programa=true;lee=numero,numero;accion=sumar	0
+haz el FizzBuzz hasta 15	crear_programa	-	-	0
+programa con la tabla de multiplicar del 7	crear_programa	-	programa=true	0
+haz un programa que lea una lista de números y diga la suma de los pares	crear_programa	([]int)int	programa=true;lee=lista_numeros;accion=sumar;mods=par	0
+haz un programa que pida tu nombre y te salude	crear_programa	-	programa=true;lee=texto	0
+una calculadora	crear_programa	-	-	0
+adivina el número	crear_programa	-	-	0
+si escribo 5 debe salir 25	crear_programa	-	-	prog:1
+haz un programa que pida un número y muestre su doble	crear_programa	(int)int	programa=true;lee=numero	0
+haz una función que cuente las palabras de un texto	crear_funcion	(string)int	accion=contar;elemento=palabra;nombre=CuentaPalabras	0
+función que ordene una lista de números de mayor a menor	crear_funcion	([]int)[]int	accion=ordenar_desc	0
+función que ordene una lista de números	crear_funcion	([]int)[]int	accion=ordenar	0
+haz una función que devuelva los números mayores que 5 de una lista	crear_funcion	([]int)[]int	accion=filtrar;mods=mayor_que	0
+función que devuelva los números menores que 10 de una lista	crear_funcion	([]int)[]int	accion=filtrar;mods=menor_que	0
+función que quite los repetidos de una lista	crear_funcion	([]int)[]int	accion=sin_repetir	0
+función que calcule el promedio de una lista de decimales	crear_funcion	([]float64)float64	accion=promedio	0
+quiero una función que convierta un texto a mayúsculas	crear_funcion	(string)string	accion=mayusculas	0
+una función que diga si un número es primo	crear_funcion	(int)bool	accion=comprobar;mods=primo;nombre=EsPrimo	0
+haz una función que devuelva el factorial de un número	crear_funcion	(int)int	accion=factorial	0
+función que sume los dígitos de un número	crear_funcion	(int)int	-	0
+dame una función que devuelva el menor de una lista	crear_funcion	([]int)int	accion=minimo	0
+haz una función que devuelva el mcd de dos números	crear_funcion	(int,int)int	accion=mcd	0
+función que devuelva los primos menores que n	crear_funcion	(int)[]int	accion=primos	0
+función que filtre las palabras que empiecen por "s"	crear_funcion	([]string)[]string	accion=filtrar;mods=empieza_con	0
+haz una función que invierta una lista	crear_funcion	([]int)[]int	accion=invertir	0
+escribe una función que devuelva la palabra más corta de una frase	crear_funcion	(string)string	accion=mas_corto;nombre=PalabraMasCorta	0
+función que cuente las consonantes de una palabra	crear_funcion	(string)int	accion=contar;elemento=consonante	0
+haz una función que devuelva los números impares de una lista	crear_funcion	([]int)[]int	accion=filtrar;mods=impar	0
+función que multiplique todos los números de una lista	crear_funcion	([]int)int	accion=multiplicar	0
+función que cuente los números negativos de una lista	crear_funcion	([]int)int	accion=contar;mods=negativo	0
+función que sume los números positivos de una lista	crear_funcion	([]int)int	accion=sumar;mods=positivo;nombre=SumaPositivos	0
+función que diga si una lista está ordenada	crear_funcion	([]int)bool	-	0
+función que devuelva la longitud de una cadena	crear_funcion	(string)int	accion=longitud	0
+función que cuente los números divisibles por 3 de una lista	crear_funcion	([]int)int	accion=contar;mods=divisible_por	0
+haz una función que reciba una lista de palabras y las ordene	crear_funcion	([]string)[]string	accion=ordenar	0
+función que devuelva el promedio de una lista de números	crear_funcion	([]int)float64	accion=promedio	0
+función que cuente cuántas veces aparece cada letra en un texto	crear_funcion	(string)map[rune]int	accion=frecuencia	0
+función que ponga en mayúscula la primera letra de cada palabra	crear_funcion	(string)string	accion=titulo	0
+función que quite los espacios de un texto	crear_funcion	(string)string	accion=quitar_espacios	0
+función que devuelva el número mayor de una lista	crear_funcion	([]int)int	accion=maximo	0
+"hola" -> 4, "casa" -> 4	crear_funcion	(string)int	-	2
+f(3) = 9, f(4) = 16	crear_funcion	(int)int	-	2
+para 5 da 25, para 3 da 9	crear_funcion	(int)int	-	2
+[3,1,2] => [1,2,3]	crear_funcion	([]int)[]int	-	1
+[1,2] → 3; [4] → 4	crear_funcion	([]int)int	-	2
+(3, [1,2]) -> 5; (0, []) -> 0	crear_funcion	(int,[]int)int	-	2
+función que diga si una palabra es capicúa: ana -> true, sol -> false	crear_funcion	(string)bool	-	2
+resuelve 2x+3=11	ecuacion	-	-	0
+x^2-5x+6=0	ecuacion	-	-	0
+x+y=10, x-y=2	ecuacion	-	-	0
+resuelve x^2=2	ecuacion	-	-	0
+2x-1 > 5	ecuacion	-	-	0
+resuelve 3(x+1) = 12	ecuacion	-	-	0
+x/2 + 1 = 4	ecuacion	-	-	0
+2x + 3y = 12, x - y = 1	ecuacion	-	-	0
+despeja x en 5x - 2 = 13	ecuacion	-	-	0
+cuánto es 3/4+1/6	calculo	-	-	0
+cuánto es 2^10	calculo	-	-	0
+100!	calculo	-	-	0
+raíz cuadrada de 50	calculo	-	-	0
+cuánto es 2+3*4	calculo	-	-	0
+calcula 15 por 4	calculo	-	-	0
+(2+3)*4	calculo	-	-	0
+cuánto es 7 entre 2	calculo	-	-	0
+factoriza 600851475143	numeros	-	-	0
+¿es primo 97?	numeros	-	-	0
+¿es primo 2^61-1?	numeros	-	-	0
+mcd de 48 y 18	numeros	-	-	0
+¿cuál es el mcm de 4 y 6?	numeros	-	-	0
+el 15% de 240	numeros	-	-	0
+divisores de 36	numeros	-	-	0
+¿qué porcentaje es 30 de 120?	numeros	-	-	0
+el doble de un número más 3 es 11	problema	-	-	0
+María tiene 12 caramelos y regala 5. ¿Cuántos le quedan?	problema	-	-	0
+un tren va a 80 km/h durante 2 horas y media, ¿qué distancia recorre?	problema	-	-	0
+Ana tiene el triple de la edad de Luis y entre los dos suman 48	problema	-	-	0
+el triple de un número menos 4 es 20	problema	-	-	0
+Pedro tiene 20 euros y gasta 8. ¿Cuánto le queda?	problema	-	-	0
+si llueve el suelo se moja; llueve. ¿se moja?	logica	-	-	0
+si llueve el suelo se moja; el suelo se moja. ¿llueve?	logica	-	-	0
+¿es «p o no p» siempre verdad?	logica	-	-	0
+¿es válido: si p entonces q; q; luego p?	logica	-	-	0
+un caballero dice: "yo soy un bribón"	logica	-	-	0
+todos los A son B, algunos B son C, ¿algunos A son C?	silogismo	-	-	0
+todos los hombres son mortales; Sócrates es un hombre; ¿Sócrates es mortal?	silogismo	-	-	0
+ningún pez es mamífero; todos los delfines son mamíferos; ¿algún delfín es pez?	silogismo	-	-	0
+recuerda que Toby es un perro	recordar	-	-	0
+recuerda que capicúa significa palíndromo	recordar	-	-	0
+¿Toby es mamífero?	preguntar_hecho	-	-	0
+¿cuántas soluciones tiene el problema de las 8 reinas?	puzle	-	-	0
+SEND+MORE=MONEY	puzle	-	-	0
+coloca 8 reinas en un tablero	puzle	-	-	0
+jarras de 3 y 5 litros, ¿cómo saco 4?	plan	-	-	0
+el lobo, la cabra y la col	plan	-	-	0
+torres de Hanói con 3 discos	plan	-	-	0
+¿de cuántas formas elijo 3 de 10?	conteo	-	-	0
+¿cuántos anagramas tiene CASA?	conteo	-	-	0
+probabilidad de sacar 2 caras al lanzar 3 monedas	conteo	-	-	0
+¿cuántos números del 1 al 1000 son divisibles por 3 o por 5?	conteo	-	-	0
+¿de cuántas formas se sientan 5 personas en una mesa redonda?	conteo	-	-	0
+2, 5, 10, 17, ¿siguiente?	secuencia	-	-	0
+1, 1, 2, 3, 5, 8, ¿qué número sigue?	secuencia	-	-	0
+¿qué hace strings.Fields?	doc_go	-	-	0
+¿para qué sirve defer?	doc_go	-	-	0
+¿qué es una goroutine?	doc_go	-	-	0
+¿cómo uso strings.Split?	doc_go	-	-	0
+busca cómo invertir un mapa en Go	buscar	-	-	0
+¿qué funciones sabes?	memoria	-	-	0
+olvida SumaPares	memoria	-	-	0
+¿qué sabes hacer?	charla	-	-	0
+hola	charla	-	-	0
+¿eres una IA?	charla	-	-	0
+estudia	estudiar	-	-	0
+func Suma(xs []int) int {\n\tt := 0\n\tfor i := 0; i <= len(xs); i++ {\n\t\tt += xs[i]\n\t}\n\treturn t\n}\nno funciona	reparar	-	-	0
+explícame este código:\nfunc f(xs []int) int {\n\ts := 0\n\tfor _, x := range xs {\n\t\ts += x\n\t}\n\treturn s\n}	explicar	-	-	0
+hazle pruebas a esta función:\nfunc Doble(n int) int {\n\treturn n * 2\n}	probar	-	-	0
+ejecuta esto con entrada 5:\npackage main\nimport "fmt"\nfunc main() {\n\tfmt.Println(5)\n}	ejecutar	-	-	0
+```go\nfunc Max(xs []int) int {\n\tm := 0\n\tfor _, x := range xs {\n\t\tif x < m {\n\t\t\tm = x\n\t\t}\n\t}\n\treturn m\n}\n```\ndebería dar el máximo pero con [3,1,2] da 1	reparar	-	-	0

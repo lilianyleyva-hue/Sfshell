@@ -18,21 +18,49 @@ var reBloque = regexp.MustCompile("(?s)```[a-zA-Z]*[ \t]*\n?(.*?)```")
 // takes the largest run of lines in which at least half look like Go (func, package, :=, braces,
 // for, if, return, fmt.…) and that has a clear Go line. Without code, resto == s.
 func ExtraerCodigo(s string) (codigo, resto string) {
+	codigo, rangos := extraerCodigo(s)
+	if len(rangos) == 0 {
+		return "", s
+	}
+	return codigo, strings.TrimSpace(quitarRangos(s, rangos, false))
+}
+
+// quitarRangos removes the byte ranges from s; with blanco, they are replaced by spaces of the same
+// length instead (newlines kept), so offsets into s stay valid.
+func quitarRangos(s string, rangos [][2]int, blanco bool) string {
+	var sb strings.Builder
+	ult := 0
+	for _, r := range rangos {
+		sb.WriteString(s[ult:r[0]])
+		if blanco {
+			for i := r[0]; i < r[1]; i++ {
+				if s[i] == '\n' {
+					sb.WriteByte('\n')
+				} else {
+					sb.WriteByte(' ')
+				}
+			}
+		}
+		ult = r[1]
+	}
+	sb.WriteString(s[ult:])
+	return sb.String()
+}
+
+// extraerCodigo returns the code found in s and the byte ranges of s it occupies (sorted, disjoint).
+func extraerCodigo(s string) (string, [][2]int) {
 	if ms := reBloque.FindAllStringSubmatchIndex(s, -1); len(ms) > 0 {
 		var partes []string
-		var sb strings.Builder
-		ult := 0
+		var rangos [][2]int
 		for _, m := range ms {
-			sb.WriteString(s[ult:m[0]])
-			ult = m[1]
+			rangos = append(rangos, [2]int{m[0], m[1]})
 			partes = append(partes, strings.Trim(s[m[2]:m[3]], "\n"))
 		}
-		sb.WriteString(s[ult:])
-		return strings.Join(partes, "\n\n"), strings.TrimSpace(sb.String())
+		return strings.Join(partes, "\n\n"), rangos
 	}
 	lineas := strings.Split(s, "\n")
 	if len(lineas) > 2000 {
-		return "", s
+		return "", nil
 	}
 	tipo := make([]int, len(lineas)) // 0 blank, 1 text, 2 Go, 3 clear Go
 	for i, l := range lineas {
@@ -60,11 +88,20 @@ func ExtraerCodigo(s string) (codigo, resto string) {
 		}
 	}
 	if mejorI < 0 {
-		return "", s
+		return "", nil
 	}
-	codigo = strings.Join(lineas[mejorI:mejorJ+1], "\n")
-	resto = strings.TrimSpace(strings.Join(append(append([]string{}, lineas[:mejorI]...), lineas[mejorJ+1:]...), "\n"))
-	return codigo, resto
+	ini := 0
+	for _, l := range lineas[:mejorI] {
+		ini += len(l) + 1
+	}
+	fin := ini
+	for _, l := range lineas[mejorI : mejorJ+1] {
+		fin += len(l) + 1
+	}
+	if fin > len(s) {
+		fin = len(s)
+	}
+	return strings.Join(lineas[mejorI:mejorJ+1], "\n"), [][2]int{{ini, fin}}
 }
 
 var (

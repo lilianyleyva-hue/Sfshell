@@ -13,6 +13,7 @@ import (
 type senales struct {
 	p        *nucleo.Pregunta
 	n        string // normalized text without code
+	calc     string // normalized like n, but "!" (factorial) kept
 	crudo    string // text as written, without code
 	codigo   bool
 	ejemplos bool
@@ -89,13 +90,14 @@ var senalesTabla = []senal{
 	{nucleo.IEjecutar, 2.5, "veo código y me pides ejecutarlo", func(s *senales) bool { return s.codigo && s.re(reEjecutar) }},
 	{nucleo.IOptimizar, 2.2, "veo código y me pides que sea más rápido", func(s *senales) bool { return s.codigo && s.re(reOptimizar) }},
 	// creating
-	{nucleo.ICrearFuncion, 2.5, "me pides una función", func(s *senales) bool { return s.re(reFuncion) && !s.re(reProgramaQ) }},
+	{nucleo.ICrearFuncion, 2.5, "me pides una función", func(s *senales) bool { return !s.codigo && s.re(reFuncion) && !s.re(reProgramaQ) }},
 	{nucleo.ICrearFuncion, 2.2, "me das ejemplos de entrada y salida", func(s *senales) bool { return s.ejemplos && !s.codigo }},
 	{nucleo.ICrearFuncion, 0.5, "me pides que cree algo", func(s *senales) bool { return s.re(rePedirCrear) && strings.Contains(s.n, "funcion") }},
 	{nucleo.ICrearFuncion, 1.5, "me pides usar una función que conozco", func(s *senales) bool { return reUsaFuncion.MatchString(s.crudo) }},
 	{nucleo.ICrearFuncion, 1.2, "describes una tarea de programación", func(s *senales) bool {
 		return !s.codigo && s.marco != nil && s.marco.Accion != "" && s.marco.Entrada != "" && !s.marco.Programa &&
-			!s.re(reVariable) && !s.re(reNumeros) && !s.re(rePreguntaN)
+			!s.re(reVariable) && !s.re(reNumeros) && !(s.re(rePreguntaN) && s.numeros > 0) && !s.re(reUnNumero) &&
+			!esCalculo(s.calc) && !s.re(reConteo)
 	}},
 	{nucleo.ICrearPrograma, 2.5, "me pides un programa", func(s *senales) bool { return s.re(reProgramaQ) }},
 	{nucleo.ICrearPrograma, 1.5, "el programa debe pedir o mostrar datos", func(s *senales) bool { return !s.codigo && s.re(reLeePide) }},
@@ -109,7 +111,7 @@ var senalesTabla = []senal{
 		return !s.codigo && s.re(reDesigual) && s.re(reVariable) && !strings.Contains(s.n, "->") && !strings.Contains(s.n, "=>")
 	}},
 	{nucleo.ICalculo, 2.5, "veo una operación con números", func(s *senales) bool {
-		return !s.codigo && esCalculo(s.n)
+		return !s.codigo && esCalculo(s.calc)
 	}},
 	{nucleo.ICalculo, 1.0, "me pides un cálculo", func(s *senales) bool { return !s.codigo && s.re(reCalculoPal) && s.numeros > 0 }},
 	{nucleo.INumeros, 2.5, "me preguntas por primos, divisores o porcentajes", func(s *senales) bool {
@@ -118,7 +120,9 @@ var senalesTabla = []senal{
 	{nucleo.IProblema, 1.6, "es un problema con números y una pregunta", func(s *senales) bool {
 		return !s.codigo && s.numeros > 0 && s.re(rePreguntaN) && s.palabras >= 6 && !s.re(reConteo) && !s.re(reFuncion)
 	}},
-	{nucleo.IProblema, 2.0, "habla de «un número» que cumple algo", func(s *senales) bool { return !s.codigo && s.re(reUnNumero) }},
+	{nucleo.IProblema, 2.0, "habla de «un número» que cumple algo", func(s *senales) bool {
+		return !s.codigo && s.re(reUnNumero) && !s.re(reFuncion) && !s.re(reProgramaQ)
+	}},
 	// logic
 	{nucleo.ILogica, 2.0, "veo un «si…» y una pregunta", func(s *senales) bool {
 		return !s.codigo && s.re(reSiLogica) && s.pregunta && !s.ejemplos && !s.re(reFuncion)
@@ -190,6 +194,7 @@ func nuevasSenales(p *nucleo.Pregunta) *senales {
 		s.numeros = len(Numeros(resto))
 	}
 	s.palabras = len(strings.Fields(n))
+	s.calc = strings.ReplaceAll(nucleo.Normalizar(strings.ReplaceAll(resto, "!", "‼")), "‼", "!")
 	return s
 }
 
