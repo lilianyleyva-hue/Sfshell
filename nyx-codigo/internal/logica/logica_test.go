@@ -643,6 +643,17 @@ func TestRecordarSignifica(t *testing.T) {
 	if !r2.Exito || len(b.H) != 1 {
 		t.Fatalf("no se guardó: %+v", r2)
 	}
+	if m := mejor(rs, "todos los gatos son felinos"); m != "logica.hechos" {
+		t.Fatalf("una regla sin pregunta se recuerda: %q", m)
+	}
+	resolver(t, rs, "logica.hechos", "todos los gatos son felinos")
+	if len(b.R) != 1 {
+		t.Fatalf("reglas = %+v", b.R)
+	}
+	r4 := resolver(t, rs, "logica.hechos", "recuerda que Nala es una gata. ¿Nala es felina?")
+	if !strings.HasPrefix(r4.Texto, "Sí") || r4.Aprendido == "" || len(b.H) != 2 {
+		t.Fatalf("recordar y preguntar: %+v (hechos %d)", r4, len(b.H))
+	}
 	r3 := resolver(t, rs, "logica.hechos", "¿Toby es un gato?")
 	if r3.Exito || !strings.HasPrefix(r3.Texto, "No lo sé") {
 		t.Fatalf("sin datos: %+v", r3)

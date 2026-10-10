@@ -651,6 +651,17 @@ func (rh *resHechos) Reconoce(p *nucleo.Pregunta) nucleo.Reconocimiento {
 	}
 	if r.pregunta && len(r.frases) >= 2 && !r.palabras["si"] && !r.simbolos {
 		rec.Puntos = 0.45
+		return rec
+	}
+	// statements with no question ("Toby es un perro", "todos los perros son mamíferos") are
+	// remembered, as in recordar mode
+	if !r.pregunta && !r.conclusion && rh.g != nil && len(r.frases) > 0 && len(r.frases) <= 6 && !r.palabras["si"] && !r.simbolos {
+		for _, f := range r.frases {
+			if _, _, err := LeerHecho(fraseTexto(p.Texto, f.toks), rh.lem); err != nil {
+				return rec
+			}
+		}
+		rec.Intencion, rec.Lectura, rec.Puntos = nucleo.IRecordar, "recordar un hecho o una regla", 0.6
 	}
 	return rec
 }
@@ -666,8 +677,6 @@ func (rh *resHechos) Resolver(ctx context.Context, p *nucleo.Pregunta, n *nucleo
 	var pregunta *frase
 	var hechos []nucleo.Hecho
 	var reglas []nucleo.Regla
-	recordar := false
-	_, recordar = QuitarRecordar(p.Texto)
 	paso := n.Sub(nucleo.PasoEntender, "Leo los hechos y las reglas")
 	for i := range fs {
 		f := fs[i]
@@ -690,13 +699,20 @@ func (rh *resHechos) Resolver(ctx context.Context, p *nucleo.Pregunta, n *nucleo
 		}
 	}
 	if pregunta == nil {
-		if !recordar && !strings.Contains(nucleo.Normalizar(p.Texto), "significa") {
-			paso.Mal("No hay nada que recordar ni preguntar")
-			return nucleo.Respuesta{}, fmt.Errorf("logica: no hay pregunta: %w", nucleo.ErrNoEntiendo)
-		}
+		// recordar mode, or statements with no question: remember them
 		return rh.guardar(hechos, reglas, paso)
 	}
 	paso.Bien("Entendido")
+	aprendido := ""
+	if _, recordar := QuitarRecordar(p.Texto); recordar && rh.g != nil && len(hechos)+len(reglas) > 0 {
+		// "recuerda que …. ¿…?": keep what was said, then answer
+		g, err := rh.guardar(hechos, reglas, n.Sub(nucleo.PasoMemoria, "Guardo lo que me dices"))
+		if err != nil {
+			return nucleo.Respuesta{}, err
+		}
+		aprendido = g.Aprendido
+		hechos, reglas = nil, nil
+	}
 	q, r, err := LeerHecho(fraseTexto(p.Texto, pregunta.toks), rh.lem)
 	if err != nil || q == nil {
 		if err == nil && r != nil {
@@ -729,6 +745,7 @@ func (rh *resHechos) Resolver(ctx context.Context, p *nucleo.Pregunta, n *nucleo
 		out.Parrafos = []string{"Lo sé porque: " + strings.Join(cadena, "; ") + "."}
 		out.Justificacion = cadena
 		out.Entendi = "Así lo entendí: ¿" + DescribirHecho(*q) + "?"
+		out.Aprendido = aprendido
 		return out, nil
 	}
 	consulta.Info("No llego a ninguna conclusión")
