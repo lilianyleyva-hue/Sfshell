@@ -2,6 +2,7 @@ package logica
 
 import (
 	"context"
+	"errors"
 	"math/rand"
 	"strings"
 	"testing"
@@ -580,5 +581,70 @@ func TestReconoceRapido(t *testing.T) {
 	}
 	if rec := rs[0].Reconoce(&nucleo.Pregunta{Texto: "haz una función que sume"}); rec.Puntos > 0.2 {
 		t.Fatalf("no es lógica: %v", rec.Puntos)
+	}
+}
+
+func palomar(n, h int) ([][]int, int) {
+	x := func(i, j int) int { return i*h + j + 1 }
+	var cnf [][]int
+	for i := 0; i < n; i++ {
+		var c []int
+		for j := 0; j < h; j++ {
+			c = append(c, x(i, j))
+		}
+		cnf = append(cnf, c)
+	}
+	for j := 0; j < h; j++ {
+		for a := 0; a < n; a++ {
+			for b := a + 1; b < n; b++ {
+				cnf = append(cnf, []int{-x(a, j), -x(b, j)})
+			}
+		}
+	}
+	return cnf, n * h
+}
+
+func TestDPLLLimites(t *testing.T) {
+	cnf, n := palomar(11, 10)
+	if _, _, err := DPLL(context.Background(), cnf, n, 50); !errors.Is(err, nucleo.ErrSinTiempo) {
+		t.Fatalf("con 50 decisiones debe rendirse: %v", err)
+	}
+	ctx, cancelar := context.WithCancel(context.Background())
+	cancelar()
+	ini := time.Now()
+	if _, _, err := DPLL(ctx, cnf, n, 0); !errors.Is(err, nucleo.ErrSinTiempo) {
+		t.Fatalf("con el contexto cancelado debe rendirse: %v", err)
+	}
+	if time.Since(ini) > time.Second {
+		t.Fatal("tardó demasiado en rendirse")
+	}
+	if _, _, err := DPLL(context.Background(), [][]int{{1, 5}}, 2, 0); err == nil {
+		t.Fatal("un literal fuera de rango debe dar error")
+	}
+	if _, sat, _ := DPLL(context.Background(), [][]int{{}}, 1, 0); sat {
+		t.Fatal("la cláusula vacía es insatisfacible")
+	}
+}
+
+func TestRecordarSignifica(t *testing.T) {
+	h, r, err := LeerHecho("recuerda que capicúa significa palíndromo", lem)
+	if err != nil || r != nil || h == nil {
+		t.Fatal(err)
+	}
+	if h.Sujeto != "capicua" || h.Relacion != "significa" || h.Objeto != "palindromo" {
+		t.Fatalf("hecho = %+v", h)
+	}
+	if _, _, err := LeerHecho("recuerda que algunos perros son blancos", lem); !errors.Is(err, nucleo.ErrNoSoportado) {
+		t.Fatalf("«algunos» no se guarda como regla: %v", err)
+	}
+	b := &nucleotest.BaseHechosMemoria{}
+	rs := Resolutores(b, b, lem)
+	r2 := resolver(t, rs, "logica.hechos", "recuerda que capicúa significa palíndromo")
+	if !r2.Exito || len(b.H) != 1 {
+		t.Fatalf("no se guardó: %+v", r2)
+	}
+	r3 := resolver(t, rs, "logica.hechos", "¿Toby es un gato?")
+	if r3.Exito || !strings.HasPrefix(r3.Texto, "No lo sé") {
+		t.Fatalf("sin datos: %+v", r3)
 	}
 }

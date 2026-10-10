@@ -551,3 +551,24 @@ func TestReconoceRapido(t *testing.T) {
 		t.Fatalf("no es un puzle: %q", m)
 	}
 }
+
+func TestCSPLimite(t *testing.T) {
+	// 9 pigeons in 8 holes, pairwise different: unsatisfiable and slow without global reasoning
+	p := &Problema{}
+	for i := 0; i < 9; i++ {
+		p.Dom = append(p.Dom, DominioRango(0, 7))
+	}
+	for i := 0; i < 9; i++ {
+		for j := i + 1; j < 9; j++ {
+			p.Restr = append(p.Restr, Restriccion{Alcance: []int{i, j}, Tipo: Binaria, Rel: func(v []int) bool { return v[0] != v[1] }})
+		}
+	}
+	_, _, err := resolverCon(context.Background(), p, 1, nil, 1000)
+	if !errors.Is(err, nucleo.ErrSinTiempo) || !errors.Is(err, ErrLimite) {
+		t.Fatalf("debería parar por el límite de nodos: %v", err)
+	}
+	q := &Problema{Dom: []Dominio{DominioRango(0, 3)}, Restr: []Restriccion{{Alcance: []int{3}, Tipo: Distintos}}}
+	if _, _, err := Resolver(context.Background(), q, 1, nil); err == nil {
+		t.Fatal("una variable inexistente debe dar error")
+	}
+}
