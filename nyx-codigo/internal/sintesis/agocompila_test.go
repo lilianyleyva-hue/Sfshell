@@ -292,3 +292,50 @@ func codR(v reflect.Value) string {
 func main() {
 %s}
 `
+
+// TestAGoNombresQueChocan checks programs whose parameter names collide with package names, helpers,
+// builtins and the names the code generator likes to use (total, cuenta, x…).
+func TestAGoNombresQueChocan(t *testing.T) {
+	r := sintesis.Base()
+	var progs []programa
+	for _, c := range [][2]string{
+		{"func F(x []int) int", "(suma (filtra (λ y (esPar y)) x))"},
+		{"func F(total []int) int", "(suma (filtra (λ x (esPar x)) total))"},
+		{"func F(strings string) []string", "(palabras strings)"},
+		{"func F(len []int) int", "(largo len)"},
+		{"func F(palabra string) string", "(masLarga (palabras palabra))"},
+		{"func F(utf8 string) int", "(largoS utf8)"},
+		{"func F(slices []int) []int", "(ordenar slices)"},
+		{"func F(unicode string) int", "(contar (λ x (esVocal x)) (runas unicode))"},
+		{"func F(cuenta []int) int", "(contar (λ x (esPar x)) cuenta)"},
+		{"func F(mayor []int) int", "(maxL (filtra esPar mayor))"},
+		{"func F(r string) int", "(contar (λ x (esVocal x)) (runas r))"},
+		{"func F(esVocal string) int", "(contar (λ x (esVocal x)) (runas esVocal))"},
+		{"func F(abs int) int", "(abs abs)"},
+		{"func F(i int) []int", "(rango 1 (+ i 1))"},
+		{"func F(producto int) int", "(producto (rango 1 (+ producto 1)))"},
+		{"func F(strconv int) string", "(itoa strconv)"},
+		{"func F(ordenados []int) int", "(elemento (ordenarDesc ordenados) 1)"},
+		{"func F(nums []int, x int) []int", "(mapea (λ y (+ y x)) nums)"},
+		{"func F(nums []int, x int) int", "(contar (λ y (> y x)) nums)"},
+		{"func F(xs []string, sep string) string", "(unir (mapeaS (λ p (mayus p)) xs) sep)"},
+		{"func F(m [][]int) []int", "(sumaFilas (transpuesta m))"},
+		{"func F(nums []int) int", "(pliega (λ (a b) (max2 a b)) 0 (mapea (λ x (* x 2)) nums))"},
+		{"func F(nums []int) bool", "(alguno (λ x (> x 10)) (mapea (λ x (* x x)) nums))"},
+		{"func F(nums []int) int", "(suma (mapea (λ x (suma (filtra (λ y (> y x)) nums))) nums))"},
+		{"func F(x []int) int", "(suma (mapea (λ y (contar (λ z (== z y)) x)) x))"},
+		{"func F(y []int) []int", "(filtra (λ x (> x (largo y))) y)"},
+		{"func F(x int, y int) int", "(suma (mapea (λ z (* z x)) (rango y (+ x y))))"},
+	} {
+		f, err := sintesis.LeerFirmaPrueba(c[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		e, err := sintesis.Parse(c[1], r, f)
+		if err != nil {
+			t.Fatalf("%s: %v", c[1], err)
+		}
+		progs = append(progs, programa{f, e})
+	}
+	compararConGo(t, progs, 100, 0)
+}

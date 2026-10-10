@@ -176,6 +176,8 @@ type tarea struct {
 	ejs     []nucleo.Caso
 	pruebas []nucleo.Caso
 	marco   *nucleo.Marco
+	sin     []string // primitives withheld for this task (to force another route)
+	quiere  string   // optional: the chosen program must contain this text
 }
 
 func leerTareas(ruta string) ([]tarea, error) {
@@ -224,6 +226,10 @@ func leerTareas(ruta string) ([]tarea, error) {
 			} else {
 				cur.pruebas = append(cur.pruebas, c)
 			}
+		case "sin":
+			cur.sin = append(cur.sin, strings.Fields(valor)...)
+		case "quiere":
+			cur.quiere = valor
 		case "marco":
 			m, err := leerMarco(valor)
 			if err != nil {

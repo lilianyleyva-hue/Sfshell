@@ -221,7 +221,10 @@ func modsDe(m *nucleo.Marco) []nucleo.Modificador {
 }
 
 // pred returns the lambda for elements of type elem: the modifiers' lambda (conMods) or a hole.
-func (g *genEsq) pred(elem nucleo.Tipo) string {
+func (g *genEsq) pred(elem nucleo.Tipo) string { return g.predicado(elem, false) }
+
+// predicado is pred, negated when negar ("elimina los pares" keeps the elements that are not even).
+func (g *genEsq) predicado(elem nucleo.Tipo, negar bool) string {
 	if !g.conMods {
 		return "?"
 	}
@@ -241,6 +244,13 @@ func (g *genEsq) pred(elem nucleo.Tipo) string {
 	cuerpo := cuerpos[0]
 	for _, b := range cuerpos[1:] {
 		cuerpo = "(y " + cuerpo + " " + b + ")"
+	}
+	if negar {
+		if strings.HasPrefix(cuerpo, "(no ") {
+			cuerpo = strings.TrimSuffix(strings.TrimPrefix(cuerpo, "(no "), ")")
+		} else {
+			cuerpo = "(no " + cuerpo + ")"
+		}
 	}
 	return "(λ " + x + " " + cuerpo + ")"
 }
@@ -361,15 +371,16 @@ func (g *genEsq) generar() {
 			g.add("(/ %s %s)", N, N2)
 		}
 	case "filtrar", "eliminar":
+		quita := acc == "eliminar"
 		if L != "" {
-			g.add("(filtra %s %s)", g.pred(g.elem), L)
+			g.add("(filtra %s %s)", g.predicado(g.elem, quita), L)
 		}
 		if S != "" {
 			if palabrasObj {
-				g.add("(filtra %s %s)", g.pred(tS), g.palabrasDe())
-				g.add("(unir (filtra %s %s) %s)", g.pred(tS), g.palabrasDe(), sep)
+				g.add("(filtra %s %s)", g.predicado(tS, quita), g.palabrasDe())
+				g.add("(unir (filtra %s %s) %s)", g.predicado(tS, quita), g.palabrasDe(), sep)
 			} else {
-				g.add("(deRunas (filtra %s (runas %s)))", g.pred(tR), S)
+				g.add("(deRunas (filtra %s (runas %s)))", g.predicado(tR, quita), S)
 			}
 		}
 	case "transformar", "doble", "triple", "cuadrado", "mitad":

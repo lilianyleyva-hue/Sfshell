@@ -90,20 +90,20 @@ type hojaPendiente struct {
 }
 
 type motor struct {
-	ctx       context.Context
-	m         int // vector length
-	nEj       int
-	esperado  []V
-	objetivo  int // -1: none
-	entradas  []entrada
-	nivel     [numTipos][][]int32
-	visto     [numTipos]map[uint64][]int32
-	ops       []opMotor
-	hojas     map[int][]hojaPendiente
-	maxCosto  int
-	maxBanco  int
-	maxTam    int
-	usarConc  bool
+	ctx        context.Context
+	m          int // vector length
+	nEj        int
+	esperado   []V
+	objetivo   int // -1: none
+	entradas   []entrada
+	nivel      [numTipos][][]int32
+	visto      [numTipos]map[uint64][]int32
+	ops        []opMotor
+	hojas      map[int][]hojaPendiente
+	maxCosto   int
+	maxBanco   int
+	maxTam     int
+	usarConc   bool
 	nivelHecho int
 
 	explorados int

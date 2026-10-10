@@ -134,20 +134,21 @@ func TestDescribir(t *testing.T) {
 	if got := Describir(debeParse(t, r, f, "(suma (filtra esPar nums))"), f); got != "la suma de los números pares de nums" {
 		t.Errorf("Describir = %q", got)
 	}
-	casos := map[string]string{
-		"func F(s string) int":      "(contar esVocal (runas s))",
-		"func F(s string) []string": "(filtra (λ p (> (largoS p) 3)) (palabras s))",
-		"func F(xs []int) []int":    "(filtra (λ x (> x 5)) xs)",
+	casos := []struct{ firma, prog, quiero string }{
+		{"func F(s string) int", "(contar esVocal (runas s))", "cuántas vocales hay en s"},
+		{"func F(s string) []string", "(filtra (λ p (> (largoS p) 3)) (palabras s))", "las palabras de más de 3 letras de s"},
+		{"func F(s string) []string", "(filtra (λ p (< 3 (largoS p))) (palabras s))", "las palabras de más de 3 letras de s"},
+		{"func F(xs []int) []int", "(filtra (λ x (> x 5)) xs)", "los números mayores que 5 de xs"},
+		{"func F(xs []int) []int", "(filtra (λ x (<= 5 x)) xs)", "los números mayores o iguales que 5 de xs"},
+		{"func F(n int) int", "(producto (rango 1 (+ n 1)))", "el producto de los números desde 1 hasta n"},
+		{"func F(s string) string", "(masLarga (palabras s))", "la palabra más larga de s"},
+		{"func F(s string) map[string]int", "(frecuencias (palabras s))", "cuántas veces aparece cada palabra de s"},
+		{"func F(s string) bool", "(< 3 (largoS s))", "s tiene más de 3 letras"},
 	}
-	quiero := map[string]string{
-		"func F(s string) int":      "cuántas vocales hay en s",
-		"func F(s string) []string": "las palabras de más de 3 letras de s",
-		"func F(xs []int) []int":    "los números mayores que 5 de xs",
-	}
-	for firma, prog := range casos {
-		f := debeFirma(t, firma)
-		if got := Describir(debeParse(t, r, f, prog), f); got != quiero[firma] {
-			t.Errorf("Describir(%s) = %q, quiero %q", prog, got, quiero[firma])
+	for _, c := range casos {
+		f := debeFirma(t, c.firma)
+		if got := Describir(debeParse(t, r, f, c.prog), f); got != c.quiero {
+			t.Errorf("Describir(%s) = %q, quiero %q", c.prog, got, c.quiero)
 		}
 	}
 }
@@ -396,6 +397,10 @@ func TestDesdeConceptos(t *testing.T) {
 		{"func F(nums []int) []int", nucleo.Marco{Accion: "filtrar", Objeto: "numeros", Mods: []nucleo.Modificador{{Concepto: "mayor_que", Numeros: []float64{5}}}}, "(filtra (λ x (> x 5)) nums)"},
 		{"func F(s string) int", nucleo.Marco{Accion: "contar", Objeto: "letras", Elemento: "vocal"}, "(contar (λ x (esVocal x)) (runas s))"},
 		{"func F(s string) string", nucleo.Marco{Accion: "mayusculas", Objeto: "texto"}, "(mayus s)"},
+		{"func SinPares(nums []int) []int", nucleo.Marco{Accion: "eliminar", Objeto: "numeros", Mods: []nucleo.Modificador{{Concepto: "par"}}}, "(filtra (λ x (no (esPar x))) nums)"},
+		{"func SinVocales(s string) string", nucleo.Marco{Accion: "eliminar", Objeto: "frase", Elemento: "vocal"}, "(deRunas (filtra (λ x (no (esVocal x))) (runas s)))"},
+		{"func PalabraMasLarga(s string) string", nucleo.Marco{Accion: "mas_largo", Objeto: "frase", Elemento: "palabra"}, "(masLarga (palabras s))"},
+		{"func SumaMayores(nums []int) int", nucleo.Marco{Accion: "sumar", Objeto: "numeros", Mods: []nucleo.Modificador{{Concepto: "mayor_que", Numeros: []float64{10}}}}, "(suma (filtra (λ x (> x 10)) nums))"},
 	}
 	for _, c := range casos {
 		m := c.marco
@@ -539,7 +544,7 @@ func comprobarTipos(t *testing.T, src string) {
 }
 
 var (
-	impUna sync.Once
+	impUna     sync.Once
 	importador types.Importer
 )
 
@@ -647,9 +652,9 @@ func TestComprimir(t *testing.T) {
 	b := NuevaBiblioteca(nil)
 	f := debeFirma(t, "func F(nums []int) int")
 	for nombre, prog := range map[string]string{
-		"SumaPares":  "(suma (filtra esPar nums))",
+		"SumaPares":   "(suma (filtra esPar nums))",
 		"CuentaPares": "(largo (filtra esPar nums))",
-		"MayorPar":   "(maxL (filtra esPar nums))",
+		"MayorPar":    "(maxL (filtra esPar nums))",
 	} {
 		if _, err := b.Aprender(nombre, "", debeParse(t, b.Registro(), f, prog), f); err != nil {
 			t.Fatal(err)
@@ -836,5 +841,34 @@ func TestProgramasDelBanco(t *testing.T) {
 		if n < 10 {
 			t.Errorf("%s: solo %d programas", firma, n)
 		}
+	}
+}
+
+// A program that ignores its parameters pays a penalty: [3,1,2] → 3 should not answer "always 3", while
+// four different inputs that all give 7 still do.
+func TestConstanteUltimoRecurso(t *testing.T) {
+	f := debeFirma(t, "func F(nums []int) int")
+	res, err := Sintetizar(context.Background(), Especificacion{Firma: f, Ejemplos: []nucleo.Caso{casoEj([]V{[]V{3, 1, 2}}, 3)}},
+		Base(), Opciones{Semilla: 1}, nil)
+	if err != nil || len(res.Soluciones) < 2 {
+		t.Fatalf("Sintetizar = %v %v", res.Soluciones, err)
+	}
+	if !usaParametros(res.Soluciones[0].Expr, 1) {
+		t.Errorf("la primera solución no usa nums: %s", res.Soluciones[0].Expr)
+	}
+	ultima := res.Soluciones[len(res.Soluciones)-1].Expr
+	if ultima.String() != "3" {
+		t.Errorf("la constante debería ir al final: %v", res.Soluciones)
+	}
+	// when the answer really is a constant it still wins
+	g := debeFirma(t, "func Siete(n int) int")
+	inicio := time.Now()
+	res, err = Sintetizar(context.Background(), Especificacion{Firma: g, Ejemplos: []nucleo.Caso{
+		casoEj([]V{1}, 7), casoEj([]V{-4}, 7), casoEj([]V{30}, 7), casoEj([]V{0}, 7)}}, Base(), Opciones{Semilla: 1}, nil)
+	if err != nil || len(res.Soluciones) == 0 || res.Soluciones[0].Expr.String() != "7" {
+		t.Fatalf("Siete = %v %v", res.Soluciones, err)
+	}
+	if d := time.Since(inicio); d > time.Duration(float64(3*time.Second)*factorCarrera) {
+		t.Errorf("la constante tardó %v", d)
 	}
 }

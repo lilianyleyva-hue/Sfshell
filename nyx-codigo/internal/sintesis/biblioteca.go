@@ -118,8 +118,8 @@ func (b *Biblioteca) aprender(nombre, descripcion string, e *Expr, f nucleo.Firm
 	return p, nil
 }
 
-// Olvidar removes a learned component (and the inventions that no longer have two users). It reports
-// whether nombre was known.
+// Olvidar removes a learned component from the registry. Inventions stay: each one was checked on its own
+// and keeps working (its body holds the primitives it needs). It reports whether nombre was known.
 func (b *Biblioteca) Olvidar(nombre string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()

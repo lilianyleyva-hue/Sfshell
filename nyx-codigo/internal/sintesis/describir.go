@@ -51,7 +51,55 @@ func (d *descriptor) expr(e *Expr) string {
 	if s, ok := d.letras(e); ok {
 		return s
 	}
+	if s, ok := d.rango(e); ok {
+		return s
+	}
+	if strings.Contains(e.Op.Frase, "palabra") && len(e.Hijos) == 1 && len(e.Lambdas) == 0 {
+		// "la palabra más larga de (las palabras de s)" → "la palabra más larga de s"
+		if h := e.Hijos[0]; h.Op != nil && h.Op.Nombre == "palabras" && len(h.Hijos) == 1 {
+			return strings.ReplaceAll(e.Op.Frase, "{0}", d.expr(h.Hijos[0]))
+		}
+	}
 	return d.plantilla(e.Op.Frase, e)
+}
+
+// rango describes (rango a (+ n 1)) as "los números desde a hasta n".
+func (d *descriptor) rango(e *Expr) (string, bool) {
+	if e.Op.Nombre != "rango" || len(e.Hijos) != 2 {
+		return "", false
+	}
+	fin := e.Hijos[1]
+	if fin.Op == nil || fin.Op.Nombre != "+" || len(fin.Hijos) != 2 {
+		return "", false
+	}
+	a, b := fin.Hijos[0], fin.Hijos[1]
+	if a.EsConst {
+		a, b = b, a
+	}
+	if !b.EsConst || ent(b.Const) != 1 || b.Tipo.Clase != nucleo.CInt {
+		return "", false
+	}
+	return "los números desde " + d.expr(e.Hijos[0]) + " hasta " + d.expr(a), true
+}
+
+// volteada rewrites "3 < x" as "x > 3" so comparisons read with the variable first.
+func volteada(e *Expr) (nombre string, x, c *Expr, ok bool) {
+	if e == nil || e.Op == nil || len(e.Hijos) != 2 {
+		return "", nil, nil, false
+	}
+	nombre, x, c = e.Op.Nombre, e.Hijos[0], e.Hijos[1]
+	if c.EsConst {
+		return nombre, x, c, true
+	}
+	if !x.EsConst {
+		return "", nil, nil, false
+	}
+	vuelta := map[string]string{"<": ">", ">": "<", "<=": ">=", ">=": "<=", "==": "==", "!=": "!="}
+	nv, hay := vuelta[nombre]
+	if !hay {
+		return "", nil, nil, false
+	}
+	return nv, c, x, true
 }
 
 var reHueco = regexp.MustCompile(`\{(L?)(\d+)\}`)
@@ -212,11 +260,10 @@ func (d *descriptor) cualidad(l *Lambda) (adj string, sust *sustantivoTipo, ok b
 			return pre + p.adjetivo, nil, true
 		}
 	}
-	if len(b.Hijos) == 2 && b.Hijos[1].EsConst {
-		c := d.expr(b.Hijos[1])
-		x := b.Hijos[0]
+	if nombre, x, ce, hay := volteada(b); hay {
+		c := d.expr(ce)
 		if esX(x) {
-			switch p.Nombre {
+			switch nombre {
 			case ">":
 				return pre + "mayores que " + c, nil, true
 			case "<":
@@ -238,7 +285,7 @@ func (d *descriptor) cualidad(l *Lambda) (adj string, sust *sustantivoTipo, ok b
 			}
 		}
 		if x.Op != nil && x.Op.Nombre == "largoS" && len(x.Hijos) == 1 && esX(x.Hijos[0]) {
-			switch p.Nombre {
+			switch nombre {
 			case ">":
 				return pre + "de más de " + c + " letras", nil, true
 			case ">=":
@@ -349,12 +396,12 @@ func fraseAprendida(nombre, descripcion string, f nucleo.Firma) string {
 
 // letras describes comparisons of a word length with a number: "p tiene más de 3 letras".
 func (d *descriptor) letras(e *Expr) (string, bool) {
-	if len(e.Hijos) != 2 || !e.Hijos[1].EsConst || e.Hijos[0].Op == nil || e.Hijos[0].Op.Nombre != "largoS" ||
-		len(e.Hijos[0].Hijos) != 1 {
+	nombre, lx, ce, ok := volteada(e)
+	if !ok || lx.Op == nil || lx.Op.Nombre != "largoS" || len(lx.Hijos) != 1 {
 		return "", false
 	}
-	x, c := d.expr(e.Hijos[0].Hijos[0]), d.expr(e.Hijos[1])
-	switch e.Op.Nombre {
+	x, c := d.expr(lx.Hijos[0]), d.expr(ce)
+	switch nombre {
 	case ">":
 		return x + " tiene más de " + c + " letras", true
 	case "<":

@@ -29,6 +29,13 @@ func TestTareas(t *testing.T) {
 	var informe []string
 	var fuentes []string
 	for _, ta := range tareas {
+		reg := reg
+		if len(ta.sin) > 0 {
+			reg = Base()
+			for _, nombre := range ta.sin {
+				reg.quitar(nombre)
+			}
+		}
 		esp := Especificacion{Firma: ta.firma, Ejemplos: ta.ejs}
 		if ta.marco != nil {
 			esp.Conceptos = pesosMarco(ta.marco)
@@ -48,7 +55,9 @@ func TestTareas(t *testing.T) {
 		default:
 			e := res.Soluciones[0].Expr
 			detalle = e.String()
-			if ok, por := cumple(e, ta.ejs); !ok {
+			if ta.quiere != "" && !strings.Contains(detalle, ta.quiere) {
+				detalle += " no contiene " + ta.quiere
+			} else if ok, por := cumple(e, ta.ejs); !ok {
 				detalle += " no cumple los ejemplos: " + por
 			} else if ok, por := cumple(e, ta.pruebas); !ok {
 				detalle += " no generaliza: " + por

@@ -3,6 +3,8 @@
 #   ej:     un ejemplo que se le da al sintetizador (entradas separadas por «;», luego «=>» y el resultado)
 #   prueba: un caso que NO se le da y que la solución elegida debe cumplir (comprueba que generaliza)
 #   marco:  marco opcional (accion=… objeto=… elemento=… mod=concepto[:número|:"texto"] …)
+#   sin:    primitivas que se quitan del registro para esta tarea (obliga a otro camino)
+#   quiere: texto que debe aparecer en el programa elegido
 # El test pide al menos 42 de 50 resueltas, cada una en menos de 3 s, con semilla 1.
 
 == suma_pares
@@ -110,6 +112,8 @@ ej: 3 => 6
 ej: 5 => 120
 prueba: 6 => 720
 prueba: 4 => 24
+sin: factorial
+quiere: (producto (rango 1 (+ n 1)))
 
 == primos_hasta
 firma: func PrimosHasta(n int) []int
@@ -144,6 +148,8 @@ ej: 0 => 0
 ej: -10 => 10
 prueba: 7 => 7
 prueba: -1 => 1
+sin: abs max2 min2 mcd mcm raizEntera
+quiere: (si 
 
 == cuadrados
 firma: func Cuadrados(nums []int) []int

@@ -14,14 +14,14 @@ import (
 
 type opc func(p *Primitiva)
 
-func conm(p *Primitiva)        { p.conmutativa = true }
-func perez(p *Primitiva)       { p.perezosa = true }
-func invol(p *Primitiva)       { p.involutiva = true }
-func idem(p *Primitiva)        { p.idempotente = true }
-func parc(p *Primitiva)        { p.Parcial = true }
-func prec(n int) opc           { return func(p *Primitiva) { p.prec = n } }
-func adj(s string) opc         { return func(p *Primitiva) { p.adjetivo = s } }
-func imp(ps ...string) opc     { return func(p *Primitiva) { p.Imports = append(p.Imports, ps...) } }
+func conm(p *Primitiva)    { p.conmutativa = true }
+func perez(p *Primitiva)   { p.perezosa = true }
+func invol(p *Primitiva)   { p.involutiva = true }
+func idem(p *Primitiva)    { p.idempotente = true }
+func parc(p *Primitiva)    { p.Parcial = true }
+func prec(n int) opc       { return func(p *Primitiva) { p.prec = n } }
+func adj(s string) opc     { return func(p *Primitiva) { p.adjetivo = s } }
+func imp(ps ...string) opc { return func(p *Primitiva) { p.Imports = append(p.Imports, ps...) } }
 func ayu(nombre string) opc {
 	return func(p *Primitiva) {
 		p.Ayudante = ayudantes[nombre]
@@ -56,7 +56,9 @@ func (r *Registro) defL(nombre string, args []nucleo.Tipo, lambdas []LambdaTipo,
 
 func ts(t ...nucleo.Tipo) []nucleo.Tipo { return t }
 
-func lt(res nucleo.Tipo, params ...nucleo.Tipo) LambdaTipo { return LambdaTipo{Params: params, Res: res} }
+func lt(res nucleo.Tipo, params ...nucleo.Tipo) LambdaTipo {
+	return LambdaTipo{Params: params, Res: res}
+}
 
 func c(cs ...string) []string { return cs }
 

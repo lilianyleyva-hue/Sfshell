@@ -38,14 +38,14 @@ type Primitiva struct {
 	Cuerpo    *Expr  // non-nil for learned components (Eval/Go derived from it)
 	Parcial   bool   // may fail (⊥)
 
-	conmutativa bool   // a∘b == b∘a: the search keeps only id1 ≤ id2
-	perezosa    bool   // si, y, o: arguments are evaluated only when needed
-	involutiva  bool   // f(f(x)) == x: f∘f is skipped
-	idempotente bool   // f(f(x)) == f(x): f∘f is skipped
-	prec        int    // Go precedence of the template's result (6 = primary)
-	adjetivo    string // plural adjective for predicates used in filters: "pares"
-	sustantivo  string // plural noun for rune/string predicates: "vocales"
-	femenino    bool   // gender of sustantivo
+	conmutativa bool          // a∘b == b∘a: the search keeps only id1 ≤ id2
+	perezosa    bool          // si, y, o: arguments are evaluated only when needed
+	involutiva  bool          // f(f(x)) == x: f∘f is skipped
+	idempotente bool          // f(f(x)) == f(x): f∘f is skipped
+	prec        int           // Go precedence of the template's result (6 = primary)
+	adjetivo    string        // plural adjective for predicates used in filters: "pares"
+	sustantivo  string        // plural noun for rune/string predicates: "vocales"
+	femenino    bool          // gender of sustantivo
 	firma       *nucleo.Firma // learned components and inventions
 }
 

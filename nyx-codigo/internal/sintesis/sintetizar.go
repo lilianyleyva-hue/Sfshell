@@ -98,9 +98,10 @@ func SondasPorDefecto(f nucleo.Firma, ejemplos []nucleo.Caso, n int) [][]nucleo.
 // ---- one synthesis session ----
 
 type candSol struct {
-	expr  *Expr
-	costo int
-	vec   []V
+	expr      *Expr
+	costo     int
+	vec       []V
+	constante bool // uses no parameter: kept only as a last resort
 }
 
 type sesion struct {
@@ -767,29 +768,89 @@ func (s *sesion) prepararMotor() {
 	s.mo = mo
 }
 
+// penalizacionConstante is added to the cost of a program that uses no parameter (a constant that happens
+// to fit the examples): "[3,1,2] → 3" should read as the maximum, not as "always 3", but seven examples that
+// all give 7 are still best explained by the constant.
+const penalizacionConstante = 15
+
 // agregarSol records a solution unless it is excluded or behaves like one already found.
 func (s *sesion) agregarSol(e *Expr, costo int, vec []V) bool {
 	if s.excluir[e.String()] {
 		return false
 	}
+	nueva := candSol{expr: e, costo: costo, vec: vec}
+	if !usaParametros(e, s.nParams) {
+		nueva.constante = true
+		nueva.costo += penalizacionConstante
+	}
 	for i, o := range s.sols {
 		if igualVec(o.vec[s.nEj:], vec[s.nEj:]) {
-			if costo < o.costo {
-				s.sols[i] = candSol{expr: e, costo: costo, vec: vec}
+			if mejorSol(nueva, o) {
+				s.sols[i] = nueva
+				s.recalcularTope()
 			}
 			return false
 		}
 	}
-	s.sols = append(s.sols, candSol{expr: e, costo: costo, vec: vec})
-	minimo := s.sols[0].costo
-	for _, o := range s.sols {
-		minimo = min(minimo, o.costo)
-	}
-	s.tope = int(math.Ceil(float64(minimo) * 1.15))
+	s.sols = append(s.sols, nueva)
+	s.recalcularTope()
 	if s.mo != nil && s.mo.tPrimera.IsZero() {
 		s.mo.tPrimera = time.Now()
 	}
 	return true
+}
+
+// recalcularTope sets the cost bound of the search: +15 % over the cheapest solution.
+func (s *sesion) recalcularTope() {
+	minimo := -1
+	for _, o := range s.sols {
+		if minimo < 0 || o.costo < minimo {
+			minimo = o.costo
+		}
+	}
+	if minimo >= 0 {
+		s.tope = int(math.Ceil(float64(minimo) * 1.15))
+	}
+}
+
+// mejorSol orders solutions: cheaper (constants carry their penalty), then programs that use the
+// parameters, then smaller, then by text.
+func mejorSol(a, b candSol) bool {
+	if a.costo != b.costo {
+		return a.costo < b.costo
+	}
+	if a.constante != b.constante {
+		return !a.constante
+	}
+	if a.costo != b.costo {
+		return a.costo < b.costo
+	}
+	ta, tb := Tamano(a.expr), Tamano(b.expr)
+	if ta != tb {
+		return ta < tb
+	}
+	return a.expr.String() < b.expr.String()
+}
+
+// usaParametros reports whether e reads one of the function's parameters (slots below nParams).
+func usaParametros(e *Expr, nParams int) bool {
+	if e == nil {
+		return false
+	}
+	if e.esVar() && e.Var < nParams {
+		return true
+	}
+	for _, h := range e.Hijos {
+		if usaParametros(h, nParams) {
+			return true
+		}
+	}
+	for _, l := range e.Lambdas {
+		if l != nil && usaParametros(l.Cuerpo, nParams) {
+			return true
+		}
+	}
+	return false
 }
 
 // excluido is the motor hook for Excluir: a full-match target candidate whose text is excluded is dropped
@@ -909,13 +970,14 @@ func (s *sesion) buscar() string {
 	var pendiente *arbolCond
 	si := s.reg.buscarTipos("si", tB, s.firma.Res[0], s.firma.Res[0])
 	aceptar := func() {
-		if pendiente != nil {
+		// a tree dearer than the bound set by a plain solution found meanwhile is dropped
+		if pendiente != nil && (s.tope == 0 || pendiente.costo <= s.tope) {
 			s.agregarSol(un.expr(pendiente, si), pendiente.costo, un.vector(pendiente))
-			pendiente = nil
 		}
+		pendiente = nil
 	}
 	for c := mo.nivelHecho + 1; c <= s.op.MaxCosto; c++ {
-		if len(s.sols) > 0 && c > s.tope {
+		if s.tope > 0 && c > s.tope {
 			aceptar()
 			return "encontrado"
 		}
@@ -923,7 +985,7 @@ func (s *sesion) buscar() string {
 			return "encontrado"
 		}
 		mo.correr(c)
-		if len(s.sols) == 0 && si != nil {
+		if s.tope == 0 && si != nil {
 			if a := un.intentar(); a != nil && (pendiente == nil || a.costo < pendiente.costo) {
 				pendiente = a
 				if mo.tPrimera.IsZero() {
@@ -950,17 +1012,7 @@ func (s *sesion) buscar() string {
 }
 
 func (s *sesion) resultado(motivo string, inicio time.Time) Resultado {
-	sort.SliceStable(s.sols, func(i, j int) bool {
-		a, b := s.sols[i], s.sols[j]
-		if a.costo != b.costo {
-			return a.costo < b.costo
-		}
-		ta, tb := Tamano(a.expr), Tamano(b.expr)
-		if ta != tb {
-			return ta < tb
-		}
-		return a.expr.String() < b.expr.String()
-	})
+	sort.SliceStable(s.sols, func(i, j int) bool { return mejorSol(s.sols[i], s.sols[j]) })
 	res := Resultado{Motivo: motivo, Ms: time.Since(inicio).Milliseconds()}
 	if s.mo != nil {
 		res.Explorados = s.mo.explorados + s.evalEsq
