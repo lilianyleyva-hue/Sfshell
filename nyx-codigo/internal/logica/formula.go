@@ -75,6 +75,9 @@ func mostrar(f Formula, a *Atomos, raiz bool) string {
 	switch g := f.(type) {
 	case Atomo:
 		if g.N >= 0 && g.N < len(a.Frases) {
+			if esLetra(a.Frases[g.N]) {
+				return a.Frases[g.N]
+			}
 			return "«" + a.Frases[g.N] + "»"
 		}
 		return g.String()
@@ -258,4 +261,39 @@ func unirY(partes []string) string {
 		return partes[0]
 	}
 	return strings.Join(partes[:len(partes)-1], ", ") + " y " + partes[len(partes)-1]
+}
+
+// EscribirCon writes f in symbols with the given atom names (index → name; missing ones use
+// NombreAtomo): "p → q".
+func EscribirCon(f Formula, nombres []string) string {
+	return escribirCon(f, nombres, true)
+}
+
+func escribirCon(f Formula, nombres []string, raiz bool) string {
+	par := func(s string) string {
+		if raiz {
+			return s
+		}
+		return "(" + s + ")"
+	}
+	switch g := f.(type) {
+	case Atomo:
+		if g.N >= 0 && g.N < len(nombres) && nombres[g.N] != "" {
+			return nombres[g.N]
+		}
+		return NombreAtomo(g.N)
+	case No:
+		return "¬" + escribirCon(g.F, nombres, false)
+	case Y:
+		return par(escribirCon(g.A, nombres, false) + " ∧ " + escribirCon(g.B, nombres, false))
+	case O:
+		return par(escribirCon(g.A, nombres, false) + " ∨ " + escribirCon(g.B, nombres, false))
+	case Implica:
+		return par(escribirCon(g.A, nombres, false) + " → " + escribirCon(g.B, nombres, false))
+	case Equiv:
+		return par(escribirCon(g.A, nombres, false) + " ↔ " + escribirCon(g.B, nombres, false))
+	case nil:
+		return "?"
+	}
+	return f.String()
 }

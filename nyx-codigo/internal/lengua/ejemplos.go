@@ -221,7 +221,7 @@ func cierreParentesis(s string, i int) int {
 
 var (
 	reFlecha      = regexp.MustCompile(`^(.*?)\s*(?:->|→|=>|⇒)\s*(.+)$`)
-	reLlamada     = regexp.MustCompile(`^(?:.*[\s:])?[A-Za-z_]\w*\s*(\x00[0-9]+\x00|\([^()]*\))\s*(?:==?\s*|\s(?:da|devuelve|debe dar|deberia dar|debería dar|es)\s+)(.+)$`)
+	reLlamada     = regexp.MustCompile(`^(?:.*[\s:])?[A-Za-z_]\w*(\x00[0-9]+\x00|\([^()]*\))\s*(?:==?\s*|\s(?:da|devuelve|debe dar|deberia dar|debería dar|es)\s+)(.+)$`)
 	reDeSale      = regexp.MustCompile(`(?i)(?:^|\s)de\s+(\S+)\s+(?:sale|salga|debe salir|deberia salir|debería salir)\s+(.+)$`)
 	reParaDa      = regexp.MustCompile(`(?i)(?:^|\s)para\s+(\S+)\s+(?:da|devuelve|sale|debe dar|deberia dar|debería dar|es)\s+(.+)$`)
 	reConDa       = regexp.MustCompile(`(?i)(?:^|\s)con\s+(\S+)\s+(debe dar|deberia dar|debería dar|tiene que dar|debe devolver|deberia devolver|debería devolver|da|devuelve|sale)\s+(.+)$`)
@@ -257,6 +257,10 @@ func ExtraerEjemplos(s string) (pares [][2]string, programa []nucleo.CasoProgram
 		x, y = limpiarLado(p.restaurar(x)), limpiarLado(p.restaurar(y))
 		if x == "" || y == "" {
 			continue
+		}
+		// f(2, 3) = 5: the call's parentheses are not part of the input
+		if !reFlecha.MatchString(seg) && reLlamada.MatchString(seg) && strings.HasPrefix(x, "(") && cierreParentesis(x, 0) == len(x)-1 {
+			x = strings.TrimSpace(x[1 : len(x)-1])
 		}
 		pares = append(pares, [2]string{x, y})
 	}

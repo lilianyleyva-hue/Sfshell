@@ -11,8 +11,8 @@ import (
 
 // Limits of the SAT engine (§4.10).
 const (
-	MaxDecisiones = 1_000_000
-	TiempoSAT     = 2 * time.Second
+	MaxDecisiones  = 1_000_000
+	TiempoSAT      = 2 * time.Second
 	maxAtomosTabla = 12
 )
 
@@ -94,21 +94,21 @@ func Tseitin(fs []Formula, nAtomos int) (cnf [][]int, nVars int) {
 }
 
 type decision struct {
-	lit     int
+	lit      int
 	volteada bool
 }
 
 type dpll struct {
-	n        int
+	n         int
 	clausulas [][]int
-	valor    []int8 // 0 unassigned, 1 true, -1 false
-	vigias   [][]int
-	traza    []int
-	cabeza   int
-	inicios  []int
-	decs     []decision
+	valor     []int8 // 0 unassigned, 1 true, -1 false
+	vigias    [][]int
+	traza     []int
+	cabeza    int
+	inicios   []int
+	decs      []decision
 	actividad []float64
-	inc      float64
+	inc       float64
 }
 
 func idxLit(l int) int {
@@ -454,18 +454,22 @@ func Implicacion(ctx context.Context, prem []Formula, concl Formula, nAtomos int
 }
 
 // Tautologia reports whether f is true under every assignment; when it is not, the second result is
-// an assignment that makes it false. DPLL decides it, cross-checked with the truth table for ≤ 12 atoms.
+// an assignment that makes it false. DPLL decides it, and with ≤ 12 atoms the truth table must
+// agree (if they ever disagreed, or DPLL gave up, the truth table's answer is used when it can be
+// computed, and otherwise the result is false with no counter-model).
 func Tautologia(f Formula, nAtomos int) (bool, []bool) {
 	n := nAtomos
 	if m := maxAtomo(f) + 1; m > n {
 		n = m
 	}
 	modelo, sat, err := Satisfacible(context.Background(), []Formula{No{f}}, n)
-	if err != nil || n <= maxAtomosTabla {
-		if n <= 20 {
-			m, s := fuerzaBruta([]Formula{No{f}}, n)
+	if n <= maxAtomosTabla {
+		m, s := fuerzaBruta([]Formula{No{f}}, n)
+		if err != nil || s != sat {
 			return !s, m
 		}
+	}
+	if err != nil {
 		return false, nil
 	}
 	return !sat, modelo

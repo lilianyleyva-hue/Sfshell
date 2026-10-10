@@ -115,7 +115,7 @@ var senalesTabla = []senal{
 	}},
 	{nucleo.ICalculo, 1.0, "me pides un cálculo", func(s *senales) bool { return !s.codigo && s.re(reCalculoPal) && s.numeros > 0 }},
 	{nucleo.INumeros, 2.5, "me preguntas por primos, divisores o porcentajes", func(s *senales) bool {
-		return !s.codigo && s.re(reNumeros) && s.numeros > 0
+		return !s.codigo && s.re(reNumeros) && s.numeros > 0 && !s.ejemplos && !s.re(reFuncion)
 	}},
 	{nucleo.IProblema, 1.6, "es un problema con números y una pregunta", func(s *senales) bool {
 		return !s.codigo && s.numeros > 0 && s.re(rePreguntaN) && s.palabras >= 6 && !s.re(reConteo) && !s.re(reFuncion)

@@ -443,6 +443,12 @@ func (v *vista) accion(m *nucleo.Marco) {
 	if i := v.frase(0, "minimo|menor", "comun", "multiplo"); i >= 0 {
 		fija("mcm", i, i+2)
 	}
+	if i := v.frase(0, "primera|primeras", "letra|letras"); i >= 0 && v.frase(0, "mayuscula|mayusculas") >= 0 {
+		fija("titulo", i, i+1)
+	}
+	if i := v.frase(0, "esta|este|estan|es|sea|son|sean|estuviera", "ordenada|ordenado|ordenadas|ordenados"); i >= 0 {
+		fija("comprobar", i, i+1)
+	}
 	for i := range v.norma {
 		switch {
 		case v.es(i, "mcd"):
@@ -485,7 +491,7 @@ func (v *vista) accion(m *nucleo.Marco) {
 			fija("invertir", i, i+1)
 		case v.es(i, "la|una") && v.es(i+1, "vuelta"):
 			fija("invertir", i, i+1)
-		case (v.es(i, "el|la") && v.es(i+1, "numero|cantidad") || v.es(i, "numero") && v.es(i-1, "el")) && v.es(i+2, "de"):
+		case v.es(i, "el|la") && v.es(i+1, "numero|cantidad") && v.es(i+2, "de"):
 			fija("contar", i, i+1)
 		case v.es(i, "es|sea|son|sean") && v.concepto(i+1) == "palindromo":
 			fija("palindromo", i, i+1)
