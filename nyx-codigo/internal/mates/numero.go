@@ -164,7 +164,6 @@ func (v valor) racional() bool     { return !v.aprox && (v.b == nil || v.b.Sign(
 func (v valor) entero() bool       { return v.racional() && v.a.IsInt() }
 func (v valor) cero() bool         { return v.racional() && v.a.Sign() == 0 }
 func (v valor) conRadical() bool   { return !v.aprox && v.b != nil && v.b.Sign() != 0 }
-func ratDe(f float64) *big.Rat     { r, _ := new(big.Rat).SetString(strconv.FormatFloat(f, 'g', -1, 64)); return r }
 func copiaRat(r *big.Rat) *big.Rat { return new(big.Rat).Set(r) }
 
 // float returns the value as a float64.
@@ -220,20 +219,6 @@ func (v valor) numero() Numero {
 			Aprox: v.float(), EsExacto: true}
 	}
 	return Numero{Exacto: copiaRat(v.a), Aprox: v.float(), EsExacto: true}
-}
-
-func desdeNumero(n Numero) valor {
-	switch {
-	case n.Exacto != nil:
-		return vRat(copiaRat(n.Exacto))
-	case n.Radical != nil:
-		a := new(big.Rat)
-		if n.Mas != nil {
-			a.Set(n.Mas)
-		}
-		return valor{a: a, b: copiaRat(n.Radical.Coef), r: new(big.Int).Set(n.Radical.Radicando)}
-	}
-	return vAprox(n.Aprox)
 }
 
 // texto renders the value inside an expression (no "≈").

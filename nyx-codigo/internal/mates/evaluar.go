@@ -158,6 +158,14 @@ func paso(e Expr) (Expr, error) {
 // expression after one reduction; steps that do not change the text are skipped).
 func reducir(ctx context.Context, e Expr) (valor, []string, error) {
 	pasos := []string{e.String()}
+	if nodos(e) > maxNodosPasoAPaso {
+		// too long to show every step: compute directly
+		v, err := evaluar(ctx, e, nil)
+		if err != nil {
+			return valor{}, pasos, err
+		}
+		return v, append(pasos, v.texto()), nil
+	}
 	for k := 0; ; k++ {
 		if v, ok := hoja(e); ok {
 			return v, pasos, nil
@@ -177,6 +185,23 @@ func reducir(ctx context.Context, e Expr) (valor, []string, error) {
 			pasos = append(pasos, s)
 		}
 	}
+}
+
+const maxNodosPasoAPaso = 150
+
+// nodos counts the nodes of an expression.
+func nodos(e Expr) int {
+	switch x := e.(type) {
+	case Op:
+		return 1 + nodos(x.A) + nodos(x.B)
+	case Neg:
+		return 1 + nodos(x.A)
+	case Fact:
+		return 1 + nodos(x.A)
+	case Func:
+		return 1 + nodos(x.A)
+	}
+	return 1
 }
 
 // resumirPasos keeps at most maxPasosVisibles steps: the first ones, a note, and the last ones.

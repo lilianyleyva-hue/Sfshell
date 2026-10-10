@@ -220,15 +220,15 @@ func cierreParentesis(s string, i int) int {
 }
 
 var (
-	reFlecha      = regexp.MustCompile(`^(.*?)\s*(?:->|→|=>|⇒)\s*(.+)$`)
-	reLlamada     = regexp.MustCompile(`^(?:.*[\s:])?[A-Za-z_]\w*(\x00[0-9]+\x00|\([^()]*\))\s*(?:==?\s*|\s(?:da|devuelve|debe dar|deberia dar|debería dar|es)\s+)(.+)$`)
-	reDeSale      = regexp.MustCompile(`(?i)(?:^|\s)de\s+(\S+)\s+(?:sale|salga|debe salir|deberia salir|debería salir)\s+(.+)$`)
-	reParaDa      = regexp.MustCompile(`(?i)(?:^|\s)para\s+(\S+)\s+(?:da|devuelve|sale|debe dar|deberia dar|debería dar|es)\s+(.+)$`)
-	reConDa       = regexp.MustCompile(`(?i)(?:^|\s)con\s+(\S+)\s+(debe dar|deberia dar|debería dar|tiene que dar|debe devolver|deberia devolver|debería devolver|da|devuelve|sale)\s+(.+)$`)
-	rePrograma    = regexp.MustCompile(`(?i)(?:^|\s)si\s+(?:escribo|entra|meto|pongo|introduzco|le doy|tecleo|doy)\s+(.+?)\s+(?:sale|debe salir|deberia salir|debería salir|escribe|debe escribir|muestra|debe mostrar|imprime|debe imprimir|da)\s+(.+)$`)
-	reConPero     = regexp.MustCompile(`(?i)\bpero\s+con\s+$`)
-	reFinFrase    = regexp.MustCompile(`[\s.;:!?¡¿]+$`)
-	reNumerosYEs  = regexp.MustCompile(`(?i)\s+y\s+`)
+	reFlecha     = regexp.MustCompile(`^(.*?)\s*(?:->|→|=>|⇒)\s*(.+)$`)
+	reLlamada    = regexp.MustCompile(`^(?:.*[\s:])?[A-Za-z_]\w*(\x00[0-9]+\x00|\([^()]*\))\s*(?:==?\s*|\s(?:da|devuelve|debe dar|deberia dar|debería dar|es)\s+)(.+)$`)
+	reDeSale     = regexp.MustCompile(`(?i)(?:^|\s)de\s+(\S+)\s+(?:sale|salga|debe salir|deberia salir|debería salir)\s+(.+)$`)
+	reParaDa     = regexp.MustCompile(`(?i)(?:^|\s)para\s+(\S+)\s+(?:da|devuelve|sale|debe dar|deberia dar|debería dar|es)\s+(.+)$`)
+	reConDa      = regexp.MustCompile(`(?i)(?:^|\s)con\s+(\S+)\s+(debe dar|deberia dar|debería dar|tiene que dar|debe devolver|deberia devolver|debería devolver|da|devuelve|sale)\s+(.+)$`)
+	rePrograma   = regexp.MustCompile(`(?i)(?:^|\s)si\s+(?:escribo|entra|meto|pongo|introduzco|le doy|tecleo|doy)\s+(.+?)\s+(?:sale|debe salir|deberia salir|debería salir|escribe|debe escribir|muestra|debe mostrar|imprime|debe imprimir|da)\s+(.+)$`)
+	reConPero    = regexp.MustCompile(`(?i)\bpero\s+con\s+$`)
+	reFinFrase   = regexp.MustCompile(`[\s.;:!?¡¿]+$`)
+	reNumerosYEs = regexp.MustCompile(`(?i)\s+y\s+`)
 )
 
 // ExtraerEjemplos finds input → output examples in s:

@@ -133,3 +133,11 @@ explícame este código:\nfunc f(xs []int) int {\n\ts := 0\n\tfor _, x := range 
 hazle pruebas a esta función:\nfunc Doble(n int) int {\n\treturn n * 2\n}	probar	-	-	0
 ejecuta esto con entrada 5:\npackage main\nimport "fmt"\nfunc main() {\n\tfmt.Println(5)\n}	ejecutar	-	-	0
 ```go\nfunc Max(xs []int) int {\n\tm := 0\n\tfor _, x := range xs {\n\t\tif x < m {\n\t\t\tm = x\n\t\t}\n\t}\n\treturn m\n}\n```\ndebería dar el máximo pero con [3,1,2] da 1	reparar	-	-	0
+5 3 . . 7 . . . .\n6 . . 1 9 5 . . .\n. 9 8 . . . . 6 .\n8 . . . 6 . . . 3\n4 . . 8 . 3 . . 1\n7 . . . 2 . . . 6\n. 6 . . . . 2 8 .\n. . . 4 1 9 . . 5\n. . . . 8 . . 7 9	puzle	-	-	0
+haz una función que reciba dos números y devuelva el mayor	crear_funcion	(int,int)int	accion=maximo	0
+función que devuelva el último elemento de una lista	crear_funcion	([]int)int	accion=ultimo	0
+función que diga si un número es par	crear_funcion	(int)bool	accion=comprobar;mods=par;nombre=EsPar	0
+función que convierta un número a binario	crear_funcion	(int)string	accion=binario	0
+la suma de un número y su doble es 30	problema	-	-	0
+si a un número le sumo 5 obtengo 12	problema	-	-	0
+función que cuente las palabras de una frase: "hola mundo" -> 2	crear_funcion	(string)int	accion=contar	1

@@ -77,14 +77,22 @@ func partirEcuaciones(s string) []string {
 
 func esDig(c byte) bool { return c >= '0' && c <= '9' }
 
+// recortar shortens a text for messages.
+func recortar(s string) string {
+	if r := []rune(s); len(r) > 60 {
+		return string(r[:57]) + "…"
+	}
+	return s
+}
+
 func analizarEcuacion(ctx context.Context, s string) (ecuacion, error) {
 	s = strings.ReplaceAll(s, "==", "=")
 	partes := strings.Split(s, "=")
 	if len(partes) != 2 {
 		if len(partes) < 2 {
-			return ecuacion{}, fmt.Errorf("%w: «%s» no tiene «=»", nucleo.ErrNoEntiendo, s)
+			return ecuacion{}, fmt.Errorf("%w: «%s» no tiene «=»", nucleo.ErrNoEntiendo, recortar(s))
 		}
-		return ecuacion{}, fmt.Errorf("%w: «%s» tiene más de un «=»", nucleo.ErrNoEntiendo, s)
+		return ecuacion{}, fmt.Errorf("%w: «%s» tiene más de un «=»", nucleo.ErrNoEntiendo, recortar(s))
 	}
 	l, err := AnalizarExpr(partes[0])
 	if err != nil {
@@ -1070,6 +1078,19 @@ func cumple(a, b valor, op string) bool {
 // it divides by a negative number the sign is turned around. The answer is checked on points around
 // the boundary.
 func Inecuacion(ctx context.Context, s string, n *nucleo.Nodo) (string, error) {
+	r, _, err := inecuacion(ctx, s, n)
+	return r, err
+}
+
+// inecuacion also returns the named steps.
+func inecuacion(ctx context.Context, s string, n *nucleo.Nodo) (string, []string, error) {
+	res := &resolucion{ctx: ctx, n: n}
+	r, err := res.inecuacion(s)
+	return r, res.sol.Pasos, err
+}
+
+func (res *resolucion) inecuacion(s string) (string, error) {
+	ctx, n := res.ctx, res.n
 	op, pos, largo := "", -1, 0
 	for _, o := range operadoresDesigualdad {
 		if i := strings.Index(s, o.texto); i >= 0 && (pos < 0 || i < pos || i == pos && len(o.texto) > largo) {
@@ -1111,7 +1132,6 @@ func Inecuacion(ctx context.Context, s string, n *nucleo.Nodo) (string, error) {
 	if !okl || !okr || fl.num.gradoTotal() > 1 || fr.num.gradoTotal() > 1 {
 		return "", fmt.Errorf("%w: solo sé inecuaciones lineales", nucleo.ErrNoSoportado)
 	}
-	res := &resolucion{ctx: ctx, n: n}
 	res.paso("Inecuación: %s %s %s", l, op, rr)
 	a1, b1 := lineal1(fl.num.escalar(new(big.Rat).Inv(dl)), x)
 	a2, b2 := lineal1(fr.num.escalar(new(big.Rat).Inv(dr)), x)

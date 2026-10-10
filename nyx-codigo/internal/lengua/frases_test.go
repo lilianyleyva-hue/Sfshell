@@ -23,7 +23,7 @@ func leerFrases(t *testing.T) []fila {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	var out []fila
 	sc := bufio.NewScanner(f)
 	n := 0

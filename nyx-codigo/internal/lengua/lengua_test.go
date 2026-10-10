@@ -400,16 +400,16 @@ func TestIntencionesModo(t *testing.T) {
 
 func TestNombreFuncion(t *testing.T) {
 	casos := map[string]string{
-		"haz una función que sume los números pares de una lista":      "SumaPares",
-		"función que cuente las vocales de un texto":                    "CuentaVocales",
-		"devuelve la palabra más larga de una frase":                    "PalabraMasLarga",
-		"función que diga si un número es primo":                        "EsPrimo",
-		"función que devuelva los números mayores que 5 de una lista":   "FiltraMayores",
-		"función que ordene una lista de números de mayor a menor":      "OrdenaDesc",
-		"función que quite los repetidos de una lista":                  "SinRepetir",
-		"función que devuelva el factorial de un número":                "Factorial",
-		"cuántas veces aparece cada palabra en un texto":                "FrecuenciasPalabras",
-		"función que sume los números que no sean pares de una lista":   "SumaNoPares",
+		"haz una función que sume los números pares de una lista":     "SumaPares",
+		"función que cuente las vocales de un texto":                  "CuentaVocales",
+		"devuelve la palabra más larga de una frase":                  "PalabraMasLarga",
+		"función que diga si un número es primo":                      "EsPrimo",
+		"función que devuelva los números mayores que 5 de una lista": "FiltraMayores",
+		"función que ordene una lista de números de mayor a menor":    "OrdenaDesc",
+		"función que quite los repetidos de una lista":                "SinRepetir",
+		"función que devuelva el factorial de un número":              "Factorial",
+		"cuántas veces aparece cada palabra en un texto":              "FrecuenciasPalabras",
+		"función que sume los números que no sean pares de una lista": "SumaNoPares",
 	}
 	for texto, want := range casos {
 		p := Analizar(texto, "", "", nil, nil)
@@ -451,5 +451,25 @@ func TestEjemploLlamadaLista(t *testing.T) {
 	_, f, err := TiparEjemplos(pares, nil)
 	if err != nil || f.Forma() != "([]int)int" {
 		t.Errorf("firma: %v %v", f, err)
+	}
+}
+
+func TestEntradasRaras(t *testing.T) {
+	ctx := &nucleo.Contexto{Intencion: nucleo.ICrearFuncion, Codigo: "func f() {}"}
+	raras := []string{"", "   ", "¿?", "[1,2", `"sin cerrar`, "«", "->", "-> 3", "[] ->", "((((", "]]]]", "😀 hola 😀",
+		"1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20", strings.Repeat("palabra ", 3000), "```go\n", "```",
+		"f() = ", "con  da ", "si escribo  sale ", "mil mil mil millones", "un un un", "y si fuera", "y con",
+		"está mal: con [ da", "'", "''", "'ab'", "\x00\x01", "x^^^2", "%%%", "3,,5", "1.000.000.000.000.000.000.000"}
+	for _, s := range raras {
+		p := Analizar(s, "", "", nil, ctx)
+		if p == nil {
+			t.Fatalf("Analizar(%q) = nil", s)
+		}
+		_ = Fusionar(p, Analizar(s, "", "", nil, nil))
+		DetectarSeguimiento(s, ctx)
+		Numeros(s)
+		ExtraerEjemplos(s)
+		ExtraerFallos(s)
+		PalabrasDesconocidas(Lematizar(s), nil)
 	}
 }

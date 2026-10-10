@@ -187,11 +187,10 @@ func ConsultaIngles(p *nucleo.Pregunta, l *Lexico) string {
 		}
 	}
 	codigo := p.Marco != nil && p.Marco.Accion != ""
-	for _, c := range p.Intenciones {
-		if c.Tipo == nucleo.ICrearFuncion || c.Tipo == nucleo.ICrearPrograma {
+	if len(p.Intenciones) > 0 {
+		if c := p.Intenciones[0]; c.Tipo == nucleo.ICrearFuncion || c.Tipo == nucleo.ICrearPrograma {
 			codigo = codigo || c.Puntos >= 0.5
 		}
-		break
 	}
 	if codigo && !visto["func"] {
 		add("func")

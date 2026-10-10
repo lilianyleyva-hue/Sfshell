@@ -18,7 +18,7 @@ type poli map[string]*big.Rat
 // fraccion is a rational function num/den.
 type fraccion struct{ num, den poli }
 
-const maxGradoPotencia = 40
+const maxGradoPotencia = 64
 
 func polConst(r *big.Rat) poli {
 	p := poli{}
@@ -162,21 +162,6 @@ func (p poli) gradoTotal() int {
 		g = max(g, t)
 	}
 	return g
-}
-
-func (p poli) variables() []string {
-	visto := map[string]bool{}
-	for m := range p {
-		for v := range decodificar(m) {
-			visto[v] = true
-		}
-	}
-	out := make([]string, 0, len(visto))
-	for v := range visto {
-		out = append(out, v)
-	}
-	sort.Strings(out)
-	return out
 }
 
 func (p poli) igual(q poli) bool { return p.sumar(q, -1).cero() }
@@ -432,13 +417,6 @@ func gradoMonomio(m string) int {
 		t += e
 	}
 	return t
-}
-
-func textoFraccion(f fraccion) string {
-	if c, ok := f.den.constante(); ok && c.Cmp(big.NewRat(1, 1)) == 0 {
-		return textoPoli(f.num)
-	}
-	return "(" + textoPoli(f.num) + ")/(" + textoPoli(f.den) + ")"
 }
 
 // evaluarPoli evaluates p with exact values for its variables.
