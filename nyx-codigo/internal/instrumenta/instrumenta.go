@@ -71,7 +71,17 @@ type instrumentador struct {
 	lineas     []int
 	recursivas map[*ast.FuncDecl]bool
 	globales   map[string]bool
+	ambitos    []*ambitoEtiquetas // one per function body being instrumented (labels are function-scoped)
 	err        error
+}
+
+// ambitoEtiquetas collects, for one function body, the labels whose coverage counter has to sit in front of
+// the label (a labeled loop, switch or select: break L / continue L need the label on that statement) and the
+// goto statements. A goto to such a label also counts the labeled statement right before jumping, so the
+// statement is never shown as unexecuted when it ran.
+type ambitoEtiquetas struct {
+	ids   map[string]int
+	gotos []*ast.BranchStmt
 }
 
 // Instrumentar rewrites one file. Fuel: "nyx__f--; if nyx__f < 0 { panic(nyx__SinComb{}) }" at every function
@@ -150,7 +160,19 @@ func (in *instrumentador) funcion(body *ast.BlockStmt, pila bool) {
 	if sb.Len() > 1 {
 		in.insertar(body.Lbrace+1, ordenEntrada, strings.TrimRight(sb.String(), " "))
 	}
+	amb := &ambitoEtiquetas{ids: map[string]int{}}
+	in.ambitos = append(in.ambitos, amb)
 	in.lista(body.List)
+	in.ambitos = in.ambitos[:len(in.ambitos)-1]
+	if !in.op.Cobertura {
+		return
+	}
+	for _, g := range amb.gotos {
+		if id, ok := amb.ids[g.Label.Name]; ok {
+			// after the goto's own counter (same offset, same orden, later seq)
+			in.insertar(g.Pos(), ordenCobertura, "nyx__c["+strconv.Itoa(id)+"]++; ")
+		}
+	}
 }
 
 // bloqueInicio inserts fuel (for loops) and variable events at the start of a block.
@@ -176,23 +198,31 @@ func (in *instrumentador) lista(ss []ast.Stmt) {
 			return
 		}
 		id := len(in.lineas)
-		pos := posContador(s)
-		in.lineas = append(in.lineas, in.linea(pos)) // the line where the counter sits
+		pos, interior := posContador(s)
+		in.lineas = append(in.lineas, in.linea(interior.Pos())) // the statement's own line, not a bare label's
 		if in.op.Cobertura {
 			in.insertar(pos, ordenCobertura, "nyx__c["+strconv.Itoa(id)+"]++; ")
+		}
+		if pos != interior.Pos() && len(in.ambitos) > 0 {
+			// the counter is in front of the label: gotos to any label of the chain must count it themselves
+			amb := in.ambitos[len(in.ambitos)-1]
+			for l, ok := s.(*ast.LabeledStmt); ok; l, ok = l.Stmt.(*ast.LabeledStmt) {
+				amb.ids[l.Label.Name] = id
+			}
 		}
 		in.sentencia(s)
 	}
 }
 
-// posContador is where the coverage counter of s goes. For a labeled statement it goes after the label, so a
-// goto to that label still counts the statement ("fin: nyx__c[9]++; return n"). A label on a loop, switch or
-// select must stay on that statement (break L / continue L), so there the counter stays before the label: a
-// goto to such a label is the one jump that skips the counter.
-func posContador(s ast.Stmt) token.Pos {
+// posContador is where the coverage counter of s goes, and the statement it counts (s itself, or the
+// statement under its labels). For a labeled statement it goes after the label, so a goto to that label still
+// counts the statement ("fin: nyx__c[9]++; return n"). A label on a loop, switch or select must stay on that
+// statement (break L / continue L), so there the counter stays before the label, and every goto to that label
+// counts it before jumping (see ambitoEtiquetas).
+func posContador(s ast.Stmt) (token.Pos, ast.Stmt) {
 	l, ok := s.(*ast.LabeledStmt)
 	if !ok {
-		return s.Pos()
+		return s.Pos(), s
 	}
 	interior := l.Stmt
 	for {
@@ -204,9 +234,9 @@ func posContador(s ast.Stmt) token.Pos {
 	}
 	switch interior.(type) {
 	case *ast.ForStmt, *ast.RangeStmt, *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
-		return s.Pos()
+		return s.Pos(), interior
 	}
-	return interior.Pos()
+	return interior.Pos(), interior
 }
 
 // eventos returns the variable-trace calls for the identifiers in xs (empty when Variables is off).
@@ -328,6 +358,11 @@ func (in *instrumentador) sentencia(s ast.Stmt) {
 		}
 		if gd.Tok == token.VAR {
 			in.eventosDespues(s, cabecera(s))
+		}
+	case *ast.BranchStmt:
+		if s.Tok == token.GOTO && s.Label != nil && len(in.ambitos) > 0 {
+			amb := in.ambitos[len(in.ambitos)-1]
+			amb.gotos = append(amb.gotos, s)
 		}
 	case *ast.GoStmt:
 		in.recorrerExpr(s.Call)

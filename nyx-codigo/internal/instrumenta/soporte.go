@@ -13,6 +13,9 @@ const MaxEventosDefecto = 200
 // MaxRunasValor caps the text of one traced value.
 const MaxRunasValor = 60
 
+// MaxBytesNombre caps the variable name of one traced event (an identifier can be as long as the file).
+const MaxBytesNombre = 64
+
 // Messages of the panic types (Spanish; also used by arenero to recognise them in a crashed program).
 const (
 	MensajeSinComb = "se acabó el combustible: demasiados pasos (¿un bucle sin fin?)"
@@ -60,6 +63,7 @@ func Soporte(paquete string, op nucleo.OpcionesInstr, nSentencias int) string {
 		"NSENTENCIAS", strconv.Itoa(nSentencias),
 		"MAXEVENTOS", strconv.Itoa(maxEventos),
 		"MAXRUNAS", strconv.Itoa(MaxRunasValor),
+		"MAXNOMBRE", strconv.Itoa(MaxBytesNombre),
 		"MSGSINCOMB", strconv.Quote(MensajeSinComb),
 		"MSGHONDO", strconv.Quote(MensajeHondo),
 	)
@@ -113,6 +117,13 @@ func nyx__ev(linea int, nombre string, v any) {
 	nyx__enEv = true
 	s := nyx__mostrar(v)
 	nyx__enEv = false
+	if len(nombre) > MAXNOMBRE {
+		i := MAXNOMBRE
+		for i > 0 && !utf8.RuneStart(nombre[i]) {
+			i--
+		}
+		nombre = nombre[:i] + "…"
+	}
 	if utf8.RuneCountInString(s) > MAXRUNAS {
 		n := 0
 		for i := range s {

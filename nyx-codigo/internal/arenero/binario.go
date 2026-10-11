@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"nyxcodigo/internal/nucleo"
 )
@@ -20,11 +21,15 @@ import (
 const maxRelanzamientos = 20
 
 // Bounds on what the trusted parent takes from fd 3, so candidate code cannot push this process out of memory
-// by returning a huge value (stdout and stderr are capped elsewhere, Impreso at 4 KiB).
+// by returning a huge value, or a batch of many cases with big values (stdout and stderr are capped elsewhere,
+// Impreso at 4 KiB and the panic text at 2 KiB per case).
 const (
 	maxResultadoCaso    = 1 << 20  // encoded results of one case; the harness sends only the size of a larger one
-	maxResultadosProbar = 16 << 20 // encoded results kept by one Probar (the decoded values live in ResultadoCaso)
+	maxResultadosProbar = 32 << 20 // estimated memory of the decoded results kept by one Probar (pesoResultado)
+	maxAuxiliarProbar   = 32 << 20 // printed output and crash texts kept by one Probar; past it they are cut short
 	maxLineaArnes       = 4 << 20  // one line of fd 3: results, at most 1 MiB of events, small fields
+	costeValor          = 32       // estimated memory of one decoded value besides its text (an interface value)
+	cortoAuxiliar       = 256      // what is kept of a printed output or a crash text past maxAuxiliarProbar
 )
 
 // binario is a built harness (nucleo.Binario).
@@ -227,7 +232,8 @@ type sesionProbar struct {
 	res       [][]nucleo.ResultadoCaso
 	op        nucleo.OpcionesProbar
 	tcaso     time.Duration
-	retenido  int // encoded result bytes kept so far (maxResultadosProbar)
+	retenido  int // estimated memory of the results kept so far (maxResultadosProbar)
+	auxiliar  int // bytes of printed output and crash texts kept so far (maxAuxiliarProbar)
 	variantes []int
 	hecho     map[[2]int]bool // has a result, or was blamed for a crash
 	parado    map[int]bool    // PararAlFallar: the variant already failed
@@ -396,6 +402,7 @@ func (s *sesionProbar) lanzar(ctx context.Context, variantes []int) (terminado b
 			r.Caida = true
 			r.Panico = texto
 		}
+		s.guardarAuxiliar(r)
 		s.hecho[p] = true
 		if s.op.PararAlFallar {
 			s.parado[p[0]] = true
@@ -460,6 +467,7 @@ func (s *sesionProbar) fallar(p [2]int, motivo string) {
 	r := &s.res[p[0]][p[1]]
 	r.Ejecutado, r.OK = true, false
 	r.Panico = motivo
+	s.guardarAuxiliar(r)
 	s.hecho[p] = true
 	if s.op.PararAlFallar {
 		s.parado[p[0]] = true
@@ -495,21 +503,22 @@ func (s *sesionProbar) anotar(p [2]int, x *lineaArnes) {
 		r.Panico = "no pude leer la entrada: " + x.ED
 	}
 	ok := r.Panico == "" && !r.SinCombustible && r.PropFallida == "" && !r.NoDeterminista
-	tam := 0
+	tam, peso := 0, 0
 	for _, o := range x.O {
 		tam += len(o)
+		peso += pesoResultado(o)
 	}
 	switch {
 	case r.Panico != "":
 	case x.Grande > 0 || tam > maxResultadoCaso:
 		r.Panico = "el resultado es demasiado grande (" + tamano(max(x.Grande, tam)) + "; el máximo es " + tamano(maxResultadoCaso) + "): no lo puedo comprobar"
 		ok = false
-	case s.retenido+tam > maxResultadosProbar:
-		r.Panico = "los resultados de esta prueba ya ocupan demasiado (más de " + tamano(maxResultadosProbar) + "): no guardo este"
+	case s.retenido+peso > maxResultadosProbar:
+		r.Panico = "los resultados de esta prueba ya ocupan demasiado en memoria (más de " + tamano(maxResultadosProbar) + "): no guardo este"
 		ok = false
 	}
 	if r.Panico == "" && x.O != nil {
-		s.retenido += tam
+		s.retenido += peso
 		if len(x.O) != len(f.Res) {
 			r.Panico = "el arnés devolvió " + strconv.Itoa(len(x.O)) + " resultados"
 			ok = false
@@ -538,10 +547,49 @@ func (s *sesionProbar) anotar(p [2]int, x *lineaArnes) {
 		}
 	}
 	r.OK = ok
+	s.guardarAuxiliar(r)
 	s.hecho[p] = true
 	if !ok && s.op.PararAlFallar {
 		s.parado[p[0]] = true
 	}
+}
+
+// pesoResultado estimates the memory one encoded result takes once decoded: its text plus costeValor per
+// value, because every element of a list, map or struct becomes an interface value, so "[0,0,0,…]" weighs
+// far more than its bytes. Commas inside quoted texts are counted too, which only overestimates.
+func pesoResultado(o []byte) int {
+	n := len(o) + costeValor
+	for _, c := range o {
+		if c == ',' || c == '[' {
+			n += costeValor
+		}
+	}
+	return n
+}
+
+// guardarAuxiliar keeps the printed output and the crash text of a case within the Probar's budget. Past it
+// they are cut short and copied, so the big originals can be freed (300 variants × 300 cases printing 4 KiB
+// each would otherwise keep 360 MiB). The verdict of the case does not change.
+func (s *sesionProbar) guardarAuxiliar(r *nucleo.ResultadoCaso) {
+	n := len(r.Impreso) + len(r.Panico)
+	if s.auxiliar+n > maxAuxiliarProbar {
+		r.Impreso = cortarTexto(r.Impreso, cortoAuxiliar)
+		r.Panico = cortarTexto(primeraLinea(r.Panico), cortoAuxiliar)
+		n = len(r.Impreso) + len(r.Panico)
+	}
+	s.auxiliar += n
+}
+
+// cortarTexto returns a copy of at most n bytes of s, cut at a character boundary, with "…" when cut.
+func cortarTexto(s string, n int) string {
+	if len(s) <= n {
+		return strings.Clone(s)
+	}
+	i := n
+	for i > 0 && !utf8.RuneStart(s[i]) {
+		i--
+	}
+	return strings.Clone(s[:i]) + "…"
 }
 
 // leerLinea reads one line of at most max bytes. A longer line is read to its end but not kept (larga).
@@ -622,7 +670,7 @@ func extraerCaida(errSalida string) string {
 	for _, l := range lineas[inicio:] {
 		if sb.Len()+len(l)+1 > maxCaida {
 			if sb.Len() == 0 {
-				sb.WriteString(l[:maxCaida])
+				sb.WriteString(strings.TrimSuffix(cortarTexto(l, maxCaida), "…"))
 			}
 			break
 		}

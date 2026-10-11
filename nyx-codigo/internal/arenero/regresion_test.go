@@ -117,7 +117,7 @@ func TestInseguroDiceElMotivo(t *testing.T) {
 }
 
 // Regression (security): a huge result never reaches the parent's memory. The harness sends only its size,
-// the case fails with a clear reason, and one Probar keeps at most 16 MiB of results.
+// the case fails with a clear reason, and one Probar keeps at most 32 MiB of results.
 func TestResultadoEnorme(t *testing.T) {
 	a := conGo(t)
 	f := nucleo.Firma{Nombre: "F", Params: []nucleo.Param{{Nombre: "n", Tipo: nucleo.TInt}}, Res: []nucleo.Tipo{nucleo.TString}}
@@ -137,7 +137,7 @@ func TestResultadoEnorme(t *testing.T) {
 		t.Errorf("el caso pequeño: %+v", rs[1])
 	}
 	// many results just under the per-case limit: the first ones are kept, the rest are refused
-	ns := make([]int, 20)
+	ns := make([]int, 45)
 	for i := range ns {
 		ns[i] = 900_000
 	}
@@ -153,7 +153,7 @@ func TestResultadoEnorme(t *testing.T) {
 			t.Errorf("caso inesperado: OK=%v Panico=%q", r.OK, r.Panico)
 		}
 	}
-	if guardados == 0 || rechazados == 0 || guardados*900_000 > 16<<20 {
+	if guardados == 0 || rechazados == 0 || guardados*900_000 > 32<<20 {
 		t.Errorf("guardados %d, rechazados %d", guardados, rechazados)
 	}
 }
@@ -239,5 +239,62 @@ func TestArranqueQueCaeEnProbar(t *testing.T) {
 	rs = probar(t, b, casosInt(1), nucleo.OpcionesProbar{Variantes: []int{0}})
 	if r := rs[0][0]; !r.Caida || !strings.Contains(r.Panico, "la variante 1 se cae al arrancar") || rs[1][0].Ejecutado {
 		t.Errorf("solo la variante 0: %+v / %+v", r, rs[1][0])
+	}
+}
+
+// Regression (security): the budget of one Probar counts the memory of the decoded values, not only their
+// text: a list of many tiny numbers ("[0,0,0,…]", 1 MiB per case) decodes into far more memory than its bytes.
+func TestResultadosDensos(t *testing.T) {
+	a := conGo(t)
+	f := nucleo.Firma{Nombre: "F", Params: []nucleo.Param{{Nombre: "n", Tipo: nucleo.TInt}}, Res: []nucleo.Tipo{nucleo.ListaDe(nucleo.TInt)}}
+	b := preparar(t, a, nucleo.Preparacion{Variantes: []string{"package solucion\n\nfunc F(n int) []int { return make([]int, n) }\n"}, Firma: f, Instr: nucleo.InstrNormal})
+	ns := make([]int, 30)
+	for i := range ns {
+		ns[i] = 500_000
+	}
+	runtime.GC()
+	var antes, despues runtime.MemStats
+	runtime.ReadMemStats(&antes)
+	rs := probar(t, b, casosInt(ns...), nucleo.OpcionesProbar{})[0]
+	runtime.GC()
+	runtime.ReadMemStats(&despues)
+	if vivo := int64(despues.HeapAlloc) - int64(antes.HeapAlloc); vivo > 48<<20 {
+		t.Errorf("el proceso padre guarda %d MiB de resultados", vivo>>20)
+	}
+	guardados := 0
+	for _, r := range rs {
+		switch {
+		case r.OK:
+			guardados++
+			if l, ok := r.Obtenido[0].([]nucleo.Valor); !ok || len(l) != 500_000 {
+				t.Errorf("resultado guardado incompleto: %T", r.Obtenido[0])
+			}
+		case !strings.Contains(r.Panico, "ocupan demasiado en memoria") || r.Obtenido != nil || r.Micros == 0:
+			t.Errorf("caso inesperado: %+v", r.Panico)
+		}
+	}
+	if guardados == 0 || guardados > 2 {
+		t.Errorf("guardados %d de %d", guardados, len(rs))
+	}
+	runtime.KeepAlive(rs)
+}
+
+// Guard: a candidate cannot swallow running out of fuel with its own recover (the deferred function has its own
+// fuel check, which panics again before recover runs), so its zero result never passes as a correct answer.
+func TestCombustibleRecuperado(t *testing.T) {
+	a := conGo(t)
+	src := "package solucion\n\nfunc F(n int) int {\n\tdefer func() { recover() }()\n\tfor n >= 0 {\n\t}\n\treturn n\n}\n"
+	props := []nucleo.Propiedad{{Nombre: "cero", Expr: "F(e0) == 0 || e0 < 0"}}
+	b := preparar(t, a, nucleo.Preparacion{Variantes: []string{src}, Firma: firmaIntInt("F"), Instr: nucleo.InstrNormal, Props: props})
+	casos := []nucleo.Caso{
+		{Entradas: []nucleo.Valor{1}, Esperado: []nucleo.Valor{0}, Expectativa: nucleo.EspUsuario},
+		{Entradas: []nucleo.Valor{-1}, Esperado: []nucleo.Valor{-1}, Expectativa: nucleo.EspUsuario},
+	}
+	rs := probar(t, b, casos, nucleo.OpcionesProbar{Repetir: 2})[0]
+	if r := rs[0]; r.OK || !r.SinCombustible || !r.Ejecutado {
+		t.Errorf("el bucle sin fin con recover: %+v", r)
+	}
+	if r := rs[1]; !r.OK || r.SinCombustible {
+		t.Errorf("el caso que termina: %+v", r)
 	}
 }

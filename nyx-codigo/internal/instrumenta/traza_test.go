@@ -92,6 +92,19 @@ func TestCoberturaDeGoto(t *testing.T) {
 	}
 }
 
+// Regression: a goto to a labeled loop counts the loop (its counter has to stay in front of the label).
+func TestCoberturaDeGotoABucle(t *testing.T) {
+	cand := "package main\n\nfunc F(n int) int {\n\tif n > 0 {\n\t\tgoto bucle\n\t}\n\tn = 1\nbucle:\n\tfor i := 0; i < 2; i++ {\n\t\tif i == 5 {\n\t\t\tbreak bucle\n\t\t}\n\t\tn++\n\t}\n\treturn n\n}\n"
+	out, r := construirYCorrer(t, cand, conductorTraza, nucleo.OpcionesInstr{Combustible: 1000, Cobertura: true})
+	if !strings.Contains(out, "resultado 7") {
+		t.Fatalf("F(5) debe dar 7:\n%s", out)
+	}
+	c := lineasCubiertas(t, out, r)
+	if !c[4] || !c[5] || !c[9] || !c[10] || !c[13] || !c[15] || c[7] || c[11] || c[8] {
+		t.Errorf("con 5 se ejecutan las líneas 4, 5, 9, 10, 13 y 15 (no la 7 ni la 11): %v\n%s", c, out)
+	}
+}
+
 // Regression: tracing variables never runs the program's own String/Error methods, never recurses, and does
 // not spend fuel; standard-library values still show through their String method.
 func TestTrazaNoLlamaMetodos(t *testing.T) {
@@ -190,5 +203,26 @@ func F(n int) int {
 	out2, _ := construirYCorrer(t, cand, conductorTraza, nucleo.OpcionesInstr{Combustible: 1000000, Cobertura: true})
 	if !strings.Contains(out, "combustible 999999\n") || !strings.Contains(out2, "combustible 999999\n") {
 		t.Errorf("combustible:\n%s\n%s", out, out2)
+	}
+}
+
+// Regression (security): the name of a traced variable is cut short, since an identifier can be as long as
+// the file and each case keeps up to MaxEventos events.
+func TestTrazaNombreLargo(t *testing.T) {
+	largo := "v" + strings.Repeat("x", 5000)
+	cand := "package main\n\nfunc F(n int) int {\n\t" + largo + " := n * 2\n\treturn " + largo + "\n}\n"
+	out, _ := construirYCorrer(t, cand, conductorTraza, nucleo.OpcionesInstr{Combustible: 1000, Variables: true})
+	quiero := "evento 4 " + largo[:instrumenta.MaxBytesNombre] + "…=10"
+	hay := false
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, "evento ") {
+			hay = hay || l == quiero
+			if len(l) > 200 {
+				t.Errorf("evento demasiado largo: %d bytes", len(l))
+			}
+		}
+	}
+	if !hay {
+		t.Errorf("quiero %q en:\n%.500s", quiero, out)
 	}
 }

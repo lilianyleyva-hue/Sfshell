@@ -30,7 +30,8 @@ type Comportamiento struct {
 }
 
 // Observar runs the probe cases, asks resumir for a summary of the observed pairs, checks the summary's
-// oracle on the random cases (it is reported only on a full match) and looks the fingerprint up with igual.
+// oracle on the random cases (it is reported only on a full match, and never without random cases: the
+// summary was built from the probes, so they cannot confirm it) and looks the fingerprint up with igual.
 // resumir and igual may be nil.
 func Observar(ctx context.Context, b nucleo.Binario, f nucleo.Firma, sondas, aleatorios []nucleo.Caso, resumir Resumidor, igual Igualador, n *nucleo.Nodo) (Comportamiento, error) {
 	var c Comportamiento
@@ -70,14 +71,20 @@ func Observar(ctx context.Context, b nucleo.Binario, f nucleo.Firma, sondas, ale
 		switch {
 		case !ok || oraculo == nil:
 			pr.Info("No encontré una descripción sencilla")
+		case len(aleatorios) == 0:
+			// The summary was built from the probes, so checking it on them alone proves nothing.
+			pr.Info("Creo que %s, pero no tengo entradas al azar para comprobarlo, así que no lo doy por bueno", desc)
 		default:
 			bien, total, fallo := comprobarOraculo(ctx, b, f, sondas, fila, aleatorios, oraculo)
 			c.Pruebas = total
-			if fallo == "" && bien == total+len(sondas) {
+			switch {
+			case fallo != "":
+				pr.Mal("Mi descripción («%s») no encaja: %s", desc, fallo)
+			case total == 0 || total != len(aleatorios) || bien != total+len(sondas):
+				pr.Mal("No pude comprobar mi descripción («%s») con las %d entradas al azar", desc, len(aleatorios))
+			default:
 				c.Resumen, c.Verificado = desc, true
 				pr.Bien("En resumen: %s (comprobado con %d entradas al azar)", desc, total)
-			} else {
-				pr.Mal("Mi descripción («%s») no encaja: %s", desc, fallo)
 			}
 		}
 	}

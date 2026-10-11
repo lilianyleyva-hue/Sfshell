@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"nyxcodigo/internal/nucleo"
 )
@@ -318,5 +319,37 @@ func TestLeerLinea(t *testing.T) {
 	}
 	if tamano(1<<20) != "1 MiB" || tamano(62914560) != "60 MiB" || tamano(1572864) != "1,5 MiB" || tamano(2048) != "2 KiB" {
 		t.Error(tamano(1<<20), tamano(62914560), tamano(1572864), tamano(2048))
+	}
+}
+
+// Regression (security): a result weighs its text plus a cost per value, and past the budget of one Probar the
+// printed output and the crash text of each case are cut short (copied, so the originals can be freed).
+func TestPresupuestosProbar(t *testing.T) {
+	if p := pesoResultado([]byte(`"a,b"`)); p != 5+2*costeValor {
+		t.Errorf("peso de un texto: %d", p)
+	}
+	if p := pesoResultado([]byte("[0,0,0]")); p != 7+4*costeValor {
+		t.Errorf("peso de una lista: %d", p)
+	}
+	s := &sesionProbar{}
+	impreso := strings.Repeat("é", 2000) // 4000 bytes, like a full per-case capture
+	n := maxAuxiliarProbar/4000 + 50
+	rs := make([]nucleo.ResultadoCaso, n)
+	for i := range rs {
+		rs[i] = nucleo.ResultadoCaso{Impreso: impreso, Panico: "panic: algo\n\ngoroutine 1 [running]:"}
+		s.guardarAuxiliar(&rs[i])
+	}
+	if rs[0].Impreso != impreso || !strings.Contains(rs[0].Panico, "goroutine") {
+		t.Errorf("dentro del presupuesto no se recorta nada")
+	}
+	u := rs[n-1]
+	if len(u.Impreso) > cortoAuxiliar+len("…") || !utf8.ValidString(u.Impreso) || !strings.HasSuffix(u.Impreso, "…") || u.Panico != "panic: algo" {
+		t.Errorf("fuera del presupuesto: %d bytes impresos, pánico %q", len(u.Impreso), u.Panico)
+	}
+	if s.auxiliar > maxAuxiliarProbar+n*(cortoAuxiliar+16) {
+		t.Errorf("guardados %d bytes", s.auxiliar)
+	}
+	if c := cortarTexto(strings.Repeat("ñ", 10), 5); c != "ññ…" {
+		t.Errorf("cortarTexto = %q", c)
 	}
 }

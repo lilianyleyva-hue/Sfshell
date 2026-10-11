@@ -6,6 +6,7 @@ package analisis
 
 import (
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/build"
 	"go/importer"
@@ -19,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"nyxcodigo/internal/nucleo"
 )
@@ -154,35 +156,56 @@ func parsear(src string) (*archivo, error) {
 
 // ---- type checking ----
 
+// The importer only reads the standard library: user or web code can name any import path, and
+// resolving a module path, a relative path or an absolute path would run `go list` on it or
+// type-check an arbitrary directory (with cgo, that means running the C compiler). Such paths fail
+// at once with a Spanish error and the analysis goes on with partial information.
+
 var (
 	muImportador sync.Mutex
 	importadorGc types.Importer
-	importadorFt types.Importer
-	fsetFuentes  = token.NewFileSet()
+	fuentesStd   *importadorFuentes
 	cachePaq     = map[string]*types.Package{}
 	fallosPaq    = map[string]error{}
+	rutasStd     = map[string]bool{} // validated paths (true: a standard library package)
 )
 
 type importador struct{}
 
-// Import uses export data (go list -export) and falls back to type-checking GOROOT sources.
-// Results, and failures, are cached for the life of the process.
+// Import reads a standard library package from export data and falls back to type-checking its
+// GOROOT sources in-process (with cgo off). Anything else is refused. Results, and failures, are cached
+// for the life of the process.
 func (importador) Import(ruta string) (*types.Package, error) {
 	muImportador.Lock()
 	defer muImportador.Unlock()
+	return importarStd(ruta)
+}
+
+// importarStd does the work of Import; muImportador must be held.
+func importarStd(ruta string) (*types.Package, error) {
+	if ruta == "unsafe" {
+		return types.Unsafe, nil
+	}
 	if p, ok := cachePaq[ruta]; ok {
 		return p, nil
 	}
 	if err, ok := fallosPaq[ruta]; ok {
 		return nil, err
 	}
+	if _, ok := dirEstandar(ruta, false); !ok {
+		err := fmt.Errorf("solo leo paquetes de la biblioteca estándar, y %q no lo es", ruta)
+		fallosPaq[ruta] = err
+		return nil, err
+	}
 	if importadorGc == nil {
 		importadorGc = importer.Default()
-		importadorFt = importer.ForCompiler(fsetFuentes, "source", nil)
 	}
 	p, err := importadorGc.Import(ruta)
 	if err != nil {
-		p, err = importadorFt.Import(ruta)
+		if fuentesStd == nil {
+			fuentesStd = nuevoImportadorFuentes()
+		}
+		p, err = fuentesStd.Import(ruta)
 	}
 	if err != nil {
 		fallosPaq[ruta] = err
@@ -190,6 +213,157 @@ func (importador) Import(ruta string) (*types.Package, error) {
 	}
 	cachePaq[ruta] = p
 	return p, nil
+}
+
+// dirEstandar returns the GOROOT/src directory of a standard library package path. It refuses empty,
+// relative and absolute paths, paths with "." or ".." elements, module paths (a dot in the first
+// element), the cmd tree, vendor and testdata directories, and (unless internos) internal packages.
+// muImportador must be held.
+func dirEstandar(ruta string, internos bool) (string, bool) {
+	clave := ruta
+	if internos {
+		clave = "+" + ruta
+	}
+	if ok, ya := rutasStd[clave]; ya {
+		if !ok {
+			return "", false
+		}
+		return filepath.Join(build.Default.GOROOT, "src", filepath.FromSlash(ruta)), true
+	}
+	dir, ok := validarRutaStd(ruta, internos)
+	rutasStd[clave] = ok
+	return dir, ok
+}
+
+func validarRutaStd(ruta string, internos bool) (string, bool) {
+	raiz := build.Default.GOROOT
+	if raiz == "" || ruta == "" || ruta == "C" || build.IsLocalImport(ruta) || strings.HasPrefix(ruta, "/") ||
+		filepath.IsAbs(ruta) || strings.ContainsAny(ruta, "\\:@ \t\n\"'`") || !utf8.ValidString(ruta) {
+		return "", false
+	}
+	partes := strings.Split(ruta, "/")
+	if strings.Contains(partes[0], ".") || partes[0] == "cmd" {
+		return "", false
+	}
+	for _, p := range partes {
+		if p == "" || strings.HasPrefix(p, ".") || strings.HasPrefix(p, "_") || p == "testdata" || p == "vendor" {
+			return "", false
+		}
+		if p == "internal" && !internos {
+			return "", false
+		}
+	}
+	base := filepath.Join(raiz, "src")
+	dir := filepath.Join(base, filepath.FromSlash(ruta))
+	real, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", false
+	}
+	if realBase, err := filepath.EvalSymlinks(base); err == nil {
+		if rel, err := filepath.Rel(realBase, real); err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+			return "", false
+		}
+	}
+	entradas, err := os.ReadDir(dir)
+	if err != nil {
+		return "", false
+	}
+	for _, e := range entradas {
+		n := e.Name()
+		if !e.IsDir() && strings.HasSuffix(n, ".go") && !strings.HasSuffix(n, "_test.go") {
+			return dir, true
+		}
+	}
+	return "", false
+}
+
+// importadorFuentes type-checks standard library packages from GOROOT/src in-process, with cgo off
+// (the pure Go files are used) and without function bodies. It never starts a process.
+type importadorFuentes struct {
+	fset     *token.FileSet
+	ctx      build.Context
+	paquetes map[string]*types.Package
+	fallos   map[string]error
+	enCurso  map[string]bool
+}
+
+func nuevoImportadorFuentes() *importadorFuentes {
+	ctx := build.Default
+	ctx.CgoEnabled = false
+	return &importadorFuentes{fset: token.NewFileSet(), ctx: ctx, paquetes: map[string]*types.Package{},
+		fallos: map[string]error{}, enCurso: map[string]bool{}}
+}
+
+// Import is called with muImportador held (directly or by go/types for the dependencies).
+func (f *importadorFuentes) Import(ruta string) (*types.Package, error) {
+	if ruta == "unsafe" {
+		return types.Unsafe, nil
+	}
+	if p, ok := f.paquetes[ruta]; ok {
+		return p, nil
+	}
+	if err, ok := f.fallos[ruta]; ok {
+		return nil, err
+	}
+	if f.enCurso[ruta] {
+		return nil, fmt.Errorf("el paquete %s se importa a sí mismo", ruta)
+	}
+	f.enCurso[ruta] = true
+	defer delete(f.enCurso, ruta)
+	p, err := f.cargar(ruta)
+	if err != nil {
+		f.fallos[ruta] = err
+		return nil, err
+	}
+	f.paquetes[ruta] = p
+	return p, nil
+}
+
+func (f *importadorFuentes) cargar(ruta string) (*types.Package, error) {
+	dir, ok := dirEstandar(ruta, true)
+	if !ok {
+		return nil, fmt.Errorf("%q no es un paquete de la biblioteca estándar", ruta)
+	}
+	bp, err := f.ctx.ImportDir(dir, 0)
+	if err != nil {
+		return nil, fmt.Errorf("no pude leer el paquete %s: %v", ruta, err)
+	}
+	var archivos []*ast.File
+	for _, n := range bp.GoFiles {
+		af, err := parser.ParseFile(f.fset, filepath.Join(dir, n), nil, parser.SkipObjectResolution)
+		if err != nil {
+			return nil, fmt.Errorf("no pude leer el paquete %s: %v", ruta, err)
+		}
+		archivos = append(archivos, af)
+	}
+	conf := types.Config{
+		Importer:         f,
+		IgnoreFuncBodies: true,
+		FakeImportC:      true,
+		Sizes:            types.SizesFor("gc", build.Default.GOARCH),
+		Error:            func(error) {},
+	}
+	p, err := conf.Check(ruta, f.fset, archivos, nil)
+	if p == nil {
+		return nil, fmt.Errorf("no pude comprobar el paquete %s: %v", ruta, err)
+	}
+	return p, nil
+}
+
+// esImportado reports whether p is a package produced by the importer (the standard library), as
+// opposed to a package type-checked from the user's code.
+func esImportado(p *types.Package) bool {
+	muImportador.Lock()
+	defer muImportador.Unlock()
+	if q, ok := cachePaq[p.Path()]; ok && q == p {
+		return true
+	}
+	if fuentesStd != nil {
+		if q, ok := fuentesStd.paquetes[p.Path()]; ok && q == p {
+			return true
+		}
+	}
+	return false
 }
 
 // comprobarTipos fills a.info; type errors are recorded, never fatal.
@@ -202,7 +376,8 @@ func (a *archivo) comprobarTipos() {
 		Selections: map[*ast.SelectorExpr]*types.Selection{},
 	}
 	conf := types.Config{
-		Importer: importador{},
+		Importer:    importador{},
+		FakeImportC: true,
 		Error: func(err error) {
 			if te, ok := err.(types.Error); ok {
 				pos := te.Fset.Position(te.Pos)
@@ -264,13 +439,47 @@ func (a *archivo) objeto(id *ast.Ident) types.Object {
 
 // TipoDe converts a go/types type into a nucleo.Tipo. It reports false for channels, functions,
 // interfaces other than error, generics, complex numbers, types from other packages and recursive types.
+// Without the package being analysed at hand, a named type is "from another package" when it comes from
+// the standard library importer, or when its package path is a standard library package that declares
+// a type with that name.
 func TipoDe(t types.Type) (nucleo.Tipo, bool) {
-	r, motivo := tipoDe(t, map[*types.Named]bool{})
+	r, motivo := (&conversor{visto: map[*types.Named]bool{}}).tipo(t)
 	return r, motivo == ""
 }
 
-// tipoDe returns the type, or a Spanish reason why it cannot be represented.
+// conversor turns go/types types into nucleo.Tipo trees.
+type conversor struct {
+	visto map[*types.Named]bool
+	local *types.Package // the package being analysed (nil when unknown)
+}
+
+// tipoNucleo converts a type of the analysed file: named types are local exactly when they belong to
+// the checked package.
+func (a *archivo) tipoNucleo(t types.Type) (nucleo.Tipo, string) {
+	return (&conversor{visto: map[*types.Named]bool{}, local: a.pkg}).tipo(t)
+}
+
+// tipoDe is the context-free conversion (as TipoDe), with the Spanish reason.
 func tipoDe(t types.Type, visto map[*types.Named]bool) (nucleo.Tipo, string) {
+	return (&conversor{visto: visto}).tipo(t)
+}
+
+// foraneo reports whether a named type is declared in a package other than the analysed one: the
+// harness could not declare it in the candidate's package.
+func (c *conversor) foraneo(obj *types.TypeName) bool {
+	p := obj.Pkg()
+	if p == nil {
+		return false
+	}
+	if c.local != nil {
+		return p != c.local
+	}
+	return esDeOtroPaquete(obj)
+}
+
+// tipo returns the type, or a Spanish reason why it cannot be represented.
+func (c *conversor) tipo(t types.Type) (nucleo.Tipo, string) {
+	visto := c.visto
 	if t == nil {
 		return nucleo.Tipo{}, "no conozco el tipo"
 	}
@@ -289,7 +498,7 @@ func tipoDe(t types.Type, visto map[*types.Named]bool) (nucleo.Tipo, string) {
 		if obj.Pkg() == nil {
 			return nucleo.Tipo{}, "usa el tipo " + obj.Name()
 		}
-		if esDeOtroPaquete(obj) {
+		if c.foraneo(obj) {
 			return nucleo.Tipo{}, "usa el tipo " + obj.Pkg().Name() + "." + obj.Name() + " de otro paquete"
 		}
 		if visto[x] {
@@ -297,7 +506,7 @@ func tipoDe(t types.Type, visto map[*types.Named]bool) (nucleo.Tipo, string) {
 		}
 		visto[x] = true
 		defer delete(visto, x)
-		u, motivo := tipoDe(x.Underlying(), visto)
+		u, motivo := c.tipo(x.Underlying())
 		if motivo != "" {
 			return nucleo.Tipo{}, motivo
 		}
@@ -307,7 +516,7 @@ func tipoDe(t types.Type, visto map[*types.Named]bool) (nucleo.Tipo, string) {
 		u.Nombre, u.Definido = obj.Name(), true
 		return u, ""
 	case *types.Pointer:
-		e, motivo := tipoDe(x.Elem(), visto)
+		e, motivo := c.tipo(x.Elem())
 		if motivo != "" {
 			return nucleo.Tipo{}, motivo
 		}
@@ -316,19 +525,19 @@ func tipoDe(t types.Type, visto map[*types.Named]bool) (nucleo.Tipo, string) {
 		}
 		return nucleo.PunteroA(e), ""
 	case *types.Slice:
-		e, motivo := tipoDe(x.Elem(), visto)
+		e, motivo := c.tipo(x.Elem())
 		if motivo != "" {
 			return nucleo.Tipo{}, motivo
 		}
 		return nucleo.ListaDe(e), ""
 	case *types.Array:
-		e, motivo := tipoDe(x.Elem(), visto)
+		e, motivo := c.tipo(x.Elem())
 		if motivo != "" {
 			return nucleo.Tipo{}, motivo
 		}
 		return nucleo.ArregloDe(int(x.Len()), e), ""
 	case *types.Map:
-		k, motivo := tipoDe(x.Key(), visto)
+		k, motivo := c.tipo(x.Key())
 		if motivo != "" {
 			return nucleo.Tipo{}, motivo
 		}
@@ -337,7 +546,7 @@ func tipoDe(t types.Type, visto map[*types.Named]bool) (nucleo.Tipo, string) {
 		default:
 			return nucleo.Tipo{}, "usa un mapa con claves de tipo " + k.Go()
 		}
-		v, motivo := tipoDe(x.Elem(), visto)
+		v, motivo := c.tipo(x.Elem())
 		if motivo != "" {
 			return nucleo.Tipo{}, motivo
 		}
@@ -345,15 +554,15 @@ func tipoDe(t types.Type, visto map[*types.Named]bool) (nucleo.Tipo, string) {
 	case *types.Struct:
 		out := nucleo.Tipo{Clase: nucleo.CStruct}
 		for i := 0; i < x.NumFields(); i++ {
-			c := x.Field(i)
-			ct, motivo := tipoDe(c.Type(), visto)
+			campo := x.Field(i)
+			ct, motivo := c.tipo(campo.Type())
 			if motivo != "" {
 				return nucleo.Tipo{}, motivo
 			}
 			if ct.Clase == nucleo.CError {
 				return nucleo.Tipo{}, "tiene un campo de tipo error"
 			}
-			out.Campos = append(out.Campos, nucleo.Campo{Nombre: c.Name(), Tipo: ct})
+			out.Campos = append(out.Campos, nucleo.Campo{Nombre: campo.Name(), Tipo: ct})
 		}
 		return out, ""
 	case *types.Chan:
@@ -373,37 +582,30 @@ func tipoDe(t types.Type, visto map[*types.Named]bool) (nucleo.Tipo, string) {
 	return nucleo.Tipo{}, "usa un tipo que no sé representar (" + t.String() + ")"
 }
 
-// esDeOtroPaquete is true for named types declared in another (standard library) package, such as
-// big.Int or time.Duration: the harness could not declare them in the candidate's package.
+// esDeOtroPaquete is the context-free test used by TipoDe: the type comes from the standard library
+// importer, or its package path is a standard library package that declares a type of that name (so
+// big.Int or time.Duration are foreign, while a user package called image with its own Punto is not).
 func esDeOtroPaquete(obj *types.TypeName) bool {
 	p := obj.Pkg()
 	if p == nil || p.Path() == "main" {
 		return false
 	}
-	muLocales.Lock()
-	defer muLocales.Unlock()
-	if r, ok := foraneos[p.Path()]; ok {
-		return r
+	if esImportado(p) {
+		return true
 	}
-	r := false
-	if raiz := build.Default.GOROOT; raiz != "" {
-		if st, err := os.Stat(filepath.Join(raiz, "src", filepath.FromSlash(p.Path()))); err == nil && st.IsDir() {
-			r = true
-		}
+	muImportador.Lock()
+	_, std := dirEstandar(p.Path(), false)
+	muImportador.Unlock()
+	if !std {
+		return false
 	}
-	if !r {
-		muImportador.Lock()
-		_, r = cachePaq[p.Path()]
-		muImportador.Unlock()
+	q, err := importador{}.Import(p.Path())
+	if err != nil || q == nil {
+		return true // a standard library path we cannot read: assume it is not the user's
 	}
-	foraneos[p.Path()] = r
-	return r
+	_, ok := q.Scope().Lookup(obj.Name()).(*types.TypeName)
+	return ok
 }
-
-var (
-	muLocales sync.Mutex
-	foraneos  = map[string]bool{}
-)
 
 func tipoBasico(b *types.Basic) (nucleo.Tipo, string) {
 	switch b.Kind() {
@@ -460,9 +662,8 @@ func (a *archivo) firmaDe(fd *ast.FuncDecl) (*nucleo.Firma, string) {
 		return nil, "es genérica"
 	}
 	f := &nucleo.Firma{Nombre: fd.Name.Name, Variadica: sig.Variadic()}
-	visto := map[*types.Named]bool{}
 	if r := sig.Recv(); r != nil {
-		t, motivo := tipoDe(r.Type(), visto)
+		t, motivo := a.tipoNucleo(r.Type())
 		if motivo != "" {
 			return nil, "es un método de un tipo que no sé representar: " + motivo
 		}
@@ -470,14 +671,14 @@ func (a *archivo) firmaDe(fd *ast.FuncDecl) (*nucleo.Firma, string) {
 	}
 	for i := 0; i < sig.Params().Len(); i++ {
 		p := sig.Params().At(i)
-		t, motivo := tipoDe(p.Type(), visto)
+		t, motivo := a.tipoNucleo(p.Type())
 		if motivo != "" {
 			return nil, motivo
 		}
 		f.Params = append(f.Params, nucleo.Param{Nombre: nombreParam(p.Name()), Tipo: t})
 	}
 	for i := 0; i < sig.Results().Len(); i++ {
-		t, motivo := tipoDe(sig.Results().At(i).Type(), visto)
+		t, motivo := a.tipoNucleo(sig.Results().At(i).Type())
 		if motivo != "" {
 			return nil, motivo
 		}
@@ -656,7 +857,9 @@ func Analizar(fuente string) (Informe, error) {
 		}
 		info.NoProbable = motivo
 		info.Ciclomatica = ciclomatica(fd)
-		info.Anidamiento = anidamiento(fd.Body)
+		if fd.Body != nil { // a declaration without a body, or half-typed code such as "func f( {"
+			info.Anidamiento = anidamiento(fd.Body)
+		}
 		r := comp.de(fd)
 		info.Recursiva, info.Exponencial, info.OGrande, info.Motivo = r.recursiva, r.exponencial, r.ordenTxt, r.motivo
 		inf.Funciones = append(inf.Funciones, info)

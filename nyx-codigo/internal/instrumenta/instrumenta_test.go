@@ -439,3 +439,37 @@ func TestContadorTrasEtiqueta(t *testing.T) {
 		t.Errorf("etiquetas anidadas:\n%s", r2.Fuente)
 	}
 }
+
+// Regression: the counter of a labeled loop has to stay in front of the label, so every goto to that label
+// counts the loop itself before jumping; the loop's id maps to the loop's own line, not to the bare label.
+func TestGotoABucleEtiquetado(t *testing.T) {
+	fuente := "package p\n\nfunc F(n int) int {\n\tif n > 0 {\n\t\tgoto bucle\n\t}\n\tn = 1\nbucle:\n\tfor i := 0; i < 2; i++ {\n\t\tn++\n\t}\n\tf := func() int {\n\t\tgoto bucle\n\tbucle:\n\t\tfor {\n\t\t\treturn 1\n\t\t}\n\t}\n\treturn n + f()\n}\n"
+	r, err := Instrumentar(fuente, nucleo.OpcionesInstr{Cobertura: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), "x.go", r.Fuente, 0); err != nil {
+		t.Fatalf("no se puede leer: %v\n%s", err, r.Fuente)
+	}
+	m := regexp.MustCompile(`nyx__c\[(\d+)\]\+\+; bucle:\n\tfor`).FindStringSubmatch(r.Fuente)
+	if m == nil {
+		t.Fatalf("el contador del bucle debe ir delante de la etiqueta:\n%s", r.Fuente)
+	}
+	if !strings.Contains(r.Fuente, "nyx__c["+m[1]+"]++; goto bucle\n\t}") {
+		t.Errorf("el goto debe contar el bucle %s antes de saltar:\n%s", m[1], r.Fuente)
+	}
+	id, _ := strconv.Atoi(m[1])
+	if r.Lineas[id] != 9 {
+		t.Errorf("el bucle está en la línea 9, no en la %d (Lineas = %v)", r.Lineas[id], r.Lineas)
+	}
+	// the function literal has its own label with the same name: its goto counts its own loop
+	m2 := regexp.MustCompile(`nyx__c\[(\d+)\]\+\+; bucle:\n\t\tfor`).FindStringSubmatch(r.Fuente)
+	if m2 == nil || m2[1] == m[1] || !strings.Contains(r.Fuente, "nyx__c["+m2[1]+"]++; goto bucle\n\tnyx__c["+m2[1]+"]++; bucle:") {
+		t.Errorf("la etiqueta de la función anidada es otra:\n%s", r.Fuente)
+	}
+	// without coverage nothing is added to the gotos
+	r, err = Instrumentar(fuente, nucleo.OpcionesInstr{Combustible: 10})
+	if err != nil || strings.Contains(r.Fuente, "nyx__c") {
+		t.Errorf("%v\n%s", err, r.Fuente)
+	}
+}

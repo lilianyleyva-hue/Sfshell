@@ -772,8 +772,8 @@ func (n *narrador) humanoDe(t types.Type) string {
 	if t == nil {
 		return ""
 	}
-	nt, ok := TipoDe(t)
-	if !ok {
+	nt, motivo := n.a.tipoNucleo(t)
+	if motivo != "" {
 		return types.TypeString(t, func(p *types.Package) string { return p.Name() })
 	}
 	return nt.Humano()
@@ -1100,7 +1100,7 @@ func (n *narrador) simple(s ast.Stmt) string {
 				}
 				cero := "vacío"
 				if t := n.a.tipo(id); t != nil {
-					if nt, ok := TipoDe(t); ok {
+					if nt, motivo := n.a.tipoNucleo(t); motivo == "" {
 						cero = "a cero (" + nt.Cero() + ")"
 					}
 				}

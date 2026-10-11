@@ -418,6 +418,11 @@ func reglaIdentificador(a *analisis, e nucleo.ErrorGo, m []string) []edicion {
 	}
 	declarar := a.declaraciones(id)
 	muyCerca := len(filtrados) > 0 && damerau(strings.ToLower(filtrados[0]), strings.ToLower(nombre)) <= 1
+	// «resto = a % b; return resto»: a name first assigned with «=» and used again is a missing
+	// declaration (a Python/JavaScript habit), not a typo of a visible name such as «rest»
+	if muyCerca && len(declarar) > 0 && declarar[0].texto == ":=" && a.usosSinDefinir(id) > 1 {
+		muyCerca = false
+	}
 	if muyCerca {
 		out = append(out, porNombre...)
 		out = append(out, declarar...)
@@ -428,10 +433,27 @@ func reglaIdentificador(a *analisis, e nucleo.ErrorGo, m []string) []edicion {
 	return out
 }
 
+// usosSinDefinir counts the unresolved uses of id's name in the function that holds id.
+func (a *analisis) usosSinDefinir(id *ast.Ident) int {
+	_, cuerpo := a.funcionEn(id.Pos())
+	if cuerpo == nil || a.info == nil {
+		return 0
+	}
+	n := 0
+	ast.Inspect(cuerpo, func(x ast.Node) bool {
+		if y, ok := x.(*ast.Ident); ok && y.Name == id.Name && a.info.Uses[y] == nil && a.info.Defs[y] == nil {
+			n++
+		}
+		return true
+	})
+	return n
+}
+
 // renombrePlausible reports whether an undefined name is probably a typo of the visible name c. Any
 // one-letter name is one edit away from any other, so short names are only "typos" of the same letters
-// (another case, or two letters swapped): renaming «c» to «a» compiles, but computes something else.
-// Longer names allow one edit (two from 7 runes on).
+// (another case, or two letters swapped) or, from 2 letters on, of a name with one more letter:
+// renaming «c» to «a» compiles, but computes something else. Longer names allow one edit (two from 7
+// runes on).
 func renombrePlausible(nombre, c string) bool {
 	if strings.EqualFold(nombre, c) {
 		return true
@@ -440,7 +462,9 @@ func renombrePlausible(nombre, c string) bool {
 	d := damerau(strings.ToLower(nombre), strings.ToLower(c))
 	switch {
 	case n <= 3:
-		return d == 1 && mismasLetras(strings.ToLower(nombre), strings.ToLower(c))
+		// «ab» → «ba», or a dropped letter in a name of 2–3 letters («sm» → «sum»)
+		return d == 1 && (mismasLetras(strings.ToLower(nombre), strings.ToLower(c)) ||
+			n >= 2 && utf8.RuneCountInString(c) == n+1)
 	case n < 7:
 		return d <= 1
 	}
