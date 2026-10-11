@@ -36,38 +36,70 @@ func solapan(a, b edicion) bool {
 }
 
 // aplicar applies the edits that do not overlap an earlier one (in the given order) and then adds
-// the imports. It returns the new source and the edits applied.
+// the imports. It returns the new source and the edits applied. It runs in O(len(src) + n log n): the
+// chosen edits are kept sorted by position (so an overlap check looks only at the neighbours) and the
+// result is written once.
 func aplicar(src string, eds []edicion) (string, []edicion) {
 	var elegidas []edicion
+	var rangos []edicion // chosen text edits, sorted by (ini, fin)
 	for _, e := range eds {
-		ok := true
-		for _, o := range elegidas {
-			if solapan(e, o) {
-				ok = false
+		if e.soloImport() {
+			elegidas = append(elegidas, e)
+			continue
+		}
+		if e.ini > e.fin || e.fin > len(src) {
+			continue
+		}
+		// first chosen edit that starts at or after e.ini
+		p := sort.Search(len(rangos), func(i int) bool {
+			return rangos[i].ini > e.ini || rangos[i].ini == e.ini && rangos[i].fin >= e.fin
+		})
+		choca := false
+		for j := p - 1; j >= 0; j-- { // earlier edits end in order: stop once they end before e
+			if solapan(e, rangos[j]) {
+				choca = true
+				break
+			}
+			if rangos[j].fin < e.ini {
 				break
 			}
 		}
-		if ok {
-			elegidas = append(elegidas, e)
+		for j := p; j < len(rangos) && !choca; j++ {
+			if solapan(e, rangos[j]) {
+				choca = true
+				break
+			}
+			if rangos[j].ini > e.fin {
+				break
+			}
 		}
-	}
-	rangos := make([]edicion, 0, len(elegidas))
-	var importar []string
-	for _, e := range elegidas {
-		if !e.soloImport() {
-			rangos = append(rangos, e)
-		}
-		importar = append(importar, e.importar...)
-	}
-	sort.SliceStable(rangos, func(i, j int) bool { return rangos[i].ini > rangos[j].ini })
-	for _, e := range rangos {
-		if e.ini < 0 || e.fin > len(src) || e.ini > e.fin {
+		if choca {
 			continue
 		}
-		src = src[:e.ini] + e.texto + src[e.fin:]
+		elegidas = append(elegidas, e)
+		rangos = append(rangos, edicion{})
+		copy(rangos[p+1:], rangos[p:])
+		rangos[p] = e
 	}
-	for _, ruta := range importar {
-		src = agregarImport(src, ruta)
+	if len(rangos) > 0 {
+		var sb strings.Builder
+		sb.Grow(len(src))
+		ultimo := 0
+		for _, e := range rangos {
+			if e.ini < ultimo {
+				continue // cannot happen: the chosen edits do not overlap
+			}
+			sb.WriteString(src[ultimo:e.ini])
+			sb.WriteString(e.texto)
+			ultimo = e.fin
+		}
+		sb.WriteString(src[ultimo:])
+		src = sb.String()
+	}
+	for _, e := range elegidas {
+		for _, ruta := range e.importar {
+			src = agregarImport(src, ruta)
+		}
 	}
 	return src, elegidas
 }

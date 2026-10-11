@@ -223,7 +223,10 @@ func (p *programa) Correr(ctx context.Context, c nucleo.CasoPrograma) (nucleo.Ej
 	if c.Entrada != "" {
 		e.Comando += " < entrada"
 	}
-	if p.conFuel && strings.Contains(f.errSalida.Cola(tamCola), instrumenta.MensajeSinComb) {
+	// the runtime prints the panic message first and the goroutine dump after it, so with a deep stack the
+	// message is only at the head of stderr (the tail covers output past the cap)
+	if p.conFuel && (strings.Contains(f.errSalida.String(), instrumenta.MensajeSinComb) ||
+		strings.Contains(f.errSalida.Cola(tamCola), instrumenta.MensajeSinComb)) {
 		e.SinCombustible = true
 	}
 	return e, nil

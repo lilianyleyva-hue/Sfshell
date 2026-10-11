@@ -360,7 +360,8 @@ func TestMinimizarAMenosUno(t *testing.T) {
 	if !nucleo.Igual(m.Entradas[0], lista(-1)) {
 		t.Fatalf("se esperaba [-1], salió %v", m.Entradas[0])
 	}
-	if m.Esperado != nil || m.Origen != nucleo.OrigenUsuario {
+	// the shrunk case is not the user's own example any more (regression: it kept Origen usuario)
+	if m.Esperado != nil || m.Origen != OrigenReducido || m.Nota != "reducido de tu ejemplo" {
 		t.Fatalf("caso reducido: %+v", m)
 	}
 	if llamadas > 12 || ej.NumLlamadas("Preparar") != 1 {

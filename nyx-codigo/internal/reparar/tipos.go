@@ -2,6 +2,7 @@ package reparar
 
 import (
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/importer"
 	"go/parser"
@@ -33,7 +34,14 @@ type importadorCache struct{}
 
 // Import uses export data (go list -export) first and GOROOT sources as a fallback; results and
 // failures are cached for the life of the process. Callers hold muTipos.
+//
+// The code checked here comes from the user or the web and runs OUTSIDE the sandbox, so only
+// standard-library paths are imported: a relative path ("../../secreto") or any other package would
+// make the source importer read (and report the contents of) files of the server's disk, or run cgo.
 func (importadorCache) Import(ruta string) (*types.Package, error) {
+	if !esRutaStd(ruta) {
+		return nil, fmt.Errorf("solo se pueden usar paquetes de la biblioteca estándar, no %q", ruta)
+	}
 	if p, ok := cacheImport[ruta]; ok {
 		return p, nil
 	}
@@ -54,6 +62,25 @@ func (importadorCache) Import(ruta string) (*types.Package, error) {
 	}
 	cacheImport[ruta] = p
 	return p, nil
+}
+
+var (
+	unaVezStd sync.Once
+	rutasStd  map[string]bool
+)
+
+// esRutaStd reports whether ruta is an import path of the standard library (from the table in
+// paquetes.go, generated from "go list std").
+func esRutaStd(ruta string) bool {
+	unaVezStd.Do(func() {
+		rutasStd = map[string]bool{}
+		for _, rs := range paquetesStd {
+			for _, r := range rs {
+				rutasStd[r] = true
+			}
+		}
+	})
+	return rutasStd[ruta]
 }
 
 // ---- analysis ----
@@ -187,26 +214,46 @@ func (a *analisis) posDe(e nucleo.ErrorGo) token.Pos {
 	if tf == nil {
 		return token.NoPos
 	}
-	off := offset(a.fuente, e.Linea, e.Col)
-	if off > tf.Size() {
+	// token.File knows where each line starts: O(1) instead of counting lines from the top
+	var off int
+	switch {
+	case e.Linea < 1:
+		off = 0
+	case e.Linea > tf.LineCount():
 		off = tf.Size()
+	default:
+		off = tf.Offset(tf.LineStart(e.Linea)) + max(e.Col, 1) - 1
 	}
+	off = min(off, tf.Size())
 	return tf.Pos(off)
 }
 
 // camino returns the chain of nodes from the file down to the innermost node containing p.
+// Inside a long block the statement holding p is found by binary search, so that a file with
+// thousands of statements (and errors) is not walked once per error.
 func (a *analisis) camino(p token.Pos) []ast.Node {
 	var out []ast.Node
-	ast.Inspect(a.archivo, func(n ast.Node) bool {
-		if n == nil {
-			return false
-		}
-		if n.Pos() <= p && p < n.End() {
+	if a.archivo == nil {
+		return nil
+	}
+	var visitar func(raiz ast.Node)
+	visitar = func(raiz ast.Node) {
+		ast.Inspect(raiz, func(n ast.Node) bool {
+			if n == nil || !(n.Pos() <= p && p < n.End()) {
+				return false
+			}
 			out = append(out, n)
+			if b, ok := n.(*ast.BlockStmt); ok && len(b.List) > 8 {
+				i := sort.Search(len(b.List), func(i int) bool { return b.List[i].End() > p })
+				if i < len(b.List) && b.List[i].Pos() <= p {
+					visitar(b.List[i])
+				}
+				return false
+			}
 			return true
-		}
-		return false
-	})
+		})
+	}
+	visitar(a.archivo)
 	return out
 }
 
@@ -363,6 +410,7 @@ func esError(t types.Type) bool {
 
 // indentacion returns the leading whitespace of the line containing offset off.
 func indentacion(src string, off int) string {
+	off = min(max(off, 0), len(src))
 	ini := strings.LastIndexByte(src[:off], '\n') + 1
 	fin := ini
 	for fin < len(src) && (src[fin] == ' ' || src[fin] == '\t') {
@@ -372,10 +420,14 @@ func indentacion(src string, off int) string {
 }
 
 // inicioLinea returns the offset of the start of the line containing off.
-func inicioLinea(src string, off int) int { return strings.LastIndexByte(src[:off], '\n') + 1 }
+func inicioLinea(src string, off int) int {
+	off = min(max(off, 0), len(src))
+	return strings.LastIndexByte(src[:off], '\n') + 1
+}
 
 // finLinea returns the offset of the '\n' ending the line containing off (or len(src)).
 func finLinea(src string, off int) int {
+	off = min(max(off, 0), len(src))
 	i := strings.IndexByte(src[off:], '\n')
 	if i < 0 {
 		return len(src)
@@ -385,9 +437,7 @@ func finLinea(src string, off int) int {
 
 // lineaDe returns the 1-based line of offset off.
 func lineaDe(src string, off int) int {
-	if off > len(src) {
-		off = len(src)
-	}
+	off = min(max(off, 0), len(src))
 	return strings.Count(src[:off], "\n") + 1
 }
 

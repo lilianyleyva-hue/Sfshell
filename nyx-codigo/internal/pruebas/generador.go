@@ -324,6 +324,9 @@ func (g *Generador) Azar(t nucleo.Tipo, tam int) nucleo.Valor {
 	if tam < 0 {
 		tam = 0
 	}
+	if tam > maxTam {
+		tam = maxTam
+	}
 	return g.azar(t, tam, 0)
 }
 
@@ -425,11 +428,20 @@ func (g *Generador) limite(tam int) int {
 	if lim <= 0 {
 		lim = 1000
 	}
-	if g.r.Intn(2) == 0 && tam+3 < lim {
+	if lim > maxRango {
+		lim = maxRango
+	}
+	if g.r.Intn(2) == 0 && tam < lim-3 {
 		lim = tam + 3
 	}
 	return lim
 }
+
+// maxRango caps |int| for random values: 2*maxRango+1 still fits in an int64 (Int63n).
+const maxRango = math.MaxInt64 / 2
+
+// maxTam caps list and string lengths of random values (the size of the "grande" case).
+const maxTam = 10000
 
 func (g *Generador) entero(t nucleo.Tipo, tam int) int {
 	lim := int64(g.limite(tam))
@@ -601,7 +613,7 @@ func (g *Generador) adaptar(op OpcionesCasos) {
 	}
 	switch {
 	case op.Rango > 0:
-		g.rango = op.Rango
+		g.rango = min(op.Rango, maxRango)
 	case maxAbs >= 0:
 		r := 10 * maxAbs
 		if r < 10 {
@@ -616,7 +628,7 @@ func (g *Generador) adaptar(op OpcionesCasos) {
 	}
 	switch {
 	case op.TamMax > 0:
-		g.tamMax = op.TamMax
+		g.tamMax = min(op.TamMax, maxTam)
 	case 2*maxLargo > 30:
 		g.tamMax = min(2*maxLargo, 100)
 	default:

@@ -80,6 +80,7 @@ type nyx__Cabecera struct {
 	Fuel      int64
 	MaxPila   int
 	Tcaso_ms  int64
+	MaxO      int
 	Repetir   int
 	Parar     bool
 	Saltar    [][2]int
@@ -98,6 +99,7 @@ type nyx__Ejec struct {
 	Repetir     int
 	Fuel        int64
 	O           [][]byte
+	Grande      int
 	Panico      string
 	SinComb     bool
 	Distinto    bool
@@ -111,7 +113,21 @@ type nyx__Ejec struct {
 }
 
 func (x *nyx__Ejec) ok() bool {
-	return x.ErrDec == "" && x.Panico == "" && !x.SinComb && !x.Distinto && x.PropFallida == "" && !x.NoDet
+	return x.ErrDec == "" && x.Panico == "" && x.Grande == 0 && !x.SinComb && !x.Distinto && x.PropFallida == "" && !x.NoDet
+}
+
+// nyx__limitar drops results larger than max bytes (encoded): the parent only learns their size.
+func (x *nyx__Ejec) nyx__limitar(max int) {
+	if max <= 0 {
+		return
+	}
+	n := 0
+	for _, o := range x.O {
+		n += len(o)
+	}
+	if n > max {
+		x.O, x.Grande = nil, n
+	}
 }
 
 // Dec records a decoding error and reports whether there was one.
@@ -232,6 +248,14 @@ func nyx__escribir(b []byte) {
 	}
 }
 
+// nyx__arranque marks on fd 3 that the package-level code of variant k (its var initializers, then its init
+// functions) starts running, so the parent can tell whose start-up killed the process. It depends on no
+// variable of this package, so Go runs it right before that variant's own package-level code.
+func nyx__arranque(k int) int {
+	nyxfd.Resultados.Write([]byte("{\"n\":\"" + nyxfd.Nonce + "\",\"a\":" + strconv.Itoa(k) + "}\n"))
+	return 0
+}
+
 func nyx__morir(msg string) {
 	fmt.Fprintln(os.Stderr, "arnés de Nyx Código: "+msg)
 	os.Exit(4)
@@ -298,6 +322,10 @@ func nyx__resultado(b []byte, v, c int, x *nyx__Ejec) []byte {
 	b = strconv.AppendInt(b, int64(c), 10)
 	b = append(b, ",\"ok\":"...)
 	b = strconv.AppendBool(b, x.ok())
+	if x.Grande > 0 {
+		b = append(b, ",\"grande\":"...)
+		b = strconv.AppendInt(b, int64(x.Grande), 10)
+	}
 	if x.Panico == "" && x.ErrDec == "" && x.O != nil {
 		b = append(b, ",\"o\":["...)
 		for i, o := range x.O {
@@ -343,7 +371,11 @@ func nyx__resultado(b []byte, v, c int, x *nyx__Ejec) []byte {
 	}
 	if len(x.Ev) > 0 {
 		b = append(b, ",\"ev\":["...)
+		inicio := len(b)
 		for i, e := range x.Ev {
+			if len(b)-inicio > 1<<20 {
+				break // the events of one case never take more than 1 MiB of the line
+			}
 			if i > 0 {
 				b = append(b, ',')
 			}
@@ -368,6 +400,7 @@ func nyx__resultado(b []byte, v, c int, x *nyx__Ejec) []byte {
 func Nyx__Principal() {
 	debug.SetMaxStack(TAMPILA)
 	nyx__nonce = nyxfd.Nonce
+	nyx__escribir([]byte("{\"n\":\"" + nyx__nonce + "\",\"listo\":true}\n")) // every init has run
 	dec := json.NewDecoder(nyxfd.Casos)
 	dec.UseNumber()
 	var cab nyx__Cabecera
@@ -423,6 +456,7 @@ func Nyx__Principal() {
 			reloj.Reset(tcaso)
 			nyx__tabla[v](x)
 			reloj.Stop()
+			x.nyx__limitar(cab.MaxO)
 			nyx__tomarSalida()
 			pendiente = nyx__resultado(pendiente, v, c, x)
 			if cab.Parar && !x.ok() {
@@ -990,6 +1024,7 @@ func nyx__Invertir[T any](x T) T {
 }
 
 var (
+	_ = nyx__arranque
 	_ = nyx__Igual
 	_ = nyx__Ordenada
 	_ = nyx__OrdenadaDesc

@@ -51,8 +51,8 @@ nyx__c[13]++; fuera:
 
 func Salta(n int) int { nyx__f--; if nyx__f < 0 { panic(nyx__SinComb{}) };
 	nyx__c[20]++; i := 0; nyx__ev(53, "i", i)
-nyx__c[21]++; otra:
-	nyx__f--; if nyx__f < 0 { panic(nyx__SinComb{}) }; i++; nyx__ev(55, "i", i)
+otra:
+	nyx__f--; if nyx__f < 0 { panic(nyx__SinComb{}) }; nyx__c[21]++; i++; nyx__ev(55, "i", i)
 	nyx__c[22]++; if i < n {
 		nyx__c[23]++; goto otra
 	}

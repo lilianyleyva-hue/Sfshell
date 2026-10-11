@@ -176,12 +176,37 @@ func (in *instrumentador) lista(ss []ast.Stmt) {
 			return
 		}
 		id := len(in.lineas)
-		in.lineas = append(in.lineas, in.linea(s.Pos()))
+		pos := posContador(s)
+		in.lineas = append(in.lineas, in.linea(pos)) // the line where the counter sits
 		if in.op.Cobertura {
-			in.insertar(s.Pos(), ordenCobertura, "nyx__c["+strconv.Itoa(id)+"]++; ")
+			in.insertar(pos, ordenCobertura, "nyx__c["+strconv.Itoa(id)+"]++; ")
 		}
 		in.sentencia(s)
 	}
+}
+
+// posContador is where the coverage counter of s goes. For a labeled statement it goes after the label, so a
+// goto to that label still counts the statement ("fin: nyx__c[9]++; return n"). A label on a loop, switch or
+// select must stay on that statement (break L / continue L), so there the counter stays before the label: a
+// goto to such a label is the one jump that skips the counter.
+func posContador(s ast.Stmt) token.Pos {
+	l, ok := s.(*ast.LabeledStmt)
+	if !ok {
+		return s.Pos()
+	}
+	interior := l.Stmt
+	for {
+		m, ok := interior.(*ast.LabeledStmt)
+		if !ok {
+			break
+		}
+		interior = m.Stmt
+	}
+	switch interior.(type) {
+	case *ast.ForStmt, *ast.RangeStmt, *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
+		return s.Pos()
+	}
+	return interior.Pos()
 }
 
 // eventos returns the variable-trace calls for the identifiers in xs (empty when Variables is off).

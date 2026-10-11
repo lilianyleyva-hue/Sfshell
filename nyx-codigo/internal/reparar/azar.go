@@ -2,6 +2,7 @@ package reparar
 
 import (
 	"context"
+	"math"
 	"math/rand"
 	"sort"
 
@@ -147,12 +148,42 @@ func valorAzar(rng *rand.Rand, t nucleo.Tipo, tam, prof int) nucleo.Valor {
 
 const maxReduccionesLocal = 40
 
+// tamanoEntradas is the sum of nucleo.Tamano of the inputs, saturating instead of overflowing.
 func tamanoEntradas(e []nucleo.Valor) int {
 	n := 0
 	for _, v := range e {
-		n += nucleo.Tamano(v)
+		t := nucleo.Tamano(v)
+		if t > math.MaxInt-n {
+			return math.MaxInt
+		}
+		n += t
 	}
 	return n
+}
+
+// origenReducido marks a shrunk case (the same value as pruebas.OrigenReducido): its inputs are not
+// the user's own example any more.
+const origenReducido nucleo.Origen = "reducido"
+
+// notaReducido is the note of a case shrunk from c ("reducido de «tu ejemplo 2»").
+func notaReducido(c nucleo.Caso) string {
+	if c.Origen == origenReducido && c.Nota != "" {
+		return c.Nota
+	}
+	if c.Nota != "" {
+		return "reducido de «" + c.Nota + "»"
+	}
+	switch c.Origen {
+	case nucleo.OrigenUsuario:
+		return "reducido de tu ejemplo"
+	case nucleo.OrigenContraejemplo:
+		return "reducido de un contraejemplo"
+	case nucleo.OrigenBorde:
+		return "reducido de un caso de borde"
+	case nucleo.OrigenAzar:
+		return "reducido de un caso al azar"
+	}
+	return "reducido"
 }
 
 // reduccionesLocal returns up to 40 candidates strictly smaller than c, without expected values.
@@ -181,7 +212,7 @@ func reduccionesLocal(c nucleo.Caso) []nucleo.Caso {
 				continue
 			}
 			visto[k] = true
-			out = append(out, nucleo.Caso{Entradas: e, Origen: c.Origen, Nota: c.Nota})
+			out = append(out, nucleo.Caso{Entradas: e, Origen: origenReducido, Nota: notaReducido(c)})
 		}
 	}
 	if len(out) > maxReduccionesLocal {

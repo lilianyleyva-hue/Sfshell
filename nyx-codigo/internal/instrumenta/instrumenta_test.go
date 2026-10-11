@@ -399,3 +399,43 @@ func TestSoporte(t *testing.T) {
 		t.Errorf("sin combustible el contador debe empezar muy alto:\n%s", s)
 	}
 }
+
+// Regression: the coverage counter of a labeled statement goes after the label, so a goto to the label counts
+// it; a label on a loop keeps the counter in front (the label must stay on the loop).
+func TestContadorTrasEtiqueta(t *testing.T) {
+	fuente := "package p\n\nfunc F(n int) int {\n\tif n > 0 {\n\t\tgoto fin\n\t}\n\tn = -n\nfin:\n\treturn n\n}\n\nfunc G(m [][]int) int {\nfuera:\n\tfor _, f := range m {\n\t\tfor range f {\n\t\t\tcontinue fuera\n\t\t}\n\t}\n\treturn 0\n}\n"
+	r, err := Instrumentar(fuente, nucleo.OpcionesInstr{Cobertura: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !regexp.MustCompile(`fin:\n\tnyx__c\[\d+\]\+\+; return n`).MatchString(r.Fuente) {
+		t.Errorf("el contador debe ir después de la etiqueta:\n%s", r.Fuente)
+	}
+	if !regexp.MustCompile(`nyx__c\[\d+\]\+\+; fuera:\n\tfor`).MatchString(r.Fuente) {
+		t.Errorf("la etiqueta de un bucle se queda pegada al bucle:\n%s", r.Fuente)
+	}
+	hay := false
+	for _, l := range r.Lineas {
+		if l == 9 {
+			hay = true
+		}
+		if l == 8 {
+			t.Errorf("la etiqueta sola no es una sentencia: Lineas = %v", r.Lineas)
+		}
+	}
+	if !hay {
+		t.Errorf("«return n» (línea 9) debe tener su contador: Lineas = %v", r.Lineas)
+	}
+	// nested labels and a label at the end of a block still compile
+	fuente2 := "package p\n\nfunc H(n int) int {\n\tif n > 0 {\n\t\tgoto b\n\t}\na:\nb:\n\tn++\n\tif n > 9 {\n\t\tgoto c\n\t}\nc:\n}\n"
+	r2, err := Instrumentar(strings.Replace(fuente2, "c:\n}", "c:\n\treturn n\n}", 1), nucleo.OpcionesInstr{Cobertura: true, Combustible: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), "x.go", r2.Fuente, 0); err != nil {
+		t.Fatalf("no se puede leer: %v\n%s", err, r2.Fuente)
+	}
+	if !strings.Contains(r2.Fuente, "b:\n\tnyx__f--; if nyx__f < 0 { panic(nyx__SinComb{}) }; nyx__c[") {
+		t.Errorf("etiquetas anidadas:\n%s", r2.Fuente)
+	}
+}

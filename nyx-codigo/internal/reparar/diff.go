@@ -14,13 +14,25 @@ type opDiff struct {
 }
 
 // Diff returns a unified diff from a to b ("--- antes" / "+++ después"), with 2 lines of context,
-// computed with Myers' O(ND) algorithm. Equal inputs give "".
+// computed with Myers' O(ND) algorithm. Inputs with the same lines give "" (also when they only differ
+// in the final newline). A very large difference (more than 1000 changed lines in the middle) is shown
+// as the old lines removed and the new ones added.
 func Diff(a, b string) string {
 	if a == b {
 		return ""
 	}
 	la, lb := lineasDiff(a), lineasDiff(b)
 	ops := myers(la, lb)
+	cambia := false
+	for _, o := range ops {
+		if o.tipo != ' ' {
+			cambia = true
+			break
+		}
+	}
+	if !cambia {
+		return ""
+	}
 	var sb strings.Builder
 	sb.WriteString("--- antes\n+++ después\n")
 	// group the operations into hunks
@@ -140,74 +152,31 @@ func rango(ini, n int) string {
 	return strconv.Itoa(ini) + "," + strconv.Itoa(n)
 }
 
+// maxDDiff bounds the edit distance Myers' search looks for. Beyond it (every line of a big paste
+// differs, e.g. after reindenting or CRLF → LF) the differing middle is shown as removed and re-added:
+// still a valid diff, computed in linear memory instead of O((n+m)·D).
+const maxDDiff = 1000
+
 // myers returns the edit script from a to b. For '-' ops, b is the index in b where the deletion
-// happens; for '+' ops, a is the index in a where the insertion happens.
+// happens; for '+' ops, a is the index in a where the insertion happens. The common prefix and suffix
+// are matched first; the middle gets Myers' O(ND) search with the traces trimmed to the diagonals in
+// use (O(D²) memory), or a whole replacement when D > maxDDiff.
 func myers(a, b []string) []opDiff {
-	n, m := len(a), len(b)
-	max := n + m
-	desp := max + 1
-	v := make([]int, 2*max+3)
-	var trazas [][]int
-	encontrado := false
-	for d := 0; d <= max && !encontrado; d++ {
-		copia := make([]int, len(v))
-		copy(copia, v)
-		trazas = append(trazas, copia)
-		for k := -d; k <= d; k += 2 {
-			var x int
-			if k == -d || (k != d && v[desp+k-1] < v[desp+k+1]) {
-				x = v[desp+k+1]
-			} else {
-				x = v[desp+k-1] + 1
-			}
-			y := x - k
-			for x < n && y < m && a[x] == b[y] {
-				x++
-				y++
-			}
-			v[desp+k] = x
-			if x >= n && y >= m {
-				encontrado = true
-				break
-			}
-		}
+	pre := 0
+	for pre < len(a) && pre < len(b) && a[pre] == b[pre] {
+		pre++
 	}
-	// backtrack
-	var ops []opDiff
-	x, y := n, m
-	for d := len(trazas) - 1; d >= 0; d-- {
-		vv := trazas[d]
-		k := x - y
-		var kPrev int
-		if k == -d || (k != d && vv[desp+k-1] < vv[desp+k+1]) {
-			kPrev = k + 1
-		} else {
-			kPrev = k - 1
-		}
-		xPrev := vv[desp+kPrev]
-		yPrev := xPrev - kPrev
-		for x > xPrev && y > yPrev {
-			x--
-			y--
-			ops = append(ops, opDiff{tipo: ' ', a: x, b: y})
-		}
-		if d > 0 {
-			if x == xPrev {
-				y--
-				ops = append(ops, opDiff{tipo: '+', a: x, b: y})
-			} else {
-				x--
-				ops = append(ops, opDiff{tipo: '-', a: x, b: y})
-			}
-		}
+	suf := 0
+	for suf < len(a)-pre && suf < len(b)-pre && a[len(a)-1-suf] == b[len(b)-1-suf] {
+		suf++
 	}
-	for x > 0 && y > 0 {
-		x--
-		y--
-		ops = append(ops, opDiff{tipo: ' ', a: x, b: y})
+	ops := make([]opDiff, 0, len(a)+len(b)-pre-suf)
+	for i := 0; i < pre; i++ {
+		ops = append(ops, opDiff{tipo: ' ', a: i, b: i})
 	}
-	for i, j := 0, len(ops)-1; i < j; i, j = i+1, j-1 {
-		ops[i], ops[j] = ops[j], ops[i]
+	ops = append(ops, myersMedio(a[pre:len(a)-suf], b[pre:len(b)-suf], pre, pre)...)
+	for i := 0; i < suf; i++ {
+		ops = append(ops, opDiff{tipo: ' ', a: len(a) - suf + i, b: len(b) - suf + i})
 	}
 	// show deletions before insertions inside each change block
 	for i := 0; i < len(ops); {
@@ -234,6 +203,96 @@ func myers(a, b []string) []opDiff {
 			}
 		}
 		i = j
+	}
+	return ops
+}
+
+// myersMedio is Myers' search on a and b (whose first lines are a[0] = line offA, b[0] = line offB).
+func myersMedio(a, b []string, offA, offB int) []opDiff {
+	n, m := len(a), len(b)
+	if n == 0 && m == 0 {
+		return nil
+	}
+	reemplazo := func() []opDiff {
+		ops := make([]opDiff, 0, n+m)
+		for i := 0; i < n; i++ {
+			ops = append(ops, opDiff{tipo: '-', a: offA + i, b: offB})
+		}
+		for j := 0; j < m; j++ {
+			ops = append(ops, opDiff{tipo: '+', a: offA + n, b: offB + j})
+		}
+		return ops
+	}
+	if n == 0 || m == 0 {
+		return reemplazo()
+	}
+	limite := min(n+m, maxDDiff)
+	desp := limite + 1
+	v := make([]int, 2*limite+3)
+	// trazas[d] holds v[k] for k in [-d, d] after step d
+	var trazas [][]int
+	fin := -1
+	for d := 0; d <= limite && fin < 0; d++ {
+		for k := -d; k <= d; k += 2 {
+			var x int
+			if k == -d || (k != d && v[desp+k-1] < v[desp+k+1]) {
+				x = v[desp+k+1]
+			} else {
+				x = v[desp+k-1] + 1
+			}
+			y := x - k
+			for x < n && y < m && a[x] == b[y] {
+				x++
+				y++
+			}
+			v[desp+k] = x
+			if x >= n && y >= m {
+				fin = d
+				break
+			}
+		}
+		if fin < 0 {
+			trazas = append(trazas, append([]int(nil), v[desp-d:desp+d+1]...))
+		}
+	}
+	if fin < 0 {
+		return reemplazo()
+	}
+	// backtrack from (n, m)
+	var ops []opDiff
+	x, y := n, m
+	for d := fin; d > 0; d-- {
+		prev := trazas[d-1] // v after step d-1, k in [-(d-1), d-1]
+		get := func(k int) int { return prev[k+d-1] }
+		k := x - y
+		var kPrev int
+		if k == -d || (k != d && get(k-1) < get(k+1)) {
+			kPrev = k + 1
+		} else {
+			kPrev = k - 1
+		}
+		xPrev := get(kPrev)
+		yPrev := xPrev - kPrev
+		for x > xPrev && y > yPrev {
+			x--
+			y--
+			ops = append(ops, opDiff{tipo: ' ', a: offA + x, b: offB + y})
+		}
+		if x == xPrev {
+			y--
+			ops = append(ops, opDiff{tipo: '+', a: offA + x, b: offB + y})
+		} else {
+			x--
+			ops = append(ops, opDiff{tipo: '-', a: offA + x, b: offB + y})
+		}
+	}
+	for x > 0 && y > 0 {
+		x--
+		y--
+		ops = append(ops, opDiff{tipo: ' ', a: offA + x, b: offB + y})
+	}
+	for i, j := 0, len(ops)-1; i < j; i, j = i+1, j-1 {
+		ops[i], ops[j] = ops[j], ops[i]
 	}
 	return ops
 }

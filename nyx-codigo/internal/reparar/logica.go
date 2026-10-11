@@ -208,6 +208,7 @@ func (r *Reparador) Logica(ctx context.Context, fuente string, f nucleo.Firma, c
 			}
 		}
 		if len(aceptados) == 0 {
+			r.aprenderOperadores(singles, pares, nil)
 			res.Mejor = mejorParcial(parciales, pasanOrig, len(casos))
 			res.Motivo = fmt.Sprintf("No encontré ningún cambio pequeño que pase las %d pruebas (probé %d cambios", len(casos), len(singles))
 			if len(pares) > 0 {
@@ -227,6 +228,7 @@ func (r *Reparador) Logica(ctx context.Context, fuente string, f nucleo.Firma, c
 	// 6. overfitting check
 	vivos, caidos, amb := r.sobreajuste(ctx, lt, aceptados, f, oraculo)
 	if len(vivos) == 0 {
+		r.aprenderOperadores(singles, nil, nil)
 		mejor := aceptados[0].parche(len(casos))
 		res.Mejor = &mejor
 		res.Motivo = "Encontré cambios que pasan tus pruebas, pero fallan con otras entradas (" + caidos + "): no me fío de ellos."
@@ -246,9 +248,7 @@ func (r *Reparador) Logica(ctx context.Context, fuente string, f nucleo.Firma, c
 		res.Ambiguo = amb
 		paso.Sub(nucleo.PasoDuda, "Hay %d arreglos que dan resultados distintos con %s", len(amb.Parches), mostrarEntradas(amb.Entrada, f)).Info("")
 	}
-	for _, op := range vivos[0].ops {
-		r.exito("mutacion:"+op, true)
-	}
+	r.aprenderOperadores(singles, nil, vivos[0].ops)
 	for _, c := range vivos[0].Cambios {
 		paso.Sub(nucleo.PasoArreglo, "%s (línea %d)", c.Porque, c.Linea).Bien("")
 	}
@@ -258,6 +258,38 @@ func (r *Reparador) Logica(ctx context.Context, fuente string, f nucleo.Firma, c
 		paso.Bien("Lo arreglé: pasa las %d pruebas", len(casos))
 	}
 	return res, nil
+}
+
+// aprenderOperadores records one attempt per mutation operator tried in this repair: a success for
+// the operators of the winning patch, a failure for every other operator that was tried. So
+// Stats.Tasa("mutacion:"+op), used for ranking, also learns which operators do not help (one record per
+// operator and repair, not one per mutant, so a run of 400 mutants does not drown the successes).
+func (r *Reparador) aprenderOperadores(singles, pares []candidato, ganadores []string) {
+	gana := map[string]bool{}
+	for _, op := range ganadores {
+		gana[op] = true
+	}
+	visto := map[string]bool{}
+	var orden []string
+	for _, lista := range [][]candidato{singles, pares} {
+		for _, c := range lista {
+			for _, op := range c.ops {
+				if !visto[op] {
+					visto[op] = true
+					orden = append(orden, op)
+				}
+			}
+		}
+	}
+	for _, op := range ganadores {
+		if !visto[op] {
+			visto[op] = true
+			orden = append(orden, op)
+		}
+	}
+	for _, op := range orden {
+		r.exito("mutacion:"+op, gana[op])
+	}
 }
 
 // lote is one build of candidates (variant 0 is the original, candidate k is variant k+1).
@@ -644,7 +676,7 @@ func (r *Reparador) contraejemplo(ctx context.Context, bin nucleo.Binario, f nuc
 		m = conOraculoLocal([]nucleo.Caso{m}, oraculo)[0]
 	}
 	if m.Origen == "" {
-		m.Origen = c.Origen
+		m.Origen = origenReducido
 	}
 	return m
 }

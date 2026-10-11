@@ -1,6 +1,7 @@
 package arenero
 
 import (
+	"bufio"
 	"encoding/json"
 	"flag"
 	"go/ast"
@@ -245,5 +246,77 @@ func TestExtraerCaida(t *testing.T) {
 	f.errSalida.Write([]byte(sb.String()))
 	if r := resumenCaida(f); !strings.HasPrefix(r, "runtime: goroutine stack exceeds") || !strings.HasSuffix(r, "(el programa se cayó (código de salida 2))") {
 		t.Errorf("resumen: %q", cortar(r, 300))
+	}
+}
+
+// Regression: only real directives are rejected; Spanish prose that starts with the same letters is not.
+func TestRevisarDirectivasExactas(t *testing.T) {
+	prosa := "package main\n\nimport \"fmt\"\n\n//exportar el total al final\n//lineas leidas\n/*\nline by line we add the numbers\n  line 2: más prosa\n*/\n// line suelta con espacio\nfunc main() {\n\tfmt.Println(1) /* lineal */\n}\n"
+	for _, p := range []nucleo.Permiso{nucleo.PermisoAuto, nucleo.PermisoUsuario} {
+		if vs := Revisar(prosa, p); len(vs) != 0 {
+			t.Errorf("permiso %v: comentarios normales rechazados: %+v", p, vs)
+		}
+	}
+	casos := []struct {
+		src   string
+		linea int
+		grave bool
+	}{
+		{"package p\n\n//export Suma\nfunc Suma() {}\n", 3, true},
+		{"package p\n\n//export\nfunc Suma() {}\n", 3, true},
+		{"package p\n\n//line otro.go:10\nfunc F() {}\n", 3, false},
+		{"package p\n\nfunc F() {}\n\n/*line otro.go:10*/ var x = 1\n", 5, false},
+		{"package p\n\n//go:noinline\nfunc F() {}\n", 3, false},
+	}
+	for _, c := range casos {
+		vs := Revisar(c.src, nucleo.PermisoAuto)
+		if len(vs) != 1 || vs[0].Linea != c.linea || vs[0].Grave != c.grave {
+			t.Errorf("%q: %+v", c.src, vs)
+		}
+	}
+}
+
+// Regression: a property keeps its literals exactly (spaces, tabs and newlines inside strings, runes and raw
+// strings), drops comments, and a multi-line function literal still works on one line.
+func TestUnaLinea(t *testing.T) {
+	casos := map[string]string{
+		"r0 == \"a  ba  b\"":                 "r0 == \"a  ba  b\"",
+		"r0   ==\n\t\"a\\tb\" && x == '\\t'": "r0 == \"a\\tb\" && x == '\\t'",
+		"r0 == `a  b\nc`":                    "r0 == \"a  b\\nc\"",
+		"r0 == `a  b`":                       "r0 == `a  b`",
+		"r0 > 0 // positivo":                 "r0 > 0",
+		"a - -b":                             "a - -b",
+		"func() bool {\n\tx := r0\n\treturn x > 0\n}()": "func() bool { x := r0; return x > 0; }()",
+	}
+	for entrada, quiero := range casos {
+		if got := unaLinea(entrada); got != quiero {
+			t.Errorf("unaLinea(%q) = %q, quiero %q", entrada, got, quiero)
+		}
+		if strings.Contains(unaLinea(entrada), "\n") {
+			t.Errorf("%q sigue teniendo saltos de línea", entrada)
+		}
+	}
+}
+
+// Regression (security): one line of fd 3 is read with a size limit; a longer one is consumed, not kept.
+func TestLeerLinea(t *testing.T) {
+	larga := strings.Repeat("x", 300_000)
+	r := bufio.NewReaderSize(strings.NewReader("corta\n"+larga+"\nfinal\nsin salto"), 16)
+	l, lg, err := leerLinea(r, 1000)
+	if string(l) != "corta\n" || lg || err != nil {
+		t.Fatalf("%q %v %v", l, lg, err)
+	}
+	l, lg, err = leerLinea(r, 1000)
+	if l != nil || !lg || err != nil {
+		t.Fatalf("la línea larga: %d bytes, larga=%v, %v", len(l), lg, err)
+	}
+	if l, lg, _ = leerLinea(r, 1000); string(l) != "final\n" || lg {
+		t.Fatalf("después de la larga: %q", l)
+	}
+	if l, _, err = leerLinea(r, 1000); string(l) != "sin salto" || err == nil {
+		t.Fatalf("al final: %q %v", l, err)
+	}
+	if tamano(1<<20) != "1 MiB" || tamano(62914560) != "60 MiB" || tamano(1572864) != "1,5 MiB" || tamano(2048) != "2 KiB" {
+		t.Error(tamano(1<<20), tamano(62914560), tamano(1572864), tamano(2048))
 	}
 }

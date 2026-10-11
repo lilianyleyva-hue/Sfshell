@@ -3,6 +3,7 @@ package pruebas
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"unicode/utf8"
 
@@ -51,7 +52,8 @@ const maxReducciones = 40
 // Reducciones returns at most 40 candidates strictly smaller than c (by the sum of nucleo.Tamano of the
 // inputs): half of a list dropped, each element dropped (at most 10), each int moved toward 0 (to 0,
 // halved, then one step), strings cut in half or with one rune dropped, runes turned into 'a', struct
-// fields set to zero. Candidates keep c's Origen and Nota but have no expected value.
+// fields set to zero. Candidates have no expected value and are marked as shrunk (Origen
+// OrigenReducido, Nota "reducido de «<nota of c>»"): they are not the user's own examples.
 func Reducciones(c nucleo.Caso, f nucleo.Firma) []nucleo.Caso {
 	ent := f.Entradas()
 	tam := tamanoCaso(c.Entradas)
@@ -79,7 +81,7 @@ func Reducciones(c nucleo.Caso, f nucleo.Firma) []nucleo.Caso {
 				continue
 			}
 			visto[k] = true
-			out = append(out, nucleo.Caso{Entradas: e, Origen: c.Origen, Nota: c.Nota})
+			out = append(out, nucleo.Caso{Entradas: e, Origen: OrigenReducido, Nota: notaReducido(c)})
 		}
 	}
 	// the most aggressive candidates come first; keep the 40 smallest when there are more
@@ -90,10 +92,42 @@ func Reducciones(c nucleo.Caso, f nucleo.Firma) []nucleo.Caso {
 	return out
 }
 
+// OrigenReducido marks a case produced by shrinking another one: its inputs came from Reducciones or
+// Minimizar, not from the user, a boundary list or the random generator.
+const OrigenReducido nucleo.Origen = "reducido"
+
+// notaReducido is the note of a case shrunk from c: "reducido de «tu ejemplo 2»". A case shrunk from an
+// already shrunk case keeps its note.
+func notaReducido(c nucleo.Caso) string {
+	if c.Origen == OrigenReducido && c.Nota != "" {
+		return c.Nota
+	}
+	if c.Nota != "" {
+		return "reducido de «" + c.Nota + "»"
+	}
+	switch c.Origen {
+	case nucleo.OrigenUsuario:
+		return "reducido de tu ejemplo"
+	case nucleo.OrigenContraejemplo:
+		return "reducido de un contraejemplo"
+	case nucleo.OrigenBorde:
+		return "reducido de un caso de borde"
+	case nucleo.OrigenAzar:
+		return "reducido de un caso al azar"
+	}
+	return "reducido"
+}
+
+// tamanoCaso is the sum of nucleo.Tamano of the inputs, saturating instead of overflowing (each size
+// is already capped at MaxInt64/2, so three huge inputs would wrap around).
 func tamanoCaso(e []nucleo.Valor) int {
 	t := 0
 	for _, v := range e {
-		t += nucleo.Tamano(v)
+		n := nucleo.Tamano(v)
+		if n > math.MaxInt-t {
+			return math.MaxInt
+		}
+		t += n
 	}
 	return t
 }

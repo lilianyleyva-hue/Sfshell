@@ -215,6 +215,11 @@ func nombreOrigen(o nucleo.Origen, plural bool) string {
 		return "de la receta"
 	case nucleo.OrigenWeb:
 		return "de la web"
+	case OrigenReducido:
+		if plural {
+			return "reducidos"
+		}
+		return "reducido"
 	}
 	if o == "" {
 		return "sin origen"

@@ -52,7 +52,9 @@ func Mutantes(fuente string, lineas []int, max int) []Mutante {
 		max = maxMutantesDefecto
 	}
 	a := analizar(fuente)
-	if a.archivo == nil {
+	// a file that does not parse has Bad* nodes with inverted positions: there is nothing sensible to
+	// mutate (the compile loop comes first)
+	if a.archivo == nil || a.sintaxis {
 		return nil
 	}
 	ms := generarMutaciones(a, lineas)
@@ -554,6 +556,9 @@ func (g *generadorMut) bloque(b *ast.BlockStmt) {
 			}
 			ii, fi := a.off(s.Pos()), a.off(s.End())
 			it, ft := a.off(t.Pos()), a.off(t.End())
+			if ii < 0 || ii > fi || fi > it || it > ft || ft > len(a.fuente) {
+				continue
+			}
 			eds := []edicion{{ini: ii, fin: fi, texto: a.fuente[it:ft]}, {ini: it, fin: ft, texto: a.fuente[ii:fi]}}
 			porque := "cambio el orden de «" + compactar(a.fuente[ii:fi]) + "» y «" + compactar(a.fuente[it:ft]) + "»"
 			antes := len(g.out)

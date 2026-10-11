@@ -2,6 +2,8 @@ package pruebas
 
 import (
 	"go/format"
+	"go/scanner"
+	"go/token"
 	"strconv"
 	"strings"
 	"unicode"
@@ -115,15 +117,47 @@ func ArchivoTest(f nucleo.Firma, casos []nucleo.Caso, paquete string) string {
 		}
 	}
 
+	// import names: the package may declare "testing" (or "nyxreflect") itself; a clash with the
+	// names we know of (the function and the receiver type) gets an alias
+	ocupados := map[string]bool{f.Nombre: true}
+	if f.Receptor != nil {
+		tr := f.Receptor.Tipo
+		if tr.Clase == nucleo.CPuntero && tr.Elem != nil {
+			tr = *tr.Elem
+		}
+		ocupados[tr.Nombre] = true
+	}
+	for _, t := range append(append([]nucleo.Tipo(nil), ent...), f.Res...) {
+		for _, n := range nombresDeTipos(t) {
+			ocupados[n] = true
+		}
+	}
+	// reflect and math (only needed for NaN and ±Inf) always get an alias, since other package-level
+	// names are unknown here; "testing" keeps its name unless it clashes with a known one
+	pkgTesting, pkgReflect, pkgMath := "testing", "nyxreflect", "nyxmath"
+	for ocupados[pkgTesting] {
+		pkgTesting = "nyx" + pkgTesting
+	}
+	for ocupados[pkgReflect] {
+		pkgReflect = "nyx" + pkgReflect
+	}
+	for ocupados[pkgMath] {
+		pkgMath = "nyx" + pkgMath
+	}
+	usaMath := false
+	// literal writes a value as Go source; NaN and ±Inf use the math package (maybe under an alias)
+	literal := func(v nucleo.Valor, t nucleo.Tipo) string {
+		x, usa := renombrarPaquete(nucleo.FormatoGo(v, t), "math", pkgMath)
+		usaMath = usaMath || usa
+		return x
+	}
+
 	var sb strings.Builder
-	sb.WriteString("// Pruebas generadas por Nyx Código.\n\n")
-	sb.WriteString("package " + paquete + "\n\n")
-	sb.WriteString("import (\n\t\"math\"\n\t\"reflect\"\n\t\"testing\"\n)\n\n")
 
 	entradas := func(c nucleo.Caso) []string {
 		var partes []string
 		for i, v := range c.Entradas {
-			partes = append(partes, campos[i]+": "+nucleo.FormatoGo(v, ent[i]))
+			partes = append(partes, campos[i]+": "+literal(v, ent[i]))
 		}
 		return partes
 	}
@@ -135,7 +169,7 @@ func ArchivoTest(f nucleo.Firma, casos []nucleo.Caso, paquete string) string {
 	}
 
 	if len(con) > 0 || len(sin) == 0 {
-		sb.WriteString("func " + nombreTest + "(t *testing.T) {\n")
+		sb.WriteString("func " + nombreTest + "(t *" + pkgTesting + ".T) {\n")
 		sb.WriteString("\tcasos := []struct {\n\t\tnombre string\n")
 		for i, t := range ent {
 			sb.WriteString("\t\t" + campos[i] + " " + t.Go() + "\n")
@@ -163,13 +197,13 @@ func ArchivoTest(f nucleo.Firma, casos []nucleo.Caso, paquete string) string {
 					}
 					continue
 				}
-				partes = append(partes, quiero(k)+": "+nucleo.FormatoGo(c.Esperado[i], r))
+				partes = append(partes, quiero(k)+": "+literal(c.Esperado[i], r))
 				k++
 			}
 			sb.WriteString("\t\t{" + strings.Join(partes, ", ") + "},\n")
 		}
 		sb.WriteString("\t}\n")
-		sb.WriteString("\tfor _, c := range casos {\n\t\tc := c\n\t\tt.Run(c.nombre, func(t *testing.T) {\n")
+		sb.WriteString("\tfor _, c := range casos {\n\t\tc := c\n\t\tt.Run(c.nombre, func(t *" + pkgTesting + ".T) {\n")
 		var izq []string
 		k = 0
 		for i := range f.Res {
@@ -180,7 +214,12 @@ func ArchivoTest(f nucleo.Firma, casos []nucleo.Caso, paquete string) string {
 			izq = append(izq, obtenido(k))
 			k++
 		}
-		sb.WriteString("\t\t\t" + strings.Join(izq, ", ") + " := " + llamada + "\n")
+		if len(izq) > 0 {
+			sb.WriteString("\t\t\t" + strings.Join(izq, ", ") + " := " + llamada + "\n")
+		} else {
+			// no results: the case only checks that the call does not panic
+			sb.WriteString("\t\t\t" + llamada + "\n")
+		}
 		for k := 0; k < nValores; k++ {
 			sb.WriteString("\t\t\tif !iguales" + sufijo + "(" + obtenido(k) + ", c." + quiero(k) + ") {\n")
 			sb.WriteString("\t\t\t\tt.Errorf(" + strconv.Quote(mostrar+" = %v; quiero %v") + ", " +
@@ -198,7 +237,7 @@ func ArchivoTest(f nucleo.Firma, casos []nucleo.Caso, paquete string) string {
 
 	if len(sin) > 0 {
 		sb.WriteString("// " + nombreTest + "SinPanico solo comprueba que la función no entra en pánico.\n")
-		sb.WriteString("func " + nombreTest + "SinPanico(t *testing.T) {\n")
+		sb.WriteString("func " + nombreTest + "SinPanico(t *" + pkgTesting + ".T) {\n")
 		sb.WriteString("\tcasos := []struct {\n\t\tnombre string\n")
 		for i, t := range ent {
 			sb.WriteString("\t\t" + campos[i] + " " + t.Go() + "\n")
@@ -210,7 +249,7 @@ func ArchivoTest(f nucleo.Firma, casos []nucleo.Caso, paquete string) string {
 			sb.WriteString("\t\t{" + strings.Join(partes, ", ") + "},\n")
 		}
 		sb.WriteString("\t}\n")
-		sb.WriteString("\tfor _, c := range casos {\n\t\tc := c\n\t\tt.Run(c.nombre, func(t *testing.T) {\n")
+		sb.WriteString("\tfor _, c := range casos {\n\t\tc := c\n\t\tt.Run(c.nombre, func(t *" + pkgTesting + ".T) {\n")
 		blancos := make([]string, len(f.Res))
 		for i := range blancos {
 			blancos[i] = "_"
@@ -223,12 +262,89 @@ func ArchivoTest(f nucleo.Firma, casos []nucleo.Caso, paquete string) string {
 		sb.WriteString("\t\t})\n\t}\n}\n\n")
 	}
 
-	sb.WriteString(strings.ReplaceAll(ayudaIguales, "XX", sufijo))
-	src := sb.String()
+	ayuda := strings.ReplaceAll(ayudaIguales, "XX", sufijo)
+	ayuda = strings.ReplaceAll(ayuda, "reflect.", pkgReflect+".")
+	sb.WriteString(ayuda)
+
+	var cab strings.Builder
+	cab.WriteString("// Pruebas generadas por Nyx Código.\n\n")
+	cab.WriteString("package " + paquete + "\n\n")
+	cab.WriteString("import (\n")
+	if usaMath {
+		cab.WriteString("\t")
+		if pkgMath != "math" {
+			cab.WriteString(pkgMath + " ")
+		}
+		cab.WriteString("\"math\"\n")
+	}
+	cab.WriteString("\t" + pkgReflect + " \"reflect\"\n\t")
+	if pkgTesting != "testing" {
+		cab.WriteString(pkgTesting + " ")
+	}
+	cab.WriteString("\"testing\"\n)\n\n")
+	src := cab.String() + sb.String()
 	if b, err := format.Source([]byte(src)); err == nil {
 		return string(b)
 	}
 	return src
+}
+
+// renombrarPaquete replaces the package name viejo by nuevo in a Go expression (only identifiers
+// followed by a dot, never inside string or rune literals) and reports whether viejo was used.
+func renombrarPaquete(expr, viejo, nuevo string) (string, bool) {
+	if !strings.Contains(expr, viejo+".") {
+		return expr, false
+	}
+	fset := token.NewFileSet()
+	file := fset.AddFile("", -1, len(expr))
+	var sc scanner.Scanner
+	sc.Init(file, []byte(expr), func(token.Position, string) {}, 0)
+	var sb strings.Builder
+	ultimo, usado := 0, false
+	var prev token.Token
+	var prevLit string
+	prevIni := 0
+	for {
+		pos, tok, lit := sc.Scan()
+		if tok == token.EOF {
+			break
+		}
+		ini := file.Offset(pos)
+		if tok == token.PERIOD && prev == token.IDENT && prevLit == viejo && prevIni+len(viejo) == ini {
+			usado = true
+			sb.WriteString(expr[ultimo:prevIni])
+			sb.WriteString(nuevo)
+			ultimo = ini
+		}
+		prev, prevLit, prevIni = tok, lit, ini
+	}
+	sb.WriteString(expr[ultimo:])
+	return sb.String(), usado
+}
+
+// nombresDeTipos lists the names of the defined types inside t (they live in the package scope).
+func nombresDeTipos(t nucleo.Tipo) []string {
+	var out []string
+	var rec func(t nucleo.Tipo, prof int)
+	rec = func(t nucleo.Tipo, prof int) {
+		if prof > 8 {
+			return
+		}
+		if t.Definido && t.Nombre != "" {
+			out = append(out, t.Nombre)
+		}
+		if t.Elem != nil {
+			rec(*t.Elem, prof+1)
+		}
+		if t.Clave != nil {
+			rec(*t.Clave, prof+1)
+		}
+		for _, c := range t.Campos {
+			rec(c.Tipo, prof+1)
+		}
+	}
+	rec(t, 0)
+	return out
 }
 
 func sep(xs []string) string {
@@ -264,13 +380,13 @@ func igualesValorXX(a, b reflect.Value) bool {
 	switch a.Kind() {
 	case reflect.Float32, reflect.Float64:
 		x, y := a.Float(), b.Float()
-		if math.IsNaN(x) || math.IsNaN(y) {
-			return math.IsNaN(x) && math.IsNaN(y)
+		if x != x || y != y { // NaN
+			return x != x && y != y
 		}
 		if x == y {
 			return true
 		}
-		return math.Abs(x-y) <= 1e-9*math.Max(1, math.Max(math.Abs(x), math.Abs(y)))
+		return absXX(x-y) <= 1e-9*max(1, absXX(x), absXX(y))
 	case reflect.Slice, reflect.Array:
 		if a.Len() != b.Len() {
 			return false
@@ -315,6 +431,13 @@ func igualesValorXX(a, b reflect.Value) bool {
 		return a.Uint() == b.Uint()
 	}
 	return false
+}
+
+func absXX(x float64) float64 {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
 
 func vacioXX(v reflect.Value) bool {

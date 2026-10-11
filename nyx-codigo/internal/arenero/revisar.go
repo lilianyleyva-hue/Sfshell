@@ -129,22 +129,35 @@ func Revisar(fuente string, p nucleo.Permiso) []nucleo.Violacion {
 		}
 	}
 
-	// directives (also catches build constraints)
+	// directives (also catches build constraints). A directive is a whole comment with no space after "//"
+	// ("//go:…", "//line file:1", "//export Nombre") or "/*line file:1*/" right after "/*"; a comment that
+	// only starts with the same letters ("//exportar…", "//lineas…") or a line of a block comment is prose.
+	// "#cgo" lines only matter in the comment above import "C", but they are flagged wherever they appear.
 	for _, g := range f.Comments {
 		for _, c := range g.List {
+			l := linea(c.Pos())
+			if strings.HasPrefix(c.Text, "//") {
+				t := c.Text
+				switch {
+				case strings.HasPrefix(t, "//go:linkname"), strings.HasPrefix(t, "//go:cgo_"), esDirectiva(t, "//export"):
+					agregar(nucleo.Violacion{Linea: l, Que: "usa una directiva peligrosa del compilador (" + cortar(t, 40) + "): eso nunca lo ejecuto", Grave: true})
+				case strings.HasPrefix(t, "//go:"), esDirectiva(t, "//line"), strings.HasPrefix(t, "// +build"):
+					agregar(nucleo.Violacion{Linea: l, Que: "usa una directiva especial del compilador (" + cortar(t, 40) + ")"})
+				case esDirectiva(strings.TrimSpace(t[2:]), "#cgo"):
+					agregar(nucleo.Violacion{Linea: l, Que: "usa una directiva peligrosa del compilador (" + cortar(t, 40) + "): eso nunca lo ejecuto", Grave: true})
+				}
+				continue
+			}
+			if esDirectiva(c.Text, "/*line") {
+				agregar(nucleo.Violacion{Linea: l, Que: "usa una directiva especial del compilador (" + cortar(c.Text, 40) + ")"})
+			}
 			for i, texto := range strings.Split(c.Text, "\n") {
 				t := strings.TrimSpace(texto)
-				if strings.HasPrefix(c.Text, "/*") && i == 0 {
+				if i == 0 {
 					t = strings.TrimSpace(strings.TrimPrefix(t, "/*"))
 				}
-				l := linea(c.Pos()) + i
-				switch {
-				case strings.HasPrefix(t, "//go:linkname"), strings.HasPrefix(t, "//go:cgo_"), strings.HasPrefix(t, "//export"),
-					strings.HasPrefix(t, "#cgo"):
-					agregar(nucleo.Violacion{Linea: l, Que: "usa una directiva peligrosa del compilador (" + cortar(t, 40) + "): eso nunca lo ejecuto", Grave: true})
-				case strings.HasPrefix(t, "//go:"), strings.HasPrefix(t, "//line"), strings.HasPrefix(t, "line "),
-					strings.HasPrefix(t, "// +build"):
-					agregar(nucleo.Violacion{Linea: l, Que: "usa una directiva especial del compilador (" + cortar(t, 40) + ")"})
+				if esDirectiva(t, "#cgo") {
+					agregar(nucleo.Violacion{Linea: l + i, Que: "usa una directiva peligrosa del compilador (" + cortar(t, 40) + "): eso nunca lo ejecuto", Grave: true})
 				}
 			}
 		}
@@ -203,6 +216,14 @@ func Revisar(fuente string, p nucleo.Permiso) []nucleo.Violacion {
 // Revisar is the method form of the package function (nucleo.Ejecutor).
 func (a *Arenero) Revisar(fuente string, p nucleo.Permiso) []nucleo.Violacion {
 	return Revisar(fuente, p)
+}
+
+// esDirectiva reports whether t is the directive word d, alone or followed by a space or a tab.
+func esDirectiva(t, d string) bool {
+	if !strings.HasPrefix(t, d) {
+		return false
+	}
+	return len(t) == len(d) || t[len(d)] == ' ' || t[len(d)] == '\t'
 }
 
 func cortar(s string, n int) string {

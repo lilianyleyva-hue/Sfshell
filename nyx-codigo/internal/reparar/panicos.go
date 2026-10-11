@@ -22,8 +22,9 @@ var ErrSinEjecutor = errors.New("reparar: no tengo caja de arena para ejecutar e
 // applies the rules keyed by the panic text (a length guard, "<=" → "<" in the loop, make for a nil
 // map, a guard against dividing by zero, a nil check, min(…, len(x)) for slice bounds), drops the
 // candidates that do not type-check, and validates all of them with ONE batched Preparar. It returns the
-// candidates that leave fewer panicking cases than the original, best first (no panic left, most cases
-// passing, fewest changes). With no panic it returns nil; when no rule helps it returns an empty list.
+// candidates that leave fewer panicking cases than the original AND still pass every case the original
+// passed, best first (no panic left, most cases passing, fewest changes). With no panic it returns nil;
+// when no rule helps it returns an empty list.
 func (r *Reparador) Panicos(ctx context.Context, fuente string, f nucleo.Firma, casos []nucleo.Caso, n *nucleo.Nodo) ([]Parche, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -51,6 +52,10 @@ func (r *Reparador) Panicos(ctx context.Context, fuente string, f nucleo.Firma, 
 		return nil, err
 	}
 	orig := rs[0]
+	okOrig := make([]bool, len(orig))
+	for i, rc := range orig {
+		okOrig[i] = rc.Ejecutado && rc.OK
+	}
 	mensajes := panicosDe(orig)
 	if len(mensajes) == 0 {
 		paso.Info("No se rompe con ninguno de los %d casos", len(casos))
@@ -97,8 +102,17 @@ func (r *Reparador) Panicos(ctx context.Context, fuente string, f nucleo.Firma, 
 			continue
 		}
 		np := contarPanicos(fila)
-		r.exito("regla:"+c.Cambio.Regla, np == 0)
-		if np >= panicosOrig {
+		// a guard that "fixes" the panic by breaking a case that used to pass is not a fix: in the
+		// pipeline (panics, then Logica on the result) it would hide the real one
+		rompe := false
+		for i, x := range fila {
+			if i < len(okOrig) && okOrig[i] && !(x.Ejecutado && x.OK) {
+				rompe = true
+				break
+			}
+		}
+		r.exito("regla:"+c.Cambio.Regla, np == 0 && !rompe)
+		if np >= panicosOrig || rompe {
 			continue
 		}
 		buenos = append(buenos, valorado{p: Parche{Fuente: c.Fuente, Cambios: c.cambios(), Pasan: contarOK(fila), Total: len(casos)}, panicos: np, regla: c.Cambio.Regla, orden: k})
@@ -218,9 +232,11 @@ func candidatosPanico(a *analisis, f nucleo.Firma, mensajes []string) []mutacion
 			x := reIndice.FindStringSubmatch(m)
 			k, _ := strconv.Atoi(x[1])
 			largo, _ := strconv.Atoi(x[2])
-			if k >= 0 && largo <= k {
+			// only an empty input gets a guard (§4.4.5); "[3] with length 3" is an off-by-one, and
+			// "if len(s) <= 3 { return false }" would only hide it
+			if k == 0 && largo == 0 {
 				for _, fd := range funcs {
-					g.guardaLargo(fd, k)
+					g.guardaLargo(fd)
 				}
 			}
 			for _, fd := range funcs {
@@ -350,8 +366,8 @@ func (a *analisis) usadosComo(fd *ast.FuncDecl, usa func(n ast.Node) ast.Expr) [
 	return out
 }
 
-// guardaLargo: "index out of range [k] with length n" (n ≤ k) → a length guard at the top.
-func (g *generadorMut) guardaLargo(fd *ast.FuncDecl, k int) {
+// guardaLargo: "index out of range [0] with length 0" → a length guard at the top.
+func (g *generadorMut) guardaLargo(fd *ast.FuncDecl) {
 	a := g.a
 	ret, ceros, ok := a.retornoCero(fd)
 	if !ok {
@@ -371,10 +387,6 @@ func (g *generadorMut) guardaLargo(fd *ast.FuncDecl, k int) {
 	for _, p := range ps {
 		cond := "len(" + p.Name() + ") == 0"
 		quien := "«" + p.Name() + "» está vacía"
-		if k > 0 {
-			cond = "len(" + p.Name() + ") <= " + strconv.Itoa(k)
-			quien = "«" + p.Name() + "» tiene " + strconv.Itoa(k) + " elementos o menos"
-		}
 		porque := "si " + quien + ", devuelvo " + valorTexto(ceros) + " (es una suposición)"
 		e := g.alPrincipio(fd, []string{"if " + cond + " {", "\t" + ret, "}"}, porque)
 		g.agregar(opPanico, "guarda_largo", fd.Body, []edicion{e}, porque)

@@ -102,6 +102,10 @@ func limpiarLineas(s string) string {
 // ed builds an edit replacing a.fuente[ini:fin] with texto; Antes/Despues are the affected lines.
 func (a *analisis) ed(ini, fin int, texto, porque string) edicion {
 	src := a.fuente
+	if ini < 0 || ini > fin || fin > len(src) {
+		// positions from a broken tree: an edit that changes nothing (aplicar leaves it out)
+		return edicion{ini: 1, fin: 0, cambio: Cambio{Porque: porque}}
+	}
 	li := inicioLinea(src, ini)
 	f := fin
 	if f > ini {
@@ -124,6 +128,9 @@ func (a *analisis) reemplazar(n ast.Node, texto, porque string) edicion {
 func (a *analisis) borrar(n ast.Node, porque string) edicion {
 	src := a.fuente
 	ini, fin := a.off(n.Pos()), a.off(n.End())
+	if ini < 0 || ini > fin || fin > len(src) {
+		return a.ed(ini, fin, "", porque)
+	}
 	li, lf := inicioLinea(src, ini), finLinea(src, fin)
 	if strings.TrimSpace(src[li:ini]) == "" && strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(src[fin:lf]), ";")) == "" {
 		e := a.ed(li, lf, "", porque)
@@ -140,18 +147,13 @@ func (a *analisis) borrar(n ast.Node, porque string) edicion {
 }
 
 func (a *analisis) identEn(p token.Pos) *ast.Ident {
-	var id *ast.Ident
-	ast.Inspect(a.archivo, func(n ast.Node) bool {
-		if n == nil || id != nil {
-			return false
-		}
+	// an identifier starting at p contains p, so it is on the path to p
+	for _, n := range a.camino(p) {
 		if x, ok := n.(*ast.Ident); ok && x.Pos() == p {
-			id = x
-			return false
+			return x
 		}
-		return n.Pos() <= p && p < n.End()
-	})
-	return id
+	}
+	return nil
 }
 
 // padreDe returns the parent of node x along the path to its position.
@@ -397,13 +399,16 @@ func reglaIdentificador(a *analisis, e nucleo.ErrorGo, m []string) []edicion {
 		}
 	}
 	cerca := cercanos(nombre, a.nombresVisibles(pos), 3)
-	// do not propose package names for a plain value
+	// do not propose package names for a plain value, nor a different variable for a short name
 	var filtrados []string
 	for _, c := range cerca {
 		if o := a.buscarVisible(pos, c); o != nil {
 			if _, esPaquete := o.(*types.PkgName); esPaquete {
 				continue
 			}
+		}
+		if !renombrePlausible(nombre, c) {
+			continue
 		}
 		filtrados = append(filtrados, c)
 	}
@@ -421,6 +426,36 @@ func reglaIdentificador(a *analisis, e nucleo.ErrorGo, m []string) []edicion {
 		out = append(out, porNombre...)
 	}
 	return out
+}
+
+// renombrePlausible reports whether an undefined name is probably a typo of the visible name c. Any
+// one-letter name is one edit away from any other, so short names are only "typos" of the same letters
+// (another case, or two letters swapped): renaming «c» to «a» compiles, but computes something else.
+// Longer names allow one edit (two from 7 runes on).
+func renombrePlausible(nombre, c string) bool {
+	if strings.EqualFold(nombre, c) {
+		return true
+	}
+	n := utf8.RuneCountInString(nombre)
+	d := damerau(strings.ToLower(nombre), strings.ToLower(c))
+	switch {
+	case n <= 3:
+		return d == 1 && mismasLetras(strings.ToLower(nombre), strings.ToLower(c))
+	case n < 7:
+		return d <= 1
+	}
+	return d <= 2
+}
+
+// mismasLetras reports whether a and b have the same runes (in any order).
+func mismasLetras(a, b string) bool {
+	x, y := []rune(a), []rune(b)
+	if len(x) != len(y) {
+		return false
+	}
+	sort.Slice(x, func(i, j int) bool { return x[i] < x[j] })
+	sort.Slice(y, func(i, j int) bool { return y[i] < y[j] })
+	return string(x) == string(y)
 }
 
 // declaraciones proposes declaring an undefined variable: turning its first "x = …" into "x := …",
@@ -455,6 +490,19 @@ func (a *analisis) declaraciones(id *ast.Ident) []edicion {
 		return true
 	})
 	if primera == nil {
+		return nil
+	}
+	// «x = x + 1» cannot become «x := x + 1»: the right side would still use an undefined x
+	usaseMismo := false
+	for _, e := range primera.Rhs {
+		ast.Inspect(e, func(n ast.Node) bool {
+			if x, ok := n.(*ast.Ident); ok && x.Name == nombre {
+				usaseMismo = true
+			}
+			return !usaseMismo
+		})
+	}
+	if usaseMismo {
 		return nil
 	}
 	var out []edicion

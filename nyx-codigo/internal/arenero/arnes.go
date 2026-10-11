@@ -55,6 +55,7 @@ type opcionesArnes struct {
 	props   []nucleo.Propiedad
 	sufijos []string            // per variant; "" = the variant is not in this build
 	nombres []map[string]string // per variant: old→new top-level names (to rename inside property expressions)
+	campos  []*infoCampos       // per variant: which struct fields are embedded (nil = guess from the names)
 	sinProp map[[2]int]bool     // (variant, property) pairs dropped after failing to type-check
 }
 
@@ -256,9 +257,13 @@ type generador struct {
 	importsArnes map[string]bool
 }
 
-// tieneDefinido reports whether t mentions a type declared by the candidate (renamed per variant).
+// tieneDefinido reports whether t mentions a type declared by the candidate (renamed per variant) or an
+// anonymous struct (whose embedded fields are read from each variant).
 func tieneDefinido(t nucleo.Tipo) bool {
 	if t.Definido && t.Nombre != "" && !strings.Contains(t.Nombre, ".") {
+		return true
+	}
+	if t.Clase == nucleo.CStruct && !t.Definido {
 		return true
 	}
 	if t.Elem != nil && tieneDefinido(*t.Elem) {
@@ -291,46 +296,112 @@ func paquetesDe(t nucleo.Tipo, m map[string]bool) {
 	}
 }
 
-// goTipo spells t in variant suf (candidate-declared names get the suffix).
-func goTipo(t nucleo.Tipo, suf string) string {
+// nombrador spells types and field names in one variant: candidate-declared names get the variant's
+// suffix, and embedded fields are told apart from ordinary ones with the variant's own declarations.
+type nombrador struct {
+	suf string
+	inf *infoCampos
+}
+
+// tipo spells t in the variant.
+func (nm nombrador) tipo(t nucleo.Tipo) string {
 	if t.Definido && t.Nombre != "" {
 		if strings.Contains(t.Nombre, ".") {
 			return t.Nombre
 		}
-		return t.Nombre + suf
+		return t.Nombre + nm.suf
 	}
 	switch t.Clase {
 	case nucleo.CLista:
-		return "[]" + goTipo(elem(t.Elem), suf)
+		return "[]" + nm.tipo(elem(t.Elem))
 	case nucleo.CArreglo:
-		return "[" + strconv.Itoa(t.Largo) + "]" + goTipo(elem(t.Elem), suf)
+		return "[" + strconv.Itoa(t.Largo) + "]" + nm.tipo(elem(t.Elem))
 	case nucleo.CMapa:
-		return "map[" + goTipo(elem(t.Clave), suf) + "]" + goTipo(elem(t.Elem), suf)
+		return "map[" + nm.tipo(elem(t.Clave)) + "]" + nm.tipo(elem(t.Elem))
 	case nucleo.CPuntero:
-		return "*" + goTipo(elem(t.Elem), suf)
+		return "*" + nm.tipo(elem(t.Elem))
 	case nucleo.CStruct:
 		if len(t.Campos) == 0 {
 			return "struct{}"
 		}
+		emb := nm.embebidos(t)
 		partes := make([]string, len(t.Campos))
 		for i, c := range t.Campos {
-			partes[i] = nombreCampo(c, suf) + " " + goTipo(c.Tipo, suf)
+			if emb[i] {
+				partes[i] = nm.tipo(c.Tipo) // an embedded field is spelled as its type alone
+			} else {
+				partes[i] = c.Nombre + " " + nm.tipo(c.Tipo)
+			}
 		}
 		return "struct{ " + strings.Join(partes, "; ") + " }"
 	}
 	return t.Go()
 }
 
-// nombreCampo: an embedded field is named after its (renamed) type.
-func nombreCampo(c nucleo.Campo, suf string) string {
-	t := c.Tipo
+// embebidos says which fields of struct t are embedded in this variant. nucleo.Campo has no such flag, so it
+// comes from the variant's declarations; without them (GenerarArnes), a field named like its own type is
+// taken as embedded.
+func (nm nombrador) embebidos(t nucleo.Tipo) []bool {
+	if nm.inf != nil {
+		var emb []bool
+		if t.Definido {
+			emb = nm.inf.definidos[t.Nombre]
+		} else {
+			emb = nm.inf.anonimos[claveCampos(t.Campos)]
+		}
+		if len(emb) == len(t.Campos) {
+			return emb
+		}
+	}
+	emb := make([]bool, len(t.Campos))
+	for i, c := range t.Campos {
+		emb[i] = nombreBase(c.Tipo) == c.Nombre
+	}
+	return emb
+}
+
+// campo is the name of field i of struct t in the variant: an embedded field of a candidate type is named
+// after its renamed type; any other field keeps its name.
+func (nm nombrador) campo(t nucleo.Tipo, emb []bool, i int) string {
+	c := t.Campos[i]
+	if emb[i] {
+		b := c.Tipo
+		if b.Clase == nucleo.CPuntero && b.Elem != nil {
+			b = *b.Elem
+		}
+		if b.Definido && !strings.Contains(b.Nombre, ".") {
+			return c.Nombre + nm.suf
+		}
+	}
+	return c.Nombre
+}
+
+// nombreBase is the name an embedded field of type t would get ("*Punto" → "Punto", "time.Time" → "Time").
+func nombreBase(t nucleo.Tipo) string {
 	if t.Clase == nucleo.CPuntero && t.Elem != nil {
 		t = *t.Elem
 	}
-	if t.Definido && t.Nombre == c.Nombre && !strings.Contains(t.Nombre, ".") {
-		return c.Nombre + suf
+	if !t.Definido || t.Nombre == "" {
+		return ""
 	}
-	return c.Nombre
+	return t.Nombre[strings.LastIndexByte(t.Nombre, '.')+1:]
+}
+
+func claveCampos(cs []nucleo.Campo) string {
+	nombres := make([]string, len(cs))
+	for i, c := range cs {
+		nombres[i] = c.Nombre
+	}
+	return strings.Join(nombres, ",")
+}
+
+// nombrador returns the speller of variant k.
+func (g *generador) nombrador(k int, suf string) nombrador {
+	nm := nombrador{suf: suf}
+	if k >= 0 && k < len(g.op.campos) {
+		nm.inf = g.op.campos[k]
+	}
+	return nm
 }
 
 func elem(p *nucleo.Tipo) nucleo.Tipo {
@@ -371,12 +442,12 @@ func (g *generador) codec(t nucleo.Tipo, k int, suf string) int {
 	for p := range paquetes {
 		g.importsCodec[p] = true
 	}
-	g.trozos = append(g.trozos, trozo{dueno: dueno, texto: textoCodec(t, n, suf, hijos)})
+	g.trozos = append(g.trozos, trozo{dueno: dueno, texto: textoCodec(t, n, g.nombrador(k, suf), hijos)})
 	return n
 }
 
-func textoCodec(t nucleo.Tipo, n int, suf string, hijos []int) string {
-	T := goTipo(t, suf)
+func textoCodec(t nucleo.Tipo, n int, nm nombrador, hijos []int) string {
+	T := nm.tipo(t)
 	var sb strings.Builder
 	p := func(format string, a ...any) { fmt.Fprintf(&sb, format, a...) }
 	p("\n// %s\n", T)
@@ -411,11 +482,12 @@ func textoCodec(t nucleo.Tipo, n int, suf string, hijos []int) string {
 			p("\tc%d, err := nyx__dec_%d(xs[%d])\n\tif err != nil {\n\t\treturn nyx__z, err\n\t}\n", i, hijos[i], i)
 		}
 		p("\treturn %s{", T)
-		for i, c := range t.Campos {
+		emb := nm.embebidos(t)
+		for i := range t.Campos {
 			if i > 0 {
 				p(", ")
 			}
-			p("%s: c%d", nombreCampo(c, suf), i)
+			p("%s: c%d", nm.campo(t, emb, i), i)
 		}
 		p("}, nil\n")
 	case nucleo.CPuntero:
@@ -448,7 +520,7 @@ func textoCodec(t nucleo.Tipo, n int, suf string, hijos []int) string {
 	case nucleo.CArreglo:
 		p("\tb = append(b, '[')\n\tfor i, e := range v {\n\t\tif i > 0 {\n\t\t\tb = append(b, ',')\n\t\t}\n\t\tb = nyx__enc_%d(b, e)\n\t}\n\treturn append(b, ']')\n", hijos[0])
 	case nucleo.CMapa:
-		K := goTipo(elem(t.Clave), suf)
+		K := nm.tipo(elem(t.Clave))
 		menor := "ks[i] < ks[j]"
 		if elem(t.Clave).Clase == nucleo.CBool {
 			menor = "!bool(ks[i]) && bool(ks[j])"
@@ -458,11 +530,12 @@ func textoCodec(t nucleo.Tipo, n int, suf string, hijos []int) string {
 		p("\tb = append(b, '[')\n\tfor i, k := range ks {\n\t\tif i > 0 {\n\t\t\tb = append(b, ',')\n\t\t}\n\t\tb = append(b, '[')\n\t\tb = nyx__enc_%d(b, k)\n\t\tb = append(b, ',')\n\t\tb = nyx__enc_%d(b, v[k])\n\t\tb = append(b, ']')\n\t}\n\treturn append(b, ']')\n", hijos[0], hijos[1])
 	case nucleo.CStruct:
 		p("\tb = append(b, '[')\n")
-		for i, c := range t.Campos {
+		emb := nm.embebidos(t)
+		for i := range t.Campos {
 			if i > 0 {
 				p("\tb = append(b, ',')\n")
 			}
-			p("\tb = nyx__enc_%d(b, v.%s)\n", hijos[i], nombreCampo(c, suf))
+			p("\tb = nyx__enc_%d(b, v.%s)\n", hijos[i], nm.campo(t, emb, i))
 		}
 		p("\treturn append(b, ']')\n")
 	case nucleo.CPuntero:
@@ -504,15 +577,15 @@ func llamada(f nucleo.Firma, suf string, args []string) string {
 }
 
 // referenciaF is what F means in the properties of variant k.
-func referenciaF(f nucleo.Firma, suf string) string {
+func referenciaF(f nucleo.Firma, nm nombrador) string {
 	if f.Receptor == nil {
-		return f.Nombre + suf
+		return f.Nombre + nm.suf
 	}
 	t := f.Receptor.Tipo
 	if t.Clase == nucleo.CPuntero {
-		return "(" + goTipo(t, suf) + ")." + f.Nombre
+		return "(" + nm.tipo(t) + ")." + f.Nombre
 	}
-	return goTipo(t, suf) + "." + f.Nombre
+	return nm.tipo(t) + "." + f.Nombre
 }
 
 func (g *generador) decResultado(t nucleo.Tipo, k int, suf string) string {
@@ -540,6 +613,7 @@ func (g *generador) runner(w *escritor, k int, suf string, props []nucleo.Propie
 	for _, t := range res {
 		paquetesDe(t, g.importsArnes)
 	}
+	nm := g.nombrador(k, suf)
 	w.actual = duenio{v: k, p: -1}
 	w.f("\n// variante %d\nfunc nyx__correr_v%d(nyx__x *nyx__Ejec) {\n\tvar nyx__err error\n\t_ = nyx__err\n", k, k)
 	w.f("\tif len(nyx__x.E) != %d {\n\t\tnyx__x.Dec(errors.New(\"el caso no tiene %d entradas\"))\n\t\treturn\n\t}\n", len(ent), len(ent))
@@ -548,12 +622,12 @@ func (g *generador) runner(w *escritor, k int, suf string, props []nucleo.Propie
 	for i, t := range ent {
 		decs[i] = "nyx__dec_" + strconv.Itoa(g.codec(t, k, suf))
 		a[i] = "nyx__a" + strconv.Itoa(i)
-		w.f("\tvar %s %s\n\tif %s, nyx__err = %s(nyx__x.E[%d]); nyx__x.Dec(nyx__err) {\n\t\treturn\n\t}\n", a[i], goTipo(t, suf), a[i], decs[i], i)
+		w.f("\tvar %s %s\n\tif %s, nyx__err = %s(nyx__x.E[%d]); nyx__x.Dec(nyx__err) {\n\t\treturn\n\t}\n", a[i], nm.tipo(t), a[i], decs[i], i)
 	}
 	rs := make([]string, len(res))
 	for i, t := range res {
 		rs[i] = "r" + strconv.Itoa(i)
-		w.f("\tvar %s %s\n", rs[i], goTipoResultado(t, suf))
+		w.f("\tvar %s %s\n", rs[i], goTipoResultado(t, nm))
 	}
 	w.f("\tif !nyx__x.Llamar(func() { %s = %s }) {\n\t\treturn\n\t}\n", strings.Join(rs, ", "), llamada(f, suf, a))
 	encs := make([]string, len(res))
@@ -579,9 +653,9 @@ func (g *generador) runner(w *escritor, k int, suf string, props []nucleo.Propie
 		es := make([]string, len(ent))
 		for i, t := range ent {
 			es[i] = "e" + strconv.Itoa(i)
-			w.f("\t\tvar %s %s\n\t\tif %s, nyx__err = %s(nyx__x.E[%d]); nyx__x.Dec(nyx__err) {\n\t\t\treturn\n\t\t}\n", es[i], goTipo(t, suf), es[i], decs[i], i)
+			w.f("\t\tvar %s %s\n\t\tif %s, nyx__err = %s(nyx__x.E[%d]); nyx__x.Dec(nyx__err) {\n\t\t\treturn\n\t\t}\n", es[i], nm.tipo(t), es[i], decs[i], i)
 		}
-		w.f("\t\tF := %s\n", referenciaF(f, suf))
+		w.f("\t\tF := %s\n", referenciaF(f, nm))
 		usados := append(append([]string{"F"}, es...), rs...)
 		w.f("\t\t_ = []any{%s}\n", strings.Join(usados, ", "))
 		var nombres map[string]string
@@ -606,7 +680,7 @@ func (g *generador) runner(w *escritor, k int, suf string, props []nucleo.Propie
 	bs := make([]string, len(ent))
 	for i, t := range ent {
 		bs[i] = "nyx__b" + strconv.Itoa(i)
-		w.f("\t\tvar %s %s\n\t\tif %s, nyx__err = %s(nyx__x.E[%d]); nyx__x.Dec(nyx__err) {\n\t\t\treturn\n\t\t}\n", bs[i], goTipo(t, suf), bs[i], decs[i], i)
+		w.f("\t\tvar %s %s\n\t\tif %s, nyx__err = %s(nyx__x.E[%d]); nyx__x.Dec(nyx__err) {\n\t\t\treturn\n\t\t}\n", bs[i], nm.tipo(t), bs[i], decs[i], i)
 	}
 	ss := make([]string, len(res))
 	encs2 := make([]string, len(res))
@@ -617,14 +691,60 @@ func (g *generador) runner(w *escritor, k int, suf string, props []nucleo.Propie
 	w.f("\t\tnyx__x.Repetida(func() [][]byte {\n\t\t\t%s := %s\n\t\t\treturn [][]byte{%s}\n\t\t})\n\t}\n}\n", strings.Join(ss, ", "), llamada(f, suf, bs), strings.Join(encs2, ", "))
 }
 
-func goTipoResultado(t nucleo.Tipo, suf string) string {
+func goTipoResultado(t nucleo.Tipo, nm nombrador) string {
 	if t.Clase == nucleo.CError && !t.Definido {
 		return "error"
 	}
-	return goTipo(t, suf)
+	return nm.tipo(t)
 }
 
-// unaLinea keeps a property on one line, so its build errors land on its own lines.
+// unaLinea keeps a property on one line, so its build errors land on its own lines. It rebuilds the
+// expression from its tokens: a gap between two tokens (spaces, newlines, comments) becomes one space, a
+// newline that ends a statement inside a function literal becomes ";", and every literal is kept exactly as
+// written (a raw string that spans lines becomes the same text as a quoted string).
 func unaLinea(s string) string {
-	return strings.Join(strings.Fields(strings.ReplaceAll(s, "\n", " ")), " ")
+	fset := token.NewFileSet()
+	tf := fset.AddFile("p.go", -1, len(s))
+	var sc scanner.Scanner
+	sc.Init(tf, []byte(s), func(token.Position, string) {}, 0)
+	var sb strings.Builder
+	fin := -1           // offset just past the previous token
+	puntoYComa := false // an automatic semicolon is pending (dropped at the end)
+	for {
+		pos, tok, lit := sc.Scan()
+		if tok == token.EOF {
+			break
+		}
+		off := tf.Offset(pos)
+		if tok == token.SEMICOLON && lit == "\n" {
+			puntoYComa = true
+			continue
+		}
+		texto := tok.String()
+		largo := len(texto)
+		if lit != "" {
+			texto, largo = lit, len(lit)
+			if tok == token.STRING && strings.HasPrefix(lit, "`") {
+				// the scanner drops carriage returns from raw strings: find the real end
+				if j := strings.IndexByte(s[off+1:], '`'); j >= 0 {
+					largo = j + 2
+				}
+				if strings.ContainsAny(lit, "\n") {
+					if v, err := strconv.Unquote(lit); err == nil {
+						texto = strconv.Quote(v)
+					}
+				}
+			}
+		}
+		if puntoYComa {
+			sb.WriteString(";")
+			puntoYComa = false
+		}
+		if fin >= 0 && off > fin {
+			sb.WriteByte(' ')
+		}
+		sb.WriteString(texto)
+		fin = off + largo
+	}
+	return sb.String()
 }

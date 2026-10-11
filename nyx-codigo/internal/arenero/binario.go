@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +18,14 @@ import (
 
 // maxRelanzamientos bounds the relaunches of one Probar after crashes (§4.2.2).
 const maxRelanzamientos = 20
+
+// Bounds on what the trusted parent takes from fd 3, so candidate code cannot push this process out of memory
+// by returning a huge value (stdout and stderr are capped elsewhere, Impreso at 4 KiB).
+const (
+	maxResultadoCaso    = 1 << 20  // encoded results of one case; the harness sends only the size of a larger one
+	maxResultadosProbar = 16 << 20 // encoded results kept by one Probar (the decoded values live in ResultadoCaso)
+	maxLineaArnes       = 4 << 20  // one line of fd 3: results, at most 1 MiB of events, small fields
+)
 
 // binario is a built harness (nucleo.Binario).
 type binario struct {
@@ -72,9 +81,12 @@ type lineaArnes struct {
 	ND      bool               `json:"nd"`
 	ED      string             `json:"ed"`
 	US      int64              `json:"us"`
+	Grande  int                `json:"grande"`
 	Cov     []int32            `json:"cov"`
 	Ev      []nucleo.EventoVar `json:"ev"`
 	Imp     string             `json:"imp"`
+	A       *int               `json:"a"`     // start-up code of variant A begins
+	Listo   bool               `json:"listo"` // every init has run
 }
 
 // Probar runs the cases on the chosen variants and returns [variante][caso]. It never rebuilds: after a crash
@@ -113,6 +125,14 @@ func (b *binario) Probar(ctx context.Context, casos []nucleo.Caso, op nucleo.Opc
 			continue
 		}
 		vista[v] = true
+		if b.vars[v].fuera && b.vars[v].motivo == motivoArranque {
+			// left out because its start-up code kills the process: that is what happens on every case
+			for c := range res[v] {
+				r := &res[v][c]
+				r.Ejecutado, r.Caida, r.Panico = true, true, b.vars[v].caida
+			}
+			continue
+		}
 		if b.vars[v].fuera {
 			motivo := "no compila"
 			if b.vars[v].motivo == "inseguro" {
@@ -207,6 +227,7 @@ type sesionProbar struct {
 	res       [][]nucleo.ResultadoCaso
 	op        nucleo.OpcionesProbar
 	tcaso     time.Duration
+	retenido  int // encoded result bytes kept so far (maxResultadosProbar)
 	variantes []int
 	hecho     map[[2]int]bool // has a result, or was blamed for a crash
 	parado    map[int]bool    // PararAlFallar: the variant already failed
@@ -233,10 +254,64 @@ type cabecera struct {
 	Fuel      int64    `json:"fuel"`
 	MaxPila   int      `json:"maxPila"`
 	TCasoMs   int64    `json:"tcaso_ms"`
+	MaxO      int      `json:"maxo"`
 	Repetir   int      `json:"repetir"`
 	Parar     bool     `json:"parar"`
 	Saltar    [][2]int `json:"saltar"`
 	Variantes []int    `json:"variantes"`
+}
+
+// correrArnes runs a harness binary once: it writes the header and the case lines on fd 4 and hands to leer
+// every line of fd 3 that carries the nonce (x == nil and larga: a line too long to read, not kept).
+func (a *Arenero) correrArnes(ctx context.Context, dir, prog, nonce string, encabezado []byte, lineas [][]byte, leer func(x *lineaArnes, larga bool)) fin {
+	malo := func(err error) fin {
+		return fin{salida: nuevoLimitado(0), errSalida: nuevoLimitado(0), codigo: -1, err: fmt.Errorf("arenero: %w", err)}
+	}
+	r3, w3, err := os.Pipe()
+	if err != nil {
+		return malo(err)
+	}
+	r4, w4, err := os.Pipe()
+	if err != nil {
+		r3.Close()
+		w3.Close()
+		return malo(err)
+	}
+	o := orden{
+		dir: dir, bin: prog, env: entornoEjecucion(dir, nonce),
+		extra: []*os.File{w3, r4}, pared: a.cfg.TEjecutar, aislar: true,
+	}
+	mientras := func() {
+		defer r3.Close()
+		go func() {
+			defer w4.Close()
+			bw := bufio.NewWriterSize(w4, 1<<16)
+			bw.Write(encabezado)
+			bw.WriteByte('\n')
+			for _, l := range lineas {
+				if _, err := bw.Write(l); err != nil {
+					return
+				}
+			}
+			bw.Flush()
+		}()
+		lector := bufio.NewReaderSize(r3, 1<<16)
+		for {
+			l, larga, err := leerLinea(lector, maxLineaArnes)
+			if larga {
+				leer(nil, true)
+			} else if len(l) > 0 {
+				var x lineaArnes
+				if json.Unmarshal(l, &x) == nil && x.N == nonce {
+					leer(&x, false)
+				}
+			}
+			if err != nil {
+				return
+			}
+		}
+	}
+	return a.ejecutar(ctx, o, mientras)
 }
 
 // lanzar runs the binary once. terminado: the harness wrote "fin". progreso: new results or blamed pairs.
@@ -248,7 +323,7 @@ func (s *sesionProbar) lanzar(ctx context.Context, variantes []int) (terminado b
 	defer b.a.soltar()
 	nonce := aleatorio(16)
 	cab := cabecera{
-		Nonce: nonce, Fuel: b.instr.Combustible, MaxPila: b.instr.MaxPila, TCasoMs: s.tcaso.Milliseconds(),
+		Nonce: nonce, Fuel: b.instr.Combustible, MaxPila: b.instr.MaxPila, TCasoMs: s.tcaso.Milliseconds(), MaxO: maxResultadoCaso,
 		Repetir: s.op.Repetir, Parar: s.op.PararAlFallar, Variantes: variantes, Saltar: [][2]int{},
 	}
 	for _, v := range variantes {
@@ -265,69 +340,42 @@ func (s *sesionProbar) lanzar(ctx context.Context, variantes []int) (terminado b
 	if err != nil {
 		return false, 0, err
 	}
-	r3, w3, err := os.Pipe()
-	if err != nil {
-		return false, 0, fmt.Errorf("arenero: %w", err)
-	}
-	r4, w4, err := os.Pipe()
-	if err != nil {
-		r3.Close()
-		w3.Close()
-		return false, 0, fmt.Errorf("arenero: %w", err)
-	}
-	o := orden{
-		dir: b.dir, bin: b.prog, env: entornoEjecucion(b.dir, nonce),
-		extra: []*os.File{w3, r4}, pared: b.a.cfg.TEjecutar, aislar: true,
-	}
 	var marca *[2]int
 	var tMarca time.Time
+	arranque, listo := -1, false // last variant whose start-up code began; every init has run
 	agotados := map[[2]int]bool{}
-	mientras := func() {
-		defer r3.Close()
-		go func() {
-			defer w4.Close()
-			bw := bufio.NewWriterSize(w4, 1<<16)
-			bw.Write(encabezado)
-			bw.WriteByte('\n')
-			for _, l := range s.lineas {
-				if _, err := bw.Write(l); err != nil {
-					return
-				}
+	f := b.a.correrArnes(ctx, b.dir, b.prog, nonce, encabezado, s.lineas, func(x *lineaArnes, larga bool) {
+		if larga {
+			if marca != nil && !s.hecho[*marca] {
+				// the line of the case that was running is too big to read: drop it, blame the case
+				s.fallar(*marca, "el resultado de este caso es demasiado grande (más de "+tamano(maxLineaArnes)+") y no lo leí")
+				progreso++
 			}
-			bw.Flush()
-		}()
-		lector := bufio.NewReaderSize(r3, 1<<16)
-		for {
-			l, err := lector.ReadBytes('\n')
-			if len(l) > 0 {
-				var x lineaArnes
-				if json.Unmarshal(l, &x) == nil && x.N == nonce {
-					switch {
-					case x.Fin:
-						terminado = true
-					case x.I != nil && x.Agotado:
-						p := *x.I
-						if s.valido(p) && !s.hecho[p] {
-							agotados[p] = true
-						}
-					case x.I != nil:
-						p := *x.I
-						marca, tMarca = &p, time.Now()
-					case x.V != nil:
-						p := [2]int{*x.V, x.C}
-						if s.valido(p) && !s.hecho[p] {
-							s.anotar(p, &x)
-							progreso++
-						}
-					}
-				}
+			return
+		}
+		switch {
+		case x.Fin:
+			terminado = true
+		case x.Listo:
+			listo = true
+		case x.A != nil:
+			arranque = *x.A
+		case x.I != nil && x.Agotado:
+			p := *x.I
+			if s.valido(p) && !s.hecho[p] {
+				agotados[p] = true
 			}
-			if err != nil {
-				return
+		case x.I != nil:
+			p := *x.I
+			marca, tMarca = &p, time.Now()
+		case x.V != nil:
+			p := [2]int{*x.V, x.C}
+			if s.valido(p) && !s.hecho[p] {
+				s.anotar(p, x)
+				progreso++
 			}
 		}
-	}
-	f := b.a.ejecutar(ctx, o, mientras)
+	})
 	if f.err != nil && ctx.Err() != nil {
 		return false, progreso, ctx.Err()
 	}
@@ -338,7 +386,7 @@ func (s *sesionProbar) lanzar(ctx context.Context, variantes []int) (terminado b
 		return false, 0, f.err
 	}
 	// The process died before "fin". Blame the case that was running.
-	culpa := func(p [2]int, agotado bool) {
+	culpa := func(p [2]int, agotado bool, texto string) {
 		r := &s.res[p[0]][p[1]]
 		r.Ejecutado, r.OK = true, false
 		if agotado {
@@ -346,7 +394,7 @@ func (s *sesionProbar) lanzar(ctx context.Context, variantes []int) (terminado b
 			r.Panico = fmt.Sprintf("tardó más de %v en este caso (¿un bucle sin fin?)", s.tcaso)
 		} else {
 			r.Caida = true
-			r.Panico = resumenCaida(f)
+			r.Panico = texto
 		}
 		s.hecho[p] = true
 		if s.op.PararAlFallar {
@@ -356,7 +404,7 @@ func (s *sesionProbar) lanzar(ctx context.Context, variantes []int) (terminado b
 	}
 	for p := range agotados {
 		if !s.hecho[p] {
-			culpa(p, true)
+			culpa(p, true, "")
 		}
 	}
 	switch {
@@ -365,18 +413,65 @@ func (s *sesionProbar) lanzar(ctx context.Context, variantes []int) (terminado b
 		if f.agotado && time.Since(tMarca) < s.tcaso {
 			break
 		}
-		culpa(*marca, false)
+		culpa(*marca, false, resumenCaida(f))
 	case marca == nil && progreso == 0:
-		// it died before the first case (an init of the candidate code, or the harness itself)
+		// It died before the first case: the package-level code of a variant (a var initializer or an init
+		// function) or the harness itself. Every variant's start-up code runs in every process, so only the
+		// culprit is blamed first; if it dies again with nothing of its own left, nothing else can run.
+		culpable := -1
+		if !listo && arranque >= 0 && arranque < len(s.b.vars) {
+			culpable = arranque
+		}
+		texto := resumenCaida(f)
+		if culpable >= 0 {
+			texto = sinSufijo(texto, s.b.vars[culpable].sufijo)
+		}
+		propios := 0
+		for _, v := range variantes {
+			if v != culpable {
+				continue
+			}
+			for c := range s.casos {
+				if p := [2]int{v, c}; !s.hecho[p] {
+					culpa(p, false, texto)
+					propios++
+				}
+			}
+		}
+		if propios > 0 {
+			break
+		}
+		if culpable >= 0 {
+			texto = fmt.Sprintf("la variante %d se cae al arrancar y no deja ejecutar ninguna otra: %s", culpable, texto)
+		}
 		for _, v := range variantes {
 			for c := range s.casos {
 				if p := [2]int{v, c}; !s.hecho[p] {
-					culpa(p, false)
+					culpa(p, false, texto)
 				}
 			}
 		}
 	}
 	return false, progreso, nil
+}
+
+// fallar records a case that ran but whose result could not be taken.
+func (s *sesionProbar) fallar(p [2]int, motivo string) {
+	r := &s.res[p[0]][p[1]]
+	r.Ejecutado, r.OK = true, false
+	r.Panico = motivo
+	s.hecho[p] = true
+	if s.op.PararAlFallar {
+		s.parado[p[0]] = true
+	}
+}
+
+// sinSufijo removes a variant's renaming suffix from a text shown to the user.
+func sinSufijo(texto, sufijo string) string {
+	if sufijo == "" {
+		return texto
+	}
+	return regexp.MustCompile(regexp.QuoteMeta(sufijo)+`([^0-9]|$)`).ReplaceAllString(texto, "$1")
 }
 
 func (s *sesionProbar) valido(p [2]int) bool {
@@ -400,7 +495,21 @@ func (s *sesionProbar) anotar(p [2]int, x *lineaArnes) {
 		r.Panico = "no pude leer la entrada: " + x.ED
 	}
 	ok := r.Panico == "" && !r.SinCombustible && r.PropFallida == "" && !r.NoDeterminista
+	tam := 0
+	for _, o := range x.O {
+		tam += len(o)
+	}
+	switch {
+	case r.Panico != "":
+	case x.Grande > 0 || tam > maxResultadoCaso:
+		r.Panico = "el resultado es demasiado grande (" + tamano(max(x.Grande, tam)) + "; el máximo es " + tamano(maxResultadoCaso) + "): no lo puedo comprobar"
+		ok = false
+	case s.retenido+tam > maxResultadosProbar:
+		r.Panico = "los resultados de esta prueba ya ocupan demasiado (más de " + tamano(maxResultadosProbar) + "): no guardo este"
+		ok = false
+	}
 	if r.Panico == "" && x.O != nil {
+		s.retenido += tam
 		if len(x.O) != len(f.Res) {
 			r.Panico = "el arnés devolvió " + strconv.Itoa(len(x.O)) + " resultados"
 			ok = false
@@ -435,6 +544,37 @@ func (s *sesionProbar) anotar(p [2]int, x *lineaArnes) {
 	}
 }
 
+// leerLinea reads one line of at most max bytes. A longer line is read to its end but not kept (larga).
+func leerLinea(r *bufio.Reader, max int) (linea []byte, larga bool, err error) {
+	for {
+		trozo, e := r.ReadSlice('\n')
+		if !larga {
+			if len(linea)+len(trozo) > max {
+				linea, larga = nil, true
+			} else {
+				linea = append(linea, trozo...)
+			}
+		}
+		if e == bufio.ErrBufferFull {
+			continue
+		}
+		return linea, larga, e
+	}
+}
+
+// tamano writes a byte count in simple words ("1 MiB", "60,0 MiB", "512 KiB").
+func tamano(n int) string {
+	switch {
+	case n >= 1<<20 && n%(1<<20) == 0:
+		return strconv.Itoa(n>>20) + " MiB"
+	case n >= 1<<20:
+		return strings.Replace(strconv.FormatFloat(float64(n)/(1<<20), 'f', 1, 64), ".", ",", 1) + " MiB"
+	case n >= 1<<10:
+		return strconv.Itoa(n>>10) + " KiB"
+	}
+	return strconv.Itoa(n) + " bytes"
+}
+
 // resumenCaida turns stderr into the Panico text of a crash. A runtime fatal error ("fatal error: stack
 // overflow", "runtime: out of memory", a deadlock…) prints its reason first and then a dump of every
 // goroutine, so the reason is looked for at the head of stderr; without one, the last 2 KiB are used.
@@ -449,8 +589,10 @@ func resumenCaida(f fin) string {
 		motivo = "el programa tardó demasiado y lo detuve"
 	case f.senal != "":
 		motivo = "el programa se cayó: " + explicarSenal(f.senal)
-	default:
+	case f.codigo == 2 || cola != "":
 		motivo = fmt.Sprintf("el programa se cayó (código de salida %d)", f.codigo)
+	default:
+		motivo = fmt.Sprintf("el programa terminó antes de tiempo con el código de salida %d (¿llamó a os.Exit?)", f.codigo)
 	}
 	if cola == "" {
 		return motivo

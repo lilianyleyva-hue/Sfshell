@@ -2,8 +2,10 @@ package arenero
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
 	"go/parser"
 	"go/scanner"
 	"go/token"
@@ -31,10 +33,21 @@ type variante struct {
 	fuente  string // renamed + instrumented, package solucion
 	lineas  []int
 	nombres map[string]string
+	campos  *infoCampos
+	arranca bool // it has package-level code (var initializers or init functions), marked for the parent
 	fuera   bool
-	motivo  string // why it is out: "inseguro" | "no compila"
+	motivo  string // why it is out: "inseguro" | "no compila" | motivoArranque
+	caida   string // motivoArranque: the crash text, reported on every case by Probar
 	errores []nucleo.ErrorGo
 }
+
+// motivoArranque: the variant's package-level code kills the process before any case can run.
+const motivoArranque = "se cae al arrancar"
+
+// archivoSoporte sorts before the variant files on purpose: Go initializes package-level variables in file
+// order among those whose dependencies are ready, and instrumented code depends on the support variables, so
+// with the support file first each variant's start-up code runs right after its own start-up marker.
+const archivoSoporte = "solucion/a_nyx_soporte.go"
 
 func (v *variante) archivo() string { return "v" + strconv.Itoa(v.k) + ".go" }
 
@@ -83,17 +96,20 @@ func (a *Arenero) Preparar(ctx context.Context, p nucleo.Preparacion) (nucleo.Bi
 		}
 	}()
 	base := map[string]string{
-		"go.mod":                     a.goMod(),
-		"solucion/zz_nyx_soporte.go": instrumenta.Soporte("solucion", p.Instr, maxN),
+		"go.mod":       a.goMod(),
+		archivoSoporte: instrumenta.Soporte("solucion", p.Instr, maxN),
 	}
 	if err := escribirArchivos(dir, base); err != nil {
 		return terminar(nil, fmt.Errorf("arenero: no puedo escribir el módulo temporal: %w", err))
 	}
 	lote := &lote{a: a, dir: dir, vars: vars, op: opcionesArnes{firma: p.Firma, props: p.Props, sinProp: map[[2]int]bool{}}}
 	ok, err := lote.construir(ctx)
+	if ok && err == nil {
+		ok, err = lote.sondear(ctx)
+	}
 	comp.Texto = recortarTexto(lote.texto.String())
 	for _, v := range vars {
-		if v.fuera && v.motivo == "no compila" {
+		if v.fuera {
 			comp.Errores = append(comp.Errores, v.errores...)
 		}
 	}
@@ -146,6 +162,7 @@ func prepararVariantes(p nucleo.Preparacion) []*variante {
 		}
 		norm, err := instrumenta.CambiarPaquete(src, "solucion")
 		if err == nil {
+			v.campos = leerCampos(norm)
 			var ren string
 			ren, v.nombres, err = instrumenta.Renombrar(norm, v.sufijo)
 			if err == nil {
@@ -157,6 +174,7 @@ func prepararVariantes(p nucleo.Preparacion) []*variante {
 				var r instrumenta.Resultado
 				if r, err = instrumenta.Instrumentar(ren, op); err == nil {
 					v.fuente, v.lineas = r.Fuente, r.Lineas
+					v.fuente, v.arranca = marcarArranque(v.fuente, k)
 				}
 			}
 		}
@@ -166,6 +184,215 @@ func prepararVariantes(p nucleo.Preparacion) []*variante {
 		}
 	}
 	return vars
+}
+
+// marcarArranque inserts, right after the imports of a variant that has package-level code, a start-up marker
+// for its var initializers and one for its init functions: "; var _ = nyx__arranque(k); func init() {
+// nyx__arranque(k) }". Both run just before the variant's own (see archivoSoporte), so when start-up code kills
+// the process the last marker names the culprit. The text has no newline, so lines do not move.
+func marcarArranque(fuente string, k int) (string, bool) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "v.go", fuente, parser.SkipObjectResolution)
+	if err != nil {
+		return fuente, false
+	}
+	arranca := false
+	fin := f.Name.End()
+	for _, d := range f.Decls {
+		switch d := d.(type) {
+		case *ast.FuncDecl:
+			if d.Recv == nil && d.Name.Name == "init" {
+				arranca = true
+			}
+		case *ast.GenDecl:
+			switch d.Tok {
+			case token.IMPORT:
+				fin = d.End()
+			case token.VAR:
+				for _, sp := range d.Specs {
+					if vs, ok := sp.(*ast.ValueSpec); ok && len(vs.Values) > 0 {
+						arranca = true
+					}
+				}
+			}
+		}
+	}
+	if !arranca {
+		return fuente, false
+	}
+	off := fset.File(f.Pos()).Offset(fin)
+	marca := fmt.Sprintf("; var _ = nyx__arranque(%d); func init() { nyx__arranque(%d) }", k, k)
+	return fuente[:off] + marca + fuente[off:], true
+}
+
+// maxSondeos bounds the start-up probes (and so the rebuilds) of one Preparar.
+const maxSondeos = 8
+
+// sondear runs the built binary once with no cases. A variant whose package-level code kills the process at
+// start would take every other variant down in every run (each process runs every variant's start-up code),
+// so it is left out and the batch is rebuilt without it, while at least one other variant remains. The last
+// one standing is kept: Probar then reports its crash on each case. Batches without start-up code skip this.
+func (l *lote) sondear(ctx context.Context) (bool, error) {
+	for ronda := 0; ronda < maxSondeos; ronda++ {
+		activos := l.activos()
+		arranca := false
+		for _, k := range activos {
+			arranca = arranca || l.vars[k].arranca
+		}
+		if !arranca || len(activos) <= 1 {
+			return true, nil
+		}
+		culpable, f, err := l.a.sondearArranque(ctx, l.dir)
+		if err != nil {
+			return false, err
+		}
+		if culpable < 0 || culpable >= len(l.vars) || l.vars[culpable].fuera {
+			return true, nil
+		}
+		v := l.vars[culpable]
+		texto := sinSufijo(resumenCaida(f), v.sufijo)
+		v.fuera, v.motivo, v.caida = true, motivoArranque, texto
+		v.errores = []nucleo.ErrorGo{{Archivo: v.archivo(), Linea: lineaEnTraza(f.errSalida.String(), v.archivo()),
+			Msg: motivoArranque + ": " + primeraLinea(texto)}}
+		fmt.Fprintf(&l.texto, "Nota: quité la variante %d porque %s: %s\n", culpable, motivoArranque, primeraLinea(texto))
+		ok, err := l.construir(ctx)
+		if err != nil || !ok {
+			return ok, err
+		}
+	}
+	return true, nil
+}
+
+// sondearArranque runs the binary in dir with no cases. It returns the variant whose start-up code killed the
+// process (-1 when the harness started fine, or when the culprit is not known) and how the run ended.
+func (a *Arenero) sondearArranque(ctx context.Context, dir string) (int, fin, error) {
+	if err := a.tomar(ctx); err != nil {
+		return -1, fin{}, err
+	}
+	defer a.soltar()
+	nonce := aleatorio(16)
+	cab, err := json.Marshal(cabecera{Nonce: nonce, Fuel: 1 << 62, TCasoMs: a.cfg.TCaso.Milliseconds(), Saltar: [][2]int{}, Variantes: []int{}})
+	if err != nil {
+		return -1, fin{}, err
+	}
+	arranque, listo, terminado := -1, false, false
+	f := a.correrArnes(ctx, dir, filepath.Join(dir, "prog"), nonce, cab, nil, func(x *lineaArnes, larga bool) {
+		switch {
+		case x == nil:
+		case x.Fin:
+			terminado = true
+		case x.Listo:
+			listo = true
+		case x.A != nil:
+			arranque = *x.A
+		}
+	})
+	if f.err != nil {
+		if ctx.Err() != nil {
+			return -1, f, ctx.Err()
+		}
+		return -1, f, nil // it could not even start: Probar will say so
+	}
+	if terminado || listo {
+		return -1, f, nil
+	}
+	return arranque, f, nil
+}
+
+// lineaEnTraza finds the first line of archivo named in a Go traceback ("…/v3.go:12 +0x1d"), or 0.
+func lineaEnTraza(traza, archivo string) int {
+	m := regexp.MustCompile(`(?:^|[/\s])` + regexp.QuoteMeta(archivo) + `:(\d+)`).FindStringSubmatch(traza)
+	if m == nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(m[1])
+	return n
+}
+
+func primeraLinea(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
+
+// infoCampos says, for the struct types of one variant, which fields are embedded (nucleo.Campo cannot say).
+type infoCampos struct {
+	definidos map[string][]bool // top-level struct type (name before renaming) → embedded flag per field
+	anonimos  map[string][]bool // any other struct type, keyed by its field names joined with "," → flags
+}
+
+// leerCampos reads the struct declarations of a variant. An embedded field is named after its type, as in
+// nucleo.Campo ("*Punto" and "geo.Punto" give "Punto").
+func leerCampos(src string) *infoCampos {
+	inf := &infoCampos{definidos: map[string][]bool{}, anonimos: map[string][]bool{}}
+	f, err := parser.ParseFile(token.NewFileSet(), "v.go", src, parser.SkipObjectResolution)
+	if err != nil {
+		return inf
+	}
+	leer := func(st *ast.StructType) (string, []bool) {
+		var nombres []string
+		var emb []bool
+		for _, c := range st.Fields.List {
+			if len(c.Names) == 0 {
+				nombres = append(nombres, nombreEmbebido(c.Type))
+				emb = append(emb, true)
+				continue
+			}
+			for _, n := range c.Names {
+				nombres = append(nombres, n.Name)
+				emb = append(emb, false)
+			}
+		}
+		return strings.Join(nombres, ","), emb
+	}
+	propios := map[*ast.StructType]bool{}
+	for _, d := range f.Decls {
+		gd, ok := d.(*ast.GenDecl)
+		if !ok || gd.Tok != token.TYPE {
+			continue
+		}
+		for _, sp := range gd.Specs {
+			if ts, ok := sp.(*ast.TypeSpec); ok {
+				if st, ok := ts.Type.(*ast.StructType); ok {
+					_, inf.definidos[ts.Name.Name] = leer(st)
+					propios[st] = true
+				}
+			}
+		}
+	}
+	ast.Inspect(f, func(n ast.Node) bool {
+		if st, ok := n.(*ast.StructType); ok && !propios[st] {
+			clave, emb := leer(st)
+			if _, ya := inf.anonimos[clave]; !ya {
+				inf.anonimos[clave] = emb
+			}
+		}
+		return true
+	})
+	return inf
+}
+
+// nombreEmbebido is the field name of an embedded type expression (T, *T, pkg.T, T[X]).
+func nombreEmbebido(x ast.Expr) string {
+	for {
+		switch y := x.(type) {
+		case *ast.StarExpr:
+			x = y.X
+		case *ast.IndexExpr:
+			x = y.X
+		case *ast.IndexListExpr:
+			x = y.X
+		case *ast.ParenExpr:
+			x = y.X
+		case *ast.SelectorExpr:
+			return y.Sel.Name
+		case *ast.Ident:
+			return y.Name
+		default:
+			return ""
+		}
+	}
 }
 
 // erroresSintaxis returns the parse errors of src, named after archivo.
@@ -367,12 +594,14 @@ func (l *lote) compilar(ctx context.Context, incluidos []int) (bool, []nucleo.Er
 	op := l.op
 	op.sufijos = make([]string, len(l.vars))
 	op.nombres = make([]map[string]string, len(l.vars))
+	op.campos = make([]*infoCampos, len(l.vars))
 	archivos := map[string]string{}
 	for _, v := range l.vars {
 		ruta := filepath.Join(l.dir, "solucion", v.archivo())
 		if dentro[v.k] {
 			op.sufijos[v.k] = v.sufijo
 			op.nombres[v.k] = v.nombres
+			op.campos[v.k] = v.campos
 			archivos["solucion/"+v.archivo()] = v.fuente
 		} else {
 			_ = os.Remove(ruta)

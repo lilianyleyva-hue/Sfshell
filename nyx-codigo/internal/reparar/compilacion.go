@@ -45,9 +45,14 @@ func (r *Reparador) Compilacion(ctx context.Context, fuente string, n *nucleo.No
 	limite := time.Now().Add(lim.TCompilacion)
 	paso := n.Sub(nucleo.PasoArreglo, "Reviso si compila")
 	ar := Arreglo{Fuente: fuente}
+	if strings.TrimSpace(fuente) == "" {
+		ar.Quedan = []nucleo.ErrorGo{{Archivo: archivoFuente, Linea: 1, Col: 1, Msg: "no hay código"}}
+		paso.Mal("No hay código que revisar")
+		return ar
+	}
 	src := fuente
 	a := analizar(src)
-	if len(a.errs) > 0 {
+	if len(a.errs) > 0 && time.Now().Before(limite) && ctx.Err() == nil {
 		paso.Detalle("Encontré %d errores; el primero: %s", len(a.errs), Traducir(a.errs[0]))
 		nuevo, cs := r.idiomasSeguros(src, a)
 		if nuevo != src {
@@ -82,7 +87,7 @@ func (r *Reparador) Compilacion(ctx context.Context, fuente string, n *nucleo.No
 			break
 		}
 		ar.Rondas++
-		nuevo, aplicadas, ok := r.rondaTipos(a)
+		nuevo, aplicadas, ok := r.rondaTipos(ctx, a, limite)
 		if !ok {
 			break
 		}
@@ -157,12 +162,18 @@ func (r *Reparador) idiomasSeguros(src string, a *analisis) (string, []Cambio) {
 
 // rondaTipos does one round of type rules: the best non-overlapping edit for each error together;
 // if the error count does not fall, single edits are tried in rank order (first error first).
-func (r *Reparador) rondaTipos(a *analisis) (string, []edicion, bool) {
+func (r *Reparador) rondaTipos(ctx context.Context, a *analisis, limite time.Time) (string, []edicion, bool) {
 	antes := puntaje(a.errs)
 	cands := make([][]edicion, len(a.errs))
 	for i, e := range a.errs {
+		// on a huge paste with thousands of errors, the time budget and ctx still hold: the errors
+		// not reached in this round wait for the next one
+		if i%16 == 15 && (ctx.Err() != nil || time.Now().After(limite)) {
+			break
+		}
 		cands[i] = r.candidatos(a, e)
 	}
+	cands = coherentes(a, cands)
 	mejora := func(nuevo string) bool {
 		if nuevo == a.fuente {
 			return false
@@ -188,7 +199,7 @@ func (r *Reparador) rondaTipos(a *analisis) (string, []edicion, bool) {
 	intentos := 0
 	for _, c := range cands {
 		for j, e := range c {
-			if intentos >= maxIntentosRonda {
+			if intentos >= maxIntentosRonda || ctx.Err() != nil || time.Now().After(limite) {
 				return "", nil, false
 			}
 			intentos++
@@ -203,6 +214,48 @@ func (r *Reparador) rondaTipos(a *analisis) (string, []edicion, bool) {
 		}
 	}
 	return "", nil, false
+}
+
+var reIndefinido = regexp.MustCompile(`^undefined: (\w+)$`)
+
+// coherentes makes the fixes of every "undefined: x" error of the same name in the same function
+// agree with the first one: when the first use is declared («x := …»), the other uses are left alone
+// (the declaration fixes them); when it is renamed to y, the other uses are renamed to y too. Without
+// this, «c = a + b; return c * a» became «c := a + b; return a * a».
+func coherentes(a *analisis, cands [][]edicion) [][]edicion {
+	type grupo struct {
+		regla, texto string
+	}
+	lider := map[string]grupo{}
+	out := make([][]edicion, len(cands))
+	for i, e := range a.errs {
+		out[i] = cands[i]
+		m := reIndefinido.FindStringSubmatch(primeraLinea(e.Msg))
+		if m == nil || len(cands[i]) == 0 {
+			continue
+		}
+		clave := m[1]
+		if fd, _ := a.funcionEn(a.posDe(e)); fd != nil {
+			clave += "\x00" + strconv.Itoa(a.off(fd.Pos()))
+		}
+		g, visto := lider[clave]
+		if !visto {
+			lider[clave] = grupo{cands[i][0].cambio.Regla, cands[i][0].texto}
+			continue
+		}
+		var mismas []edicion
+		for _, ed := range cands[i] {
+			if ed.cambio.Regla != g.regla {
+				continue
+			}
+			if g.regla == "levenshtein" && ed.texto != g.texto {
+				continue
+			}
+			mismas = append(mismas, ed)
+		}
+		out[i] = mismas
+	}
+	return out
 }
 
 var reVerbo = regexp.MustCompile(`format %(\w) has arg (.+) of wrong type (\S+)`)

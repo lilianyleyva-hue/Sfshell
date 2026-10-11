@@ -4,6 +4,7 @@ import (
 	"go/scanner"
 	"go/token"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -159,8 +160,9 @@ func empiezaExpr(t token.Token) bool {
 func buscarIdiomas(src string, permitir func(linea int) bool) []edicion {
 	todas := fichas(src)
 	var eds []edicion
+	saltos := indiceLineas(src)
 	nueva := func(ini, fin int, texto, regla, lenguaje string) {
-		linea := lineaDe(src, ini)
+		linea := saltos.linea(ini)
 		if permitir != nil && !permitir(linea) {
 			return
 		}
@@ -405,6 +407,24 @@ func buscarIdiomas(src string, permitir func(linea int) bool) []edicion {
 	return eds
 }
 
+// lineasSrc holds the offsets of the '\n' of a source, to find the line of an offset in O(log n).
+type lineasSrc []int
+
+func indiceLineas(src string) lineasSrc {
+	var l lineasSrc
+	for i := 0; i < len(src); i++ {
+		if src[i] == '\n' {
+			l = append(l, i)
+		}
+	}
+	return l
+}
+
+// linea returns the 1-based line of offset off (same as lineaDe).
+func (l lineasSrc) linea(off int) int {
+	return sort.SearchInts(l, off) + 1
+}
+
 func lenguajeTipo(nombre string) string {
 	switch nombre {
 	case "let":
@@ -502,24 +522,73 @@ func inicioOperando(ts []ficha, k int) int {
 	return -1
 }
 
-// nombresDeclarados collects names the file itself declares (functions, methods, variables, types,
-// fields), so that a user's own "print" or "length" is never rewritten.
+// nombresDeclarados collects names the file itself declares (functions, methods, receivers,
+// parameters and named results, also of function literals and function types, variables, constants,
+// types, fields), so that a user's own "print", "str", "True" or "length" is never rewritten.
 func nombresDeclarados(ts []ficha) map[string]bool {
 	d := map[string]bool{}
+	es := func(k int, t token.Token) bool { return k >= 0 && k < len(ts) && ts[k].tok == t }
+	// grupo reads "(a, b int)" / "var ( x int; y = 2 )": the first identifier of each line or
+	// comma-separated item is a name (for parameter lists, see parametrosDeclarados)
 	for k, t := range ts {
 		switch t.tok {
 		case token.FUNC:
-			if k+1 < len(ts) && ts[k+1].tok == token.IDENT {
-				d[ts[k+1].lit] = true
-			}
-			if k+1 < len(ts) && ts[k+1].tok == token.LPAREN { // method: func (r T) Name
-				if m := cierre(ts, k+1); m > 0 && m+1 < len(ts) && ts[m+1].tok == token.IDENT {
+			j := k + 1
+			if es(j, token.LPAREN) { // receiver, or the parameters of a literal / function type
+				m := cierre(ts, j)
+				if m < 0 {
+					continue
+				}
+				if es(m+1, token.IDENT) && (es(m+2, token.LPAREN) || es(m+2, token.LBRACK)) { // method
+					parametrosDeclarados(ts, j, m, d)
 					d[ts[m+1].lit] = true
+					j = m + 2
+				}
+			} else if es(j, token.IDENT) {
+				d[ts[j].lit] = true
+				j++
+			}
+			if es(j, token.LBRACK) { // type parameters
+				m := cierre(ts, j)
+				if m < 0 {
+					continue
+				}
+				parametrosDeclarados(ts, j, m, d)
+				j = m + 1
+			}
+			if !es(j, token.LPAREN) {
+				continue
+			}
+			m := cierre(ts, j)
+			if m < 0 {
+				continue
+			}
+			parametrosDeclarados(ts, j, m, d)
+			if es(m+1, token.LPAREN) { // named results
+				if m2 := cierre(ts, m+1); m2 > 0 {
+					parametrosDeclarados(ts, m+1, m2, d)
 				}
 			}
 		case token.VAR, token.CONST, token.TYPE:
-			if k+1 < len(ts) && ts[k+1].tok == token.IDENT {
-				d[ts[k+1].lit] = true
+			if es(k+1, token.LPAREN) {
+				m := cierre(ts, k+1)
+				for j := k + 2; j < m && m > 0; j++ {
+					if ts[j].tok == token.IDENT && (ts[j-1].tok == token.LPAREN || ts[j-1].tok == token.SEMICOLON) {
+						for q := j; q < m && ts[q].tok == token.IDENT; q += 2 {
+							d[ts[q].lit] = true
+							if !es(q+1, token.COMMA) {
+								break
+							}
+						}
+					}
+				}
+				continue
+			}
+			for q := k + 1; es(q, token.IDENT); q += 2 {
+				d[ts[q].lit] = true
+				if !es(q+1, token.COMMA) {
+					break
+				}
 			}
 		case token.DEFINE:
 			for j := k - 1; j >= 0 && (ts[j].tok == token.IDENT || ts[j].tok == token.COMMA); j-- {
@@ -527,7 +596,7 @@ func nombresDeclarados(ts []ficha) map[string]bool {
 					d[ts[j].lit] = true
 				}
 			}
-		case token.STRUCT:
+		case token.STRUCT, token.INTERFACE:
 			if k+1 < len(ts) && ts[k+1].tok == token.LBRACE {
 				m := cierre(ts, k+1)
 				for j := k + 2; j < m && m > 0; j++ {
@@ -539,4 +608,50 @@ func nombresDeclarados(ts []ficha) map[string]bool {
 		}
 	}
 	return d
+}
+
+// parametrosDeclarados adds the names of the parameter list ts[ini] … ts[fin] (both brackets) to d.
+// Each item between top-level commas is "name Type", "name ...Type", a lone name (grouped: "a, b int")
+// or a lone type ("(int, string)"): lone identifiers are names only when some item has a name.
+func parametrosDeclarados(ts []ficha, ini, fin int, d map[string]bool) {
+	type item struct{ desde, hasta int } // token range, inclusive
+	var items []item
+	nivel, desde := 0, ini+1
+	for j := ini + 1; j < fin; j++ {
+		switch ts[j].tok {
+		case token.LPAREN, token.LBRACK, token.LBRACE:
+			nivel++
+		case token.RPAREN, token.RBRACK, token.RBRACE:
+			nivel--
+		case token.COMMA:
+			if nivel == 0 {
+				items = append(items, item{desde, j - 1})
+				desde = j + 1
+			}
+		}
+	}
+	if desde <= fin-1 {
+		items = append(items, item{desde, fin - 1})
+	}
+	conNombre := false
+	var solos []string
+	for _, it := range items {
+		if it.desde > it.hasta || ts[it.desde].tok != token.IDENT {
+			continue
+		}
+		if it.desde == it.hasta {
+			solos = append(solos, ts[it.desde].lit)
+			continue
+		}
+		if ts[it.desde+1].tok == token.PERIOD { // pkg.Type: a type, not a name
+			continue
+		}
+		conNombre = true
+		d[ts[it.desde].lit] = true
+	}
+	if conNombre {
+		for _, n := range solos {
+			d[n] = true
+		}
+	}
 }
