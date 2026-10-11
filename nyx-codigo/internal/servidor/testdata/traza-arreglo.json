@@ -1,0 +1,40 @@
+{
+  "texto": "arregla mi código",
+  "pasos": [
+    {"op": "sub", "id": 1, "padre": 0, "tipo": "entender", "titulo": "Entiendo: arreglar func Maximo(xs []int) int"},
+    {"op": "bien", "id": 1},
+    {"op": "sub", "id": 2, "padre": 0, "tipo": "error", "titulo": "No compila: línea 4: «strings» no está importado"},
+    {"op": "mal", "id": 2},
+    {"op": "sub", "id": 3, "padre": 0, "tipo": "arreglo", "titulo": "Faltaba importar strings"},
+    {"op": "bien", "id": 3},
+    {"op": "sub", "id": 4, "padre": 0, "tipo": "prueba", "titulo": "Con [3,1,2] da 1 y debería dar 3"},
+    {"op": "mal", "id": 4},
+    {"op": "sub", "id": 5, "padre": 0, "tipo": "busqueda", "titulo": "Busco cómo se calcula el máximo en Go"},
+    {"op": "info", "id": 5},
+    {"op": "sub", "id": 6, "padre": 0, "tipo": "resultado", "titulo": "Cambio < por > en la línea 6"},
+    {"op": "bien", "id": 6}
+  ],
+  "respuesta": {
+    "texto": "Lo he arreglado: había dos fallos.",
+    "parrafos": ["Faltaba importar strings.", "La comparación estaba al revés: con [3,1,2] daba 1."],
+    "codigo": "package solucion\n\nfunc Maximo(xs []int) int {\n\tm := xs[0]\n\tfor _, x := range xs {\n\t\tif x > m {\n\t\t\tm = x\n\t\t}\n\t}\n\treturn m\n}\n",
+    "diff": "--- antes\n+++ después\n@@ -5,3 +5,3 @@\n \tfor _, x := range xs {\n-\t\tif x < m {\n+\t\tif x > m {\n \t\t\tm = x",
+    "tablas": [{"titulo": "Antes y después", "cabecera": ["Entrada", "Esperado", "Antes", "Después"], "filas": [["[3 1 2]", "3", "1", "3"], ["[-1]", "-1", "-1", "-1"]], "marcas": ["bien", "bien"]}],
+    "tablero": {"celdas": [[5,3,4,6,7,8,9,1,2],[6,7,2,1,9,5,3,4,8],[1,9,8,3,4,2,5,6,7],[8,5,9,7,6,1,4,2,3],[4,2,6,8,5,3,7,9,1],[7,1,3,9,2,4,8,5,6],[9,6,1,5,3,7,2,8,4],[2,8,7,4,1,9,6,3,5],[3,4,5,2,8,6,1,7,9]],
+                "fijas": [[true,true,false,false,true,false,false,false,false],[true,false,false,true,true,true,false,false,false],[false,true,true,false,false,false,false,true,false],[true,false,false,false,true,false,false,false,true],[true,false,false,true,false,true,false,false,true],[true,false,false,false,true,false,false,false,true],[false,true,false,false,false,false,true,true,false],[false,false,false,true,true,true,false,false,true],[false,false,false,false,true,false,false,true,true]]},
+    "plan": ["Llena la jarra de 5 litros", "Vierte en la de 3 hasta llenarla", "Vacía la de 3"],
+    "comprobaciones": [
+      {"nivel": "tus_ejemplos", "pasan": 3, "total": 3, "texto": "Cumple tus 3 ejemplos"},
+      {"nivel": "calculo", "texto": "Comprobado: sustituí la solución"},
+      {"nivel": "sin_fallos", "pasan": 200, "total": 200, "texto": "Sin errores en 200 pruebas"},
+      {"nivel": "fuente", "texto": "Según go.dev"},
+      {"nivel": "sin_comprobar", "texto": "Sin comprobar"},
+      {"nivel": "fallo", "texto": "No lo he conseguido"}
+    ],
+    "fuentes": [{"url": "https://go.dev/doc/effective_go", "titulo": "Effective Go", "nota": "fragmento de la web (licencia del sitio)"}, {"url": "javascript:alert(1)", "titulo": "enlace peligroso"}],
+    "justificacion": ["Con [3,1,2] el bucle se quedaba con el menor.", "Al cambiar < por > se queda con el mayor."],
+    "nivel": "tus_ejemplos",
+    "metodo": "reparacion",
+    "exito": true
+  }
+}

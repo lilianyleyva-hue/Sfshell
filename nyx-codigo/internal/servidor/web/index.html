@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
+<title>Nyx Código</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%231d4ed8'/%3E%3Cpath d='M16 2a14 14 0 0 1 0 28z' fill='%23e6e8eb'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/estatico/estilo.css">
+<script src="/estatico/app.js" defer></script>
+</head>
+<body>
+<a class="saltar" href="#entrada" data-texto="irAEscribir">Ir a escribir la pregunta</a>
+
+<header class="cabecera">
+  <h1 class="marca"><span class="logo" aria-hidden="true"></span>Nyx Código</h1>
+  <ul class="chips-estado" id="chips-estado" aria-label="Estado de Nyx Código">
+    <li class="chip" id="chip-go">Go …</li>
+    <li class="chip" id="chip-internet">Internet: …</li>
+    <li class="chip" id="chip-caja">Caja segura: …</li>
+    <li class="chip" id="chip-memoria">Sé …</li>
+  </ul>
+</header>
+
+<div id="aviso-conexion" class="aviso" role="alert" hidden></div>
+<ul id="avisos" class="avisos" hidden></ul>
+
+<div id="sin-token" class="sin-token" hidden>
+  <h2 data-texto="sinTokenTitulo">No puedo hablar con Nyx Código</h2>
+  <p data-texto="sinToken">Abre Nyx Código desde su icono o escribe nyx-codigo en una terminal.</p>
+</div>
+
+<main id="app" class="app">
+  <section class="columna conversacion" aria-labelledby="t-conversacion">
+    <h2 id="t-conversacion" class="titulo-columna" data-texto="conversacion">Conversación</h2>
+    <div id="mensajes" class="mensajes" role="log" aria-live="polite" aria-relevant="additions" tabindex="0" aria-labelledby="t-conversacion"></div>
+
+    <form id="redactor" class="redactor" novalidate>
+      <fieldset class="modos">
+        <legend data-texto="modo">Modo</legend>
+        <label><input type="radio" name="modo" value="" checked><span data-texto="modoAuto">Automático</span></label>
+        <label><input type="radio" name="modo" value="programar"><span data-texto="modoProgramar">Programar</span></label>
+        <label><input type="radio" name="modo" value="arreglar"><span data-texto="modoArreglar">Arreglar</span></label>
+        <label><input type="radio" name="modo" value="explicar"><span data-texto="modoExplicar">Explicar</span></label>
+        <label><input type="radio" name="modo" value="mates"><span data-texto="modoMates">Matemáticas</span></label>
+        <label><input type="radio" name="modo" value="logica"><span data-texto="modoLogica">Lógica</span></label>
+        <label><input type="radio" name="modo" value="puzles"><span data-texto="modoPuzles">Puzles</span></label>
+        <label><input type="radio" name="modo" value="buscar"><span data-texto="modoBuscar">Buscar</span></label>
+      </fieldset>
+
+      <label for="entrada" class="visualmente-oculto" data-texto="escribe">Escribe tu pregunta…</label>
+      <textarea id="entrada" class="entrada" rows="3" placeholder="Escribe tu pregunta…" data-placeholder="escribe" autocomplete="off"></textarea>
+
+      <div id="zona-codigo" class="zona-codigo" hidden>
+        <label for="codigo-adjunto" data-texto="codigoAdjunto">Código que acompaña a la pregunta</label>
+        <textarea id="codigo-adjunto" class="codigo-editable" rows="8" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
+      </div>
+
+      <div class="botones">
+        <button type="button" id="b-pegar" class="secundario" aria-expanded="false" aria-controls="zona-codigo">+ <span data-texto="pegarCodigo">Pegar código</span></button>
+        <span class="hueco"></span>
+        <button type="submit" id="b-pensar" class="principal"><span data-texto="pensar">Pensar</span> <span class="atajo" aria-hidden="true">⏎</span></button>
+        <button type="button" id="b-mas" class="secundario" disabled data-texto="pensarMas">Pensar más</button>
+        <button type="button" id="b-parar" class="secundario" disabled data-texto="parar">Parar</button>
+      </div>
+      <p class="pista" data-texto="pistaAtajo">Ctrl+Enter envía la pregunta.</p>
+      <p id="estado-tarea" class="estado-tarea" aria-live="polite"></p>
+    </form>
+  </section>
+
+  <section class="columna paneles" aria-label="Paneles de trabajo">
+    <div class="pestanas" role="tablist" aria-label="Paneles de trabajo" id="pestanas">
+      <button type="button" role="tab" id="tab-traza" aria-controls="panel-traza" aria-selected="true" data-texto="comoLoPienso">Cómo lo pienso</button>
+      <button type="button" role="tab" id="tab-codigo" aria-controls="panel-codigo" aria-selected="false" tabindex="-1" data-texto="codigo">Código</button>
+      <button type="button" role="tab" id="tab-pruebas" aria-controls="panel-pruebas" aria-selected="false" tabindex="-1" data-texto="pruebas">Pruebas</button>
+      <button type="button" role="tab" id="tab-memoria" aria-controls="panel-memoria" aria-selected="false" tabindex="-1" data-texto="memoria">Memoria</button>
+      <button type="button" role="tab" id="tab-estudiar" aria-controls="panel-estudiar" aria-selected="false" tabindex="-1" data-texto="estudiar">Estudiar</button>
+    </div>
+
+    <div class="panel" role="tabpanel" id="panel-traza" aria-labelledby="tab-traza" tabindex="0">
+      <p class="vacio" id="traza-vacia" data-texto="trazaVacia">Aquí verás cómo pienso cada pregunta, paso a paso.</p>
+      <div id="arbol" class="arbol"></div>
+    </div>
+
+    <div class="panel" role="tabpanel" id="panel-codigo" aria-labelledby="tab-codigo" tabindex="0" hidden>
+      <label for="editor" class="etiqueta" data-texto="tuCodigo">Tu código Go</label>
+      <div class="editor">
+        <div class="medianil" id="medianil" aria-hidden="true"></div>
+        <textarea id="editor" class="codigo-editable" spellcheck="false" autocomplete="off" autocapitalize="off" wrap="off" aria-describedby="pista-editor"></textarea>
+      </div>
+      <p id="pista-editor" class="pista" data-texto="pistaEditor">Tab inserta una tabulación. Pulsa Esc y luego Tab para salir del editor.</p>
+      <p id="frase-linea" class="frase-linea" aria-live="polite"></p>
+      <label for="entrada-programa" class="etiqueta" data-texto="entradaPrograma">Entrada (lo que escribirías)</label>
+      <textarea id="entrada-programa" class="codigo-editable entrada-programa" rows="2" spellcheck="false"></textarea>
+      <div class="botones">
+        <button type="button" class="secundario" data-accion-codigo="arreglar" data-texto="arreglar">Arreglar</button>
+        <button type="button" class="secundario" data-accion-codigo="explicar" data-texto="explicar">Explicar</button>
+        <button type="button" class="secundario" data-accion-codigo="probar" data-texto="probar">Probar</button>
+        <button type="button" class="principal" data-accion-codigo="ejecutar" data-texto="ejecutar">Ejecutar</button>
+      </div>
+      <div id="explicacion-lineas" class="explicacion-lineas" hidden>
+        <h3 data-texto="explicacionLineas">Qué hace cada línea</h3>
+        <ol id="lista-frases" class="lista-frases"></ol>
+      </div>
+    </div>
+
+    <div class="panel" role="tabpanel" id="panel-pruebas" aria-labelledby="tab-pruebas" tabindex="0" hidden>
+      <p class="vacio" id="pruebas-vacio" data-texto="pruebasVacio">Cuando pruebe una función, aquí verás todas las pruebas.</p>
+      <div id="pruebas-contenido" hidden>
+        <div class="barra-pruebas">
+          <label><input type="checkbox" id="solo-fallos"> <span data-texto="soloFallos">Solo fallos</span></label>
+          <a id="descargar-test" class="enlace-boton" hidden download="solucion_test.go" data-texto="descargarTest">Descargar _test.go</a>
+        </div>
+        <p id="resumen-pruebas" class="resumen-pruebas"></p>
+        <div id="tabla-pruebas" class="contenedor-tabla"></div>
+      </div>
+    </div>
+
+    <div class="panel" role="tabpanel" id="panel-memoria" aria-labelledby="tab-memoria" tabindex="0" hidden>
+      <label for="buscar-memoria" class="etiqueta" data-texto="buscarMemoria">Buscar en mi memoria</label>
+      <input type="search" id="buscar-memoria" class="campo" autocomplete="off">
+      <div class="subpestanas" role="tablist" aria-label="Qué recuerdo" id="subpestanas">
+        <button type="button" role="tab" id="sub-funciones" aria-controls="lista-memoria" aria-selected="true" data-sub="funciones" data-texto="funciones">Funciones</button>
+        <button type="button" role="tab" id="sub-datos" aria-controls="lista-memoria" aria-selected="false" tabindex="-1" data-sub="datos" data-texto="datos">Datos</button>
+        <button type="button" role="tab" id="sub-palabras" aria-controls="lista-memoria" aria-selected="false" tabindex="-1" data-sub="palabras" data-texto="palabras">Palabras</button>
+        <button type="button" role="tab" id="sub-pendientes" aria-controls="lista-memoria" aria-selected="false" tabindex="-1" data-sub="pendientes" data-texto="pendientes">Pendientes</button>
+      </div>
+      <div id="lista-memoria" class="lista-memoria" role="tabpanel" aria-labelledby="sub-funciones" aria-live="polite"></div>
+    </div>
+
+    <div class="panel" role="tabpanel" id="panel-estudiar" aria-labelledby="tab-estudiar" tabindex="0" hidden>
+      <p data-texto="estudiarExplica">Leo los ejemplos de gobyexample y la documentación de Go que tienes instalada, los compruebo y vuelvo a intentar las preguntas que no supe responder.</p>
+      <button type="button" id="b-estudiar" class="principal" data-texto="estudiarBoton">Estudiar Go (gobyexample y la documentación local)</button>
+      <div class="progreso-estudio">
+        <label for="progreso-estudio" class="etiqueta" data-texto="progresoEstudio">Progreso</label>
+        <progress id="progreso-estudio" max="100" value="0"></progress>
+        <p id="estado-estudio" class="estado-estudio" aria-live="polite"></p>
+      </div>
+      <h3 data-texto="pendientesTitulo">Preguntas pendientes</h3>
+      <div id="lista-pendientes" class="lista-memoria"></div>
+    </div>
+  </section>
+</main>
+
+<div id="anuncios" class="visualmente-oculto" aria-live="polite"></div>
+
+<dialog id="dialogo-riesgos" class="dialogo" aria-labelledby="dr-titulo">
+  <h2 id="dr-titulo" data-texto="usa">Este programa usa:</h2>
+  <ul id="dr-lista" class="lista-riesgos"></ul>
+  <p id="dr-texto" data-texto="riesgoTexto">Podría leer, cambiar o borrar tus archivos. Lo ejecutaré en una carpeta temporal, sin red y con límites, pero aun así: ¿Ejecutar igualmente?</p>
+  <p id="dr-grave" class="grave" hidden data-texto="noPuedo">No puedo ejecutar esto: usa cgo/linkname</p>
+  <div class="botones">
+    <button type="button" id="dr-cancelar" class="secundario" autofocus data-texto="cancelar">Cancelar</button>
+    <button type="button" id="dr-ejecutar" class="peligro" data-texto="ejecutar">Ejecutar</button>
+  </div>
+</dialog>
+
+<dialog id="dialogo-confirmar" class="dialogo" aria-labelledby="dc-titulo">
+  <h2 id="dc-titulo"></h2>
+  <p id="dc-texto"></p>
+  <div class="botones">
+    <button type="button" id="dc-cancelar" class="secundario" autofocus data-texto="cancelar">Cancelar</button>
+    <button type="button" id="dc-aceptar" class="peligro"></button>
+  </div>
+</dialog>
+</body>
+</html>

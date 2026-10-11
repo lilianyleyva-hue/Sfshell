@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html itemscope itemtype="https://schema.org/QAPage" class="html__responsive" lang="en">
+<head>
+<title>How to reverse a string in Go? - Stack Overflow</title>
+<script>window.StackExchange = {}; var x = "<pre>no soy código</pre>";</script>
+<style>.s-prose pre { color: red; }</style>
+</head>
+<body class="question-page">
+<header class="s-topbar"><nav><a href="/">Stack Overflow</a> <a href="/questions">Questions</a></nav></header>
+<div id="content">
+<div itemprop="mainEntity" itemscope itemtype="https://schema.org/Question">
+<h1 itemprop="name" class="fs-headline1"><a href="/questions/1752414/how-to-reverse-a-string-in-go" class="question-hyperlink">How to reverse a string in Go?</a></h1>
+<div id="question" class="question js-question" data-questionid="1752414" data-position-on-page="0" data-score="140">
+  <div class="votecell"><div class="js-vote-count" itemprop="upvoteCount" data-value="140">140</div></div>
+  <div class="postcell"><div class="s-prose js-post-body" itemprop="text">
+<p>How can we reverse a simple string in Go? I tried this &amp; it fails:</p>
+<pre class="lang-go s-code-block"><code class="hljs language-go">s := &quot;hello&quot;
+<span class="hljs-keyword">for</span> i := <span class="hljs-built_in">len</span>(s) - <span class="hljs-number">1</span>; i &gt;= <span class="hljs-number">0</span>; i-- {
+    fmt.Print(s[i])
+}
+</code></pre>
+  </div></div>
+</div>
+<div id="answers">
+<h2 class="mb0" data-answercount="2">2 Answers</h2>
+<div id="answer-1752475" class="answer js-answer accepted-answer js-accepted-answer" data-answerid="1752475" data-parentid="1752414" data-score="95" data-position-on-page="1" itemprop="acceptedAnswer" itemscope itemtype="https://schema.org/Answer">
+  <div class="votecell"><div class="js-vote-count" itemprop="upvoteCount" data-value="95">95</div></div>
+  <div class="answercell post-layout--right"><div class="s-prose js-post-body" itemprop="text">
+<p>In Go1 rune is a builtin type. Convert the string to runes so that multi-byte characters stay whole:</p>
+<pre class="lang-go s-code-block"><code class="hljs language-go"><span class="hljs-function"><span class="hljs-keyword">func</span> <span class="hljs-title">reverse</span><span class="hljs-params">(s <span class="hljs-type">string</span>)</span></span> <span class="hljs-type">string</span> {
+    runes := []<span class="hljs-type">rune</span>(s)
+    <span class="hljs-keyword">for</span> i, j := <span class="hljs-number">0</span>, <span class="hljs-built_in">len</span>(runes)<span class="hljs-number">-1</span>; i &lt; j; i, j = i+<span class="hljs-number">1</span>, j<span class="hljs-number">-1</span> {
+        runes[i], runes[j] = runes[j], runes[i]
+    }
+    <span class="hljs-keyword">return</span> <span class="hljs-type">string</span>(runes)
+}
+</code></pre>
+<p>Use it as <code>reverse("hola")</code>.</p>
+  </div></div>
+</div>
+<div id="answer-1758098" class="answer js-answer" data-answerid="1758098" data-parentid="1752414" data-score="30" data-position-on-page="2" itemprop="suggestedAnswer" itemscope itemtype="https://schema.org/Answer">
+  <div class="votecell"><div class="js-vote-count" itemprop="upvoteCount">30</div></div>
+  <div class="answercell post-layout--right"><div class="s-prose js-post-body" itemprop="text">
+<p>A complete program that also works with combining characters:</p>
+<pre class="lang-go s-code-block"><code class="hljs language-go">package main
+
+import (
+	&quot;fmt&quot;
+	&quot;strings&quot;
+)
+
+func Reverse(s string) (result string) {
+	for _, v := range s {
+		result = string(v) + result
+	}
+	return
+}
+
+func main() {
+	fmt.Println(strings.ToUpper(Reverse(&quot;hello, 世界&quot;)))
+}
+</code></pre>
+  </div></div>
+</div>
+</div>
+</div>
+</div>
+<footer id="footer"><p>Site design / logo © 2026 Stack Exchange Inc; user contributions licensed under CC BY-SA.</p></footer>
+</body>
+</html>

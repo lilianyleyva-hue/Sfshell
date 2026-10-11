@@ -1,0 +1,52 @@
+{
+  "texto": "haz una función que sume los números pares de una lista",
+  "pasos": [
+    {"op": "sub", "id": 1, "padre": 0, "tipo": "entender", "titulo": "Entiendo: func SumaPares(nums []int) int — la suma de los números pares"},
+    {"op": "bien", "id": 1},
+    {"op": "sub", "id": 2, "padre": 0, "tipo": "plan", "titulo": "Plan: 1) mirar mi memoria 2) mis recetas 3) construir el programa 4) probarlo"},
+    {"op": "sub", "id": 3, "padre": 2, "tipo": "memoria", "titulo": "Miro mi memoria"},
+    {"op": "info", "id": 3, "titulo": "No la tengo en memoria"},
+    {"op": "sub", "id": 4, "padre": 2, "tipo": "recuerdo", "titulo": "Miro mis recetas"},
+    {"op": "info", "id": 4, "titulo": "Ninguna receta encaja (la mejor: SumaDigitos, 0,21)"},
+    {"op": "bien", "id": 2},
+    {"op": "sub", "id": 5, "padre": 0, "tipo": "intento", "titulo": "Construyo el programa"},
+    {"op": "nota", "padre": 5, "titulo": "Boceto: (suma (filtra ? nums))"},
+    {"op": "progreso", "id": 5, "texto": "Probé 1.240 programas, 312 distintos"},
+    {"op": "codigo", "id": 5, "codigo": "(suma (filtra (λ x (esPar x)) nums))"},
+    {"op": "bien", "id": 5, "titulo": "Encontré: la suma de los números pares de nums"},
+    {"op": "pregunta", "pregunta": {"id": "p1", "texto": "¿Qué debe dar SumaPares([-2])?", "opciones": ["-2", "0"], "libre": true, "porDefecto": "-2"}},
+    {"op": "sub", "id": 6, "padre": 0, "tipo": "entender", "titulo": "Así lo entendí: SumaPares([1,2,3,4]) = 6 · SumaPares([]) = 0 · SumaPares([-2,3]) = -2"},
+    {"op": "info", "id": 6},
+    {"op": "sub", "id": 7, "padre": 0, "tipo": "intento", "titulo": "Escribo el código Go (un solo bucle)"},
+    {"op": "bien", "id": 7},
+    {"op": "sub", "id": 8, "padre": 0, "tipo": "comprobar", "titulo": "Compruebo"},
+    {"op": "sub", "id": 9, "padre": 8, "tipo": "prueba", "titulo": "Compila y go vet no se queja"},
+    {"op": "detalle", "id": 9, "texto": "go build ./... && go vet ./..."},
+    {"op": "bien", "id": 9},
+    {"op": "sub", "id": 10, "padre": 8, "tipo": "prueba", "titulo": "264/264 pruebas según lo que entendí (semilla 42)"},
+    {"op": "tabla", "id": 10, "tabla": {"cabecera": ["Entrada", "Esperado", "Obtenido"], "filas": [["[1 2 3 4]", "6", "6"], ["[]", "0", "0"]], "marcas": ["bien", "bien"]}},
+    {"op": "bien", "id": 10},
+    {"op": "sub", "id": 11, "padre": 8, "tipo": "prueba", "titulo": "Propiedades: suma por partes 200/200"},
+    {"op": "bien", "id": 11},
+    {"op": "bien", "id": 8},
+    {"op": "sub", "id": 12, "padre": 0, "tipo": "resultado", "titulo": "Lo he guardado en mi memoria como SumaPares"},
+    {"op": "bien", "id": 12}
+  ],
+  "respuesta": {
+    "texto": "Aquí la tienes.",
+    "parrafos": ["No me diste ejemplos: comprobé que el código hace lo que entendí. Si no es eso, pulsa «No es eso»."],
+    "entendi": "Así lo entendí: SumaPares([1,2,3,4]) = 6 · SumaPares([]) = 0 · SumaPares([-2,3]) = -2",
+    "codigo": "package solucion\n\n// SumaPares devuelve la suma de los números pares de nums.\nfunc SumaPares(nums []int) int {\n\ttotal := 0\n\tfor _, n := range nums {\n\t\tif n%2 == 0 {\n\t\t\ttotal += n\n\t\t}\n\t}\n\treturn total\n}\n",
+    "codigoTest": "package solucion\n\nimport \"testing\"\n\nfunc TestSumaPares(t *testing.T) {\n\tcasos := []struct {\n\t\tnums []int\n\t\tquiero int\n\t}{\n\t\t{[]int{1, 2, 3, 4}, 6},\n\t\t{nil, 0},\n\t}\n\tfor _, c := range casos {\n\t\tif got := SumaPares(c.nums); got != c.quiero {\n\t\t\tt.Errorf(\"SumaPares(%v) = %d, quiero %d\", c.nums, got, c.quiero)\n\t\t}\n\t}\n}\n",
+    "tablas": [{"titulo": "Pruebas", "cabecera": ["Entrada", "Esperado", "Obtenido", "De dónde"], "filas": [["[1 2 3 4]", "6", "6", "lo que entendí"], ["[]", "0", "0", "borde"], ["[-2 3]", "-2", "-2", "lo que entendí"], ["[7]", "0", "0", "al azar"]], "marcas": ["bien", "bien", "bien", "bien"]}],
+    "comprobaciones": [
+      {"nivel": "entendido", "pasan": 264, "total": 264, "texto": "264/264 según lo que entendí", "detalle": "semilla 42; 200 al azar, 37 de borde", "comando": "go build … && harness (fd3)"},
+      {"nivel": "propiedades", "pasan": 200, "total": 200, "texto": "Propiedades 200/200", "detalle": "suma por partes"}
+    ],
+    "nivel": "entendido",
+    "aprendido": "Lo he guardado en mi memoria como SumaPares",
+    "sugerencias": ["Pruébala con otros datos", "Hazla programa"],
+    "metodo": "sintesis",
+    "exito": true
+  }
+}
