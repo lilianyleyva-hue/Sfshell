@@ -1,12 +1,7 @@
-//go:build toolchain
-
 package analisis_test
 
-// Observation through the real sandbox:
-//
-//	go test -tags toolchain ./internal/analisis/
-//
-// They skip when Go is not installed.
+// Observation through the real sandbox (arenero).
+// They run with a plain `go test` and skip when Go is not installed (exec.LookPath("go") fails).
 
 import (
 	"context"

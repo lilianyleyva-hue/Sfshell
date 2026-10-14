@@ -737,8 +737,46 @@ func compilarLambdaCerrada(cuerpo *Expr, inicio int) Funcion {
 	return func(a []nucleo.Valor) (nucleo.Valor, error) { return ev(a) }
 }
 
+// maxProfundidadExpr bounds the depth of the trees this package walks recursively (Evaluar, Oraculo, AGo,
+// Describir, Aprender). Parse stops at maxProfundidadParse; this catches trees built in code. A stack
+// overflow cannot be recovered and would end the whole process.
+const maxProfundidadExpr = 1000
+
+var errDemasiadoHondo = errors.New("sintesis: el programa está demasiado anidado")
+
+// demasiadoHondo reports whether e is deeper than maxProfundidadExpr (without recursion).
+func demasiadoHondo(e *Expr) bool {
+	type item struct {
+		e *Expr
+		d int
+	}
+	pila := []item{{e, 1}}
+	for len(pila) > 0 {
+		it := pila[len(pila)-1]
+		pila = pila[:len(pila)-1]
+		if it.e == nil {
+			continue
+		}
+		if it.d > maxProfundidadExpr {
+			return true
+		}
+		for _, h := range it.e.Hijos {
+			pila = append(pila, item{h, it.d + 1})
+		}
+		for _, l := range it.e.Lambdas {
+			if l != nil {
+				pila = append(pila, item{l.Cuerpo, it.d + 1})
+			}
+		}
+	}
+	return false
+}
+
 // Evaluar runs e on env (parameters first). ⊥ is ErrIndefinido; a panic inside a primitive is an error too.
 func Evaluar(e *Expr, env []nucleo.Valor) (v nucleo.Valor, err error) {
+	if demasiadoHondo(e) {
+		return nil, errDemasiadoHondo
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			v, err = nil, fmt.Errorf("sintesis: fallo interno al evaluar: %v", r)
@@ -749,6 +787,9 @@ func Evaluar(e *Expr, env []nucleo.Valor) (v nucleo.Valor, err error) {
 
 // Oraculo returns e as a reference implementation: one result per call.
 func Oraculo(e *Expr) func([]nucleo.Valor) ([]nucleo.Valor, error) {
+	if demasiadoHondo(e) {
+		return func([]nucleo.Valor) ([]nucleo.Valor, error) { return nil, errDemasiadoHondo }
+	}
 	ev := compilar(e, 0)
 	return func(ent []nucleo.Valor) (out []nucleo.Valor, err error) {
 		defer func() {

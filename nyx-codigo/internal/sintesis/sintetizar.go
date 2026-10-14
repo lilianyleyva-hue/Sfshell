@@ -159,11 +159,19 @@ func nuevaSesion(ctx context.Context, esp Especificacion, r *Registro, op Opcion
 			if err != nil {
 				return nil, fmt.Errorf("sintesis: ejemplo %d, entrada %d: %v", i+1, j+1, err)
 			}
+			if demasiadoGrande(x) {
+				return nil, fmt.Errorf("sintesis: la entrada %d del ejemplo %d es demasiado grande para buscar un programa "+
+					"(como mucho %s elementos en una lista y %s letras en un texto)", j+1, i+1, miles(maxLargo), miles(maxTexto))
+			}
 			ent[j] = x
 		}
 		y, err := canon(c.Esperado[0], res)
 		if err != nil {
 			return nil, fmt.Errorf("sintesis: ejemplo %d, resultado: %v", i+1, err)
+		}
+		if demasiadoGrande(y) {
+			return nil, fmt.Errorf("sintesis: el resultado del ejemplo %d es demasiado grande para buscar un programa "+
+				"(como mucho %s elementos en una lista y %s letras en un texto)", i+1, miles(maxLargo), miles(maxTexto))
 		}
 		s.envs = append(s.envs, ent)
 		s.esperado = append(s.esperado, y)
@@ -185,7 +193,7 @@ func nuevaSesion(ctx context.Context, esp Especificacion, r *Registro, op Opcion
 			ok := true
 			for j, v := range sd {
 				x, err := canon(v, f.Params[j].Tipo)
-				if err != nil {
+				if err != nil || demasiadoGrande(x) {
 					ok = false
 					break
 				}
@@ -205,6 +213,33 @@ func nuevaSesion(ctx context.Context, esp Especificacion, r *Registro, op Opcion
 	s.costos = calcularCostos(s.prims, esp, op)
 	s.consts = s.constantes()
 	return s, nil
+}
+
+// demasiadoGrande reports whether an input is beyond what the DSL itself may build (more than maxLargo list
+// elements in all, or more than maxTexto bytes of text in all). Such inputs would make every candidate
+// slow and every cached vector big.
+func demasiadoGrande(v V) bool {
+	n, letras := 0, 0
+	var rec func(v V) bool
+	rec = func(v V) bool {
+		switch x := v.(type) {
+		case string:
+			letras += len(x)
+			return letras > maxTexto
+		case []V:
+			n += len(x)
+			if n > maxLargo {
+				return true
+			}
+			for _, e := range x {
+				if rec(e) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return rec(v)
 }
 
 // ---- costs (§4.7 step 1) ----
@@ -306,6 +341,10 @@ func (s *sesion) costoExpr(e *Expr) int {
 
 // ---- constants (§4.7 step 2) ----
 
+// constantes builds the constant pool: the given constants and Pistas.Constantes (at most 12 ints, 8 strings
+// and 4 runes in all, together with the numbers of the outputs and the FlashFill strings), then the defaults
+// 0 1 2 10 "" " " ",", which are always there.
+
 func (s *sesion) constantes() []*Expr {
 	var out []*Expr
 	vistos := map[string]bool{}
@@ -371,14 +410,15 @@ func (s *sesion) constantes() []*Expr {
 			}
 		}
 	}
-	for _, i := range []int{0, 1, 2, 10} {
-		addInt(i)
-	}
 	for _, x := range s.flashFill() {
 		addStr(x)
 	}
+	// the defaults are always in the pool, whatever the caps above left out
+	for _, i := range []int{0, 1, 2, 10} {
+		add(i, tI)
+	}
 	for _, x := range []string{"", " ", ","} {
-		addStr(x)
+		add(x, tS)
 	}
 	return out
 }
@@ -909,7 +949,7 @@ func Sintetizar(ctx context.Context, esp Especificacion, r *Registro, op Opcione
 		return Resultado{Motivo: "tipos_no_soportados"}, fmt.Errorf("%w: la firma %s usa tipos que la síntesis no maneja", nucleo.ErrNoSoportado, esp.Firma.Go())
 	}
 	if len(esp.Ejemplos) == 0 {
-		return Resultado{Motivo: "costo_max"}, errors.New("sintesis: hacen falta ejemplos (usa DesdeConceptos sin ejemplos)")
+		return Resultado{Motivo: "costo_max"}, errors.New("sintesis: para buscar un programa hace falta al menos un ejemplo")
 	}
 	ctx, cancel := context.WithTimeout(ctx, op.Limite)
 	defer cancel()
@@ -917,7 +957,7 @@ func Sintetizar(ctx context.Context, esp Especificacion, r *Registro, op Opcione
 	if err != nil {
 		return Resultado{}, err
 	}
-	nodo := n.Sub(nucleo.PasoIntento, "Busco un programa que cumpla los %d ejemplos", s.nEj)
+	nodo := n.Sub(nucleo.PasoIntento, "Busco un programa que cumpla %s", textoEjemplos(s.nEj))
 	s.nodo = nodo
 	for _, sk := range esp.Esqueletos {
 		s.extraLT = append(s.extraLT, lambdasHueco(sk)...)
@@ -945,6 +985,14 @@ func Sintetizar(ctx context.Context, esp Especificacion, r *Registro, op Opcione
 		nodo.Mal("No encontré ningún programa (%s; probé %s)", textoMotivo(motivo), miles(resul.Explorados))
 	}
 	return resul, nil
+}
+
+// textoEjemplos: "el ejemplo" or "los 3 ejemplos".
+func textoEjemplos(n int) string {
+	if n == 1 {
+		return "el ejemplo"
+	}
+	return "los " + strconv.Itoa(n) + " ejemplos"
 }
 
 func textoMotivo(m string) string {

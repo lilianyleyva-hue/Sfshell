@@ -21,6 +21,18 @@ const (
 
 const numTipos = 12 // len(tiposDSL)
 
+// Bounds on the work between two clock checks and on the memory of the bank. The clock is read every
+// intervalo candidates; intervalo adapts so that about one millisecond passes between two reads (cheap
+// candidates are checked every 1 024, expensive ones on large inputs every time). MaxBanco counts entries,
+// but one entry caches a whole output vector, so the bank also stops ("banco_lleno") when the estimated size
+// of its vectors passes maxBytesBanco.
+const (
+	intervaloInicial = 16
+	intervaloMaximo  = 1024
+	maxBytesBanco    = 128 << 20
+	bytesPorEntrada  = 96 // the entrada struct, its slices and its place in the indexes
+)
+
 type entrada struct {
 	tipo  int
 	costo int
@@ -112,6 +124,11 @@ type motor struct {
 	motivo     string
 	limite     time.Time // hard deadline (zero = none)
 	tPrimera   time.Time
+	intervalo  int       // candidates between two clock checks
+	proxRev    int       // explorados value of the next check
+	ultimaRev  time.Time // time of the last check
+	bytes      int64     // estimated size of the cached vectors
+	maxBytes   int64
 	alSolucion func(id int32)
 	progreso   func()
 	ultimoPro  time.Time
@@ -128,7 +145,7 @@ type motor struct {
 
 func nuevoMotor(ctx context.Context, m, nEj int, esperado []V, objetivo int) *motor {
 	mo := &motor{ctx: ctx, m: m, nEj: nEj, esperado: esperado, objetivo: objetivo, hojas: map[int][]hojaPendiente{},
-		maxCosto: 90, maxBanco: 400000}
+		maxCosto: 90, maxBanco: 400000, maxBytes: maxBytesBanco, intervalo: intervaloInicial, proxRev: intervaloInicial}
 	for t := 0; t < numTipos; t++ {
 		mo.visto[t] = map[uint64][]int32{}
 	}
@@ -205,13 +222,14 @@ func (mo *motor) insertar(e entrada, h uint64) int32 {
 	mo.nivel[e.tipo][e.costo] = append(mo.nivel[e.tipo][e.costo], id)
 	mo.visto[e.tipo][h] = append(mo.visto[e.tipo][h], id)
 	mo.distintos++
+	mo.bytes += pesoVector(e.vec)
 	if e.tipo == mo.objetivo {
 		mo.objetivos = append(mo.objetivos, id)
 	}
 	if e.tipo == 1 { // bool
 		mo.booleanos = append(mo.booleanos, id)
 	}
-	if len(mo.entradas) >= mo.maxBanco && !mo.parar {
+	if (len(mo.entradas) >= mo.maxBanco || mo.bytes >= mo.maxBytes) && !mo.parar {
 		mo.parar = true
 		mo.motivo = "banco_lleno"
 	}
@@ -303,13 +321,24 @@ func (mo *motor) elegir(op *opMotor, i, rem, c int) {
 	}
 }
 
+// revisar reads the clock and the context; it also adapts how many candidates pass until the next check.
 func (mo *motor) revisar() {
+	ahora := time.Now()
+	if !mo.ultimaRev.IsZero() {
+		switch d := ahora.Sub(mo.ultimaRev); {
+		case d > 2*time.Millisecond:
+			mo.intervalo = max(1, mo.intervalo/4)
+		case d < 500*time.Microsecond:
+			mo.intervalo = min(intervaloMaximo, mo.intervalo*2)
+		}
+	}
+	mo.ultimaRev = ahora
+	mo.proxRev = mo.explorados + mo.intervalo
 	if mo.ctx.Err() != nil {
 		mo.parar = true
 		mo.motivo = "tiempo"
 		return
 	}
-	ahora := time.Now()
 	if !mo.limite.IsZero() && ahora.After(mo.limite) {
 		mo.parar = true
 		mo.motivo = "tiempo"
@@ -328,7 +357,7 @@ func (mo *motor) revisar() {
 
 func (mo *motor) probar(op *opMotor, c int) {
 	mo.explorados++
-	if mo.explorados&1023 == 0 {
+	if mo.explorados >= mo.proxRev {
 		mo.revisar()
 		if mo.parar {
 			return
@@ -599,3 +628,33 @@ func alcance(prims []*Primitiva, hojas []int, objetivos []int, lambdaOK func(Lam
 }
 
 func popcount(x uint64) int { return bits.OnesCount64(x) }
+
+// pesoVector estimates the memory an entry with this cached vector takes (values shared with other entries
+// are counted again: the estimate errs on the safe side).
+func pesoVector(vec []V) int64 {
+	n := int64(bytesPorEntrada)
+	for _, v := range vec {
+		n += pesoValor(v)
+	}
+	return n
+}
+
+func pesoValor(v V) int64 {
+	switch x := v.(type) {
+	case string:
+		return 32 + int64(len(x))
+	case []V:
+		n := int64(40)
+		for _, e := range x {
+			n += pesoValor(e)
+		}
+		return n
+	case nucleo.Mapa:
+		n := int64(40)
+		for _, p := range x {
+			n += 16 + pesoValor(p.K) + pesoValor(p.V)
+		}
+		return n
+	}
+	return 16
+}

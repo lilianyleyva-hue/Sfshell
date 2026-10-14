@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/format"
 	"go/printer"
+	"go/scanner"
 	"go/token"
 	"go/types"
 	"sort"
@@ -42,7 +43,7 @@ func codigo(n ast.Node) string {
 // ExprEnEspanol says an expression in simple Spanish: "x % 2 == 0" → "x es par",
 // "len(xs) == 0" → "xs no tiene elementos", "strings.ToUpper(s)" → "s en mayúsculas".
 func ExprEnEspanol(e ast.Expr) string {
-	return (&lector{}).es(e)
+	return contraer((&lector{}).es(e))
 }
 
 // lector turns expressions into Spanish; with marcar, code is written between backticks.
@@ -93,6 +94,66 @@ func (l *lector) sujeto(e ast.Expr) string {
 	return l.es(e)
 }
 
+// operando reads an operand of an arithmetic operator, keeping the grouping of the code: a sub-expression
+// that binds less tightly than its parent (only possible with parentheses in the code), or one on the
+// right of the same precedence that is not the same associative operator, is read between parentheses:
+// "bajo + (alto-bajo)/2" → "`bajo` más (`alto` menos `bajo`) entre 2".
+func (l *lector) operando(e ast.Expr, padre token.Token, derecha bool) string {
+	b, ok := quitarParen(e).(*ast.BinaryExpr)
+	if !ok || !esAritmetica(b.Op) {
+		return l.sujeto(e)
+	}
+	pb, pp := b.Op.Precedence(), padre.Precedence()
+	if pb < pp || (derecha && pb == pp && !(b.Op == padre && (padre == token.ADD || padre == token.MUL))) {
+		return "(" + l.es(b) + ")"
+	}
+	return l.sujeto(e)
+}
+
+// logico reads an operand of && or ||; a different logical operator inside goes between parentheses, so
+// "a && (b || c)" and "a || (b && c)" keep their grouping in Spanish.
+func (l *lector) logico(e ast.Expr, padre token.Token) string {
+	if b, ok := quitarParen(e).(*ast.BinaryExpr); ok && (b.Op == token.LAND || b.Op == token.LOR) && b.Op != padre {
+		return "(" + l.es(b) + ")"
+	}
+	return l.es(e)
+}
+
+// grupo reads e as one unit: an arithmetic or logical expression goes between parentheses
+// ("(`a` más `b`) es par").
+func (l *lector) grupo(e ast.Expr) string {
+	if b, ok := quitarParen(e).(*ast.BinaryExpr); ok && (esAritmetica(b.Op) || b.Op == token.LAND || b.Op == token.LOR) {
+		return "(" + l.es(b) + ")"
+	}
+	return l.sujeto(e)
+}
+
+func esAritmetica(op token.Token) bool {
+	switch op {
+	case token.ADD, token.SUB, token.MUL, token.QUO, token.REM, token.AND, token.OR, token.XOR, token.SHL, token.SHR, token.AND_NOT:
+		return true
+	}
+	return false
+}
+
+// sinSigno reports whether e is known to be an unsigned integer.
+func (l *lector) sinSigno(e ast.Expr) bool {
+	if l.a == nil {
+		return false
+	}
+	t := l.a.tipo(e)
+	if t == nil {
+		return false
+	}
+	b, ok := t.Underlying().(*types.Basic)
+	return ok && b.Info()&types.IsUnsigned != 0
+}
+
+func esMenosUno(e ast.Expr) bool {
+	u, ok := quitarParen(e).(*ast.UnaryExpr)
+	return ok && u.Op == token.SUB && esLit(u.X, "1")
+}
+
 func esLit(e ast.Expr, v string) bool {
 	b, ok := quitarParen(e).(*ast.BasicLit)
 	return ok && b.Value == v
@@ -127,9 +188,9 @@ func (l *lector) es(e ast.Expr) string {
 			if id, ok := quitarParen(x.X).(*ast.Ident); ok {
 				return l.m(id.Name) + " es falso"
 			}
-			return "no se cumple que " + l.es(x.X)
+			return "no se cumple que " + l.grupo(x.X)
 		case token.SUB:
-			return "menos " + l.sujeto(x.X)
+			return "menos " + l.grupo(x.X)
 		case token.AND:
 			return "la dirección de " + l.sujeto(x.X)
 		case token.ARROW:
@@ -179,44 +240,55 @@ func (l *lector) es(e ast.Expr) string {
 func (l *lector) binaria(x *ast.BinaryExpr) string {
 	switch x.Op {
 	case token.LAND:
-		return l.es(x.X) + " y " + l.es(x.Y)
+		return l.logico(x.X, x.Op) + " y " + l.logico(x.Y, x.Op)
 	case token.LOR:
-		return l.es(x.X) + " o " + l.es(x.Y)
+		return l.logico(x.X, x.Op) + " o " + l.logico(x.Y, x.Op)
 	case token.ADD:
-		return l.sujeto(x.X) + " más " + l.sujeto(x.Y)
+		return l.operando(x.X, x.Op, false) + " más " + l.operando(x.Y, x.Op, true)
 	case token.SUB:
-		return l.sujeto(x.X) + " menos " + l.sujeto(x.Y)
+		return l.operando(x.X, x.Op, false) + " menos " + l.operando(x.Y, x.Op, true)
 	case token.MUL:
 		if codigo(x.X) == codigo(x.Y) {
-			return l.sujeto(x.X) + " al cuadrado"
+			return l.grupo(x.X) + " al cuadrado"
 		}
-		return l.sujeto(x.X) + " por " + l.sujeto(x.Y)
+		return l.operando(x.X, x.Op, false) + " por " + l.operando(x.Y, x.Op, true)
 	case token.QUO:
-		return l.sujeto(x.X) + " entre " + l.sujeto(x.Y)
+		return l.operando(x.X, x.Op, false) + " entre " + l.operando(x.Y, x.Op, true)
 	case token.REM:
-		return "el resto de dividir " + l.sujeto(x.X) + " entre " + l.sujeto(x.Y)
+		return "el resto de dividir " + l.grupo(x.X) + " entre " + l.grupo(x.Y)
 	}
 	frase, ok := comparaciones[x.Op]
 	if !ok {
 		return l.c(x)
 	}
 	izq, der := quitarParen(x.X), quitarParen(x.Y)
-	// parity and divisibility: x%2 == 0, x%k == 0
+	// parity and divisibility: x%2 == 0, x%k == 0. Go's % keeps the sign of x, so x%2 == 1 only holds
+	// for positive odd numbers (an odd negative gives -1): the reading says so.
 	if r, ok := izq.(*ast.BinaryExpr); ok && r.Op == token.REM {
 		if esLit(r.Y, "2") {
+			v := l.grupo(r.X)
+			sinSigno := l.sinSigno(r.X)
 			switch {
-			case x.Op == token.EQL && esLit(der, "0"), x.Op == token.NEQ && esLit(der, "1"):
-				return l.sujeto(r.X) + " es par"
-			case x.Op == token.NEQ && esLit(der, "0"), x.Op == token.EQL && esLit(der, "1"):
-				return l.sujeto(r.X) + " es impar"
+			case x.Op == token.EQL && esLit(der, "0"), sinSigno && x.Op == token.NEQ && esLit(der, "1"):
+				return v + " es par"
+			case x.Op == token.NEQ && esLit(der, "0"), sinSigno && x.Op == token.EQL && esLit(der, "1"):
+				return v + " es impar"
+			case x.Op == token.EQL && esLit(der, "1"):
+				return v + " es impar y positivo"
+			case x.Op == token.NEQ && esLit(der, "1"):
+				return v + " no es un impar positivo"
+			case x.Op == token.EQL && esMenosUno(der):
+				return v + " es impar y negativo"
+			case x.Op == token.NEQ && esMenosUno(der):
+				return v + " no es un impar negativo"
 			}
 		}
 		if esLit(der, "0") {
 			switch x.Op {
 			case token.EQL:
-				return l.sujeto(r.X) + " es divisible por " + l.sujeto(r.Y)
+				return l.grupo(r.X) + " es divisible por " + l.grupo(r.Y)
 			case token.NEQ:
-				return l.sujeto(r.X) + " no es divisible por " + l.sujeto(r.Y)
+				return l.grupo(r.X) + " no es divisible por " + l.grupo(r.Y)
 			}
 		}
 	}
@@ -488,6 +560,24 @@ func subjuntivo(s string) string {
 	return r.Replace(" " + s)[1:]
 }
 
+// contraer applies the Spanish contractions "a el" → "al" and "de el" → "del" outside code spans.
+func contraer(s string) string {
+	partes := strings.Split(s, "`")
+	for i := 0; i < len(partes); i += 2 {
+		p := partes[i]
+		for _, par := range [][2]string{{"a el ", "al "}, {"de el ", "del "}, {"A el ", "Al "}, {"De el ", "Del "}} {
+			if i == 0 && strings.HasPrefix(p, par[0]) {
+				p = par[1] + p[len(par[0]):]
+			}
+			for _, antes := range []string{" ", "("} {
+				p = strings.ReplaceAll(p, antes+par[0], antes+par[1])
+			}
+		}
+		partes[i] = p
+	}
+	return strings.Join(partes, "`")
+}
+
 func mayuscula(s string) string {
 	r, n := utf8.DecodeRuneInString(s)
 	if n == 0 {
@@ -715,10 +805,11 @@ func dentroDeIf(anc pila) bool {
 // ---- narration ----
 
 type narrador struct {
-	a      *archivo
-	l      *lector
-	roles  map[string]string
-	frases []Frase
+	a          *archivo
+	l          *lector
+	roles      map[string]string
+	frases     []Frase
+	posiciones []token.Pos // where each sentence's node starts (for Comentar)
 }
 
 // Narrar explains a function line by line in Spanish. Level 1 gives one sentence per top-level
@@ -741,10 +832,16 @@ func Narrar(fuente, funcion string, nivel int) ([]Frase, error) {
 }
 
 func narrarFunc(a *archivo, fd *ast.FuncDecl, nivel int) []Frase {
+	fr, _ := narrarConPosiciones(a, fd, nivel)
+	return fr
+}
+
+// narrarConPosiciones narrates fd and also returns where the node of each sentence starts.
+func narrarConPosiciones(a *archivo, fd *ast.FuncDecl, nivel int) ([]Frase, []token.Pos) {
 	n := &narrador{a: a, l: &lector{marcar: true, a: a}, roles: rolesDe(a, fd)}
 	n.cabecera(fd)
 	if fd.Body == nil {
-		return n.frases
+		return n.frases, n.posiciones
 	}
 	if nivel <= 1 {
 		for _, s := range fd.Body.List {
@@ -753,19 +850,20 @@ func narrarFunc(a *archivo, fd *ast.FuncDecl, nivel int) []Frase {
 			}
 			n.add(s.Pos(), mayuscula(n.resumen(s))+".", 1)
 		}
-		return n.frases
+		return n.frases, n.posiciones
 	}
 	n.roles2()
 	n.lista(fd.Body.List)
-	return n.frases
+	return n.frases, n.posiciones
 }
 
 func (n *narrador) add(p token.Pos, texto string, nivel int) {
-	texto = strings.TrimSpace(texto)
+	texto = contraer(strings.TrimSpace(texto))
 	if texto == "" {
 		return
 	}
 	n.frases = append(n.frases, Frase{Linea: n.a.linea(p), Texto: texto, Nivel: nivel})
+	n.posiciones = append(n.posiciones, p)
 }
 
 func (n *narrador) humanoDe(t types.Type) string {
@@ -859,6 +957,7 @@ func (n *narrador) roles2() {
 	}
 	if len(partes) > 0 {
 		n.frases = append(n.frases, Frase{Linea: n.frases[len(n.frases)-1].Linea, Texto: "Usa " + unirY(partes) + ".", Nivel: 2})
+		n.posiciones = append(n.posiciones, n.posiciones[len(n.posiciones)-1])
 	}
 }
 
@@ -1117,6 +1216,13 @@ func (n *narrador) simple(s ast.Stmt) string {
 		}
 		partes := make([]string, len(x.Results))
 		for i, r := range x.Results {
+			if n.esClausula(r) {
+				if len(x.Results) == 1 {
+					return "devuelve verdadero si " + l.es(r) + ", y falso si no"
+				}
+				partes[i] = "verdadero o falso según si " + l.es(r)
+				continue
+			}
 			partes[i] = l.es(r)
 		}
 		return "devuelve " + unirY(partes)
@@ -1155,6 +1261,28 @@ func (n *narrador) simple(s ast.Stmt) string {
 		return ""
 	}
 	return "ejecuta `" + codigo(s) + "`"
+}
+
+// esClausula reports whether a boolean expression reads as a sentence ("`x` es par") rather than as a
+// value ("`ok`"): comparisons, && and ||, negations and known predicates such as strings.Contains.
+func (n *narrador) esClausula(e ast.Expr) bool {
+	switch x := quitarParen(e).(type) {
+	case *ast.BinaryExpr:
+		switch x.Op {
+		case token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR, token.GEQ, token.LAND, token.LOR:
+			return true
+		}
+	case *ast.UnaryExpr:
+		return x.Op == token.NOT
+	case *ast.CallExpr:
+		if t := n.a.tipo(x); t != nil {
+			if b, ok := t.Underlying().(*types.Basic); ok && b.Info()&types.IsBoolean != 0 {
+				_, conocida := n.l.llamada(x)
+				return conocida
+			}
+		}
+	}
+	return false
 }
 
 func (n *narrador) rol(e ast.Expr) string {
@@ -1338,14 +1466,42 @@ func (n *narrador) resumen(s ast.Stmt) string {
 		}
 		return strings.Join(partes, "; ")
 	case *ast.SwitchStmt:
+		k := len(x.Body.List)
 		if x.Tag != nil {
-			return "según el valor de " + n.l.sujeto(x.Tag) + ", elige entre " + fmt.Sprint(len(x.Body.List)) + " casos"
+			switch k {
+			case 0:
+				return "mira el valor de " + n.l.sujeto(x.Tag) + ", pero no tiene ningún caso"
+			case 1:
+				return "según el valor de " + n.l.sujeto(x.Tag) + ", comprueba un solo caso"
+			}
+			return "según el valor de " + n.l.sujeto(x.Tag) + ", elige entre " + fmt.Sprint(k) + " casos"
 		}
-		return "elige entre " + fmt.Sprint(len(x.Body.List)) + " casos según varias condiciones"
+		switch k {
+		case 0:
+			return "no hace nada (un switch sin casos)"
+		case 1:
+			return "comprueba un solo caso"
+		}
+		return "elige entre " + fmt.Sprint(k) + " casos según varias condiciones"
 	case *ast.TypeSwitchStmt:
+		if len(x.Body.List) == 1 {
+			return "según el tipo del valor, comprueba un solo caso"
+		}
 		return "según el tipo del valor, elige entre " + fmt.Sprint(len(x.Body.List)) + " casos"
 	case *ast.SelectStmt:
-		return "espera a que uno de " + fmt.Sprint(len(x.Body.List)) + " canales esté listo"
+		canales := 0
+		for _, cc := range x.Body.List {
+			if c, ok := cc.(*ast.CommClause); ok && c.Comm != nil {
+				canales++
+			}
+		}
+		switch canales {
+		case 0:
+			return "espera sin fin (un select sin canales)"
+		case 1:
+			return "espera a que un canal esté listo"
+		}
+		return "espera a que uno de " + fmt.Sprint(canales) + " canales esté listo"
 	}
 	return n.simple(s)
 }
@@ -1420,8 +1576,12 @@ func (n *narrador) siResumido(x *ast.IfStmt) string {
 // ---- comments ----
 
 // Comentar inserts Spanish comments (level 1) above the statements of every function, plus a doc
-// comment for functions that have none, and returns the gofmt'd source.
+// comment for functions that have none, and returns the gofmt'd source. A comment goes on its own line
+// above a statement only when the statement starts its line; otherwise (a one-line function, a
+// statement after a multi-line string) it goes at the end of the line, unless that line already has a
+// comment or ends inside a multi-line string or comment, in which case it is left out.
 func Comentar(fuente string) (string, error) {
+	fuente = strings.ReplaceAll(fuente, "\r\n", "\n")
 	a, err := parsear(fuente)
 	if err != nil {
 		return "", err
@@ -1431,49 +1591,97 @@ func Comentar(fuente string) (string, error) {
 		return "", fmt.Errorf("el código no se puede leer (línea %d): %s", e.Linea, e.Msg)
 	}
 	a.comprobarTipos()
-	lineas := strings.Split(strings.ReplaceAll(fuente, "\r\n", "\n"), "\n")
-	insertar := map[int]string{} // line (1-based) → comment text
+	lineas := strings.Split(fuente, "\n")
+	dentro, conComentario := a.lineasOcupadas()
+	arriba := map[int]string{} // line (1-based) → comment on its own line above it
+	final := map[int]string{}  // line → comment at its end
 	for _, d := range a.f.Decls {
 		fd, ok := d.(*ast.FuncDecl)
 		if !ok || fd.Body == nil {
 			continue
 		}
-		frases := narrarFunc(a, fd, 1)
+		frases, posiciones := narrarConPosiciones(a, fd, 1)
 		for i, f := range frases {
-			if f.Linea <= 0 || f.Linea > len(lineas) {
+			if f.Linea <= 0 || f.Linea > len(lineas) || i >= len(posiciones) {
 				continue
 			}
 			if i == 0 && (fd.Doc != nil || a.envuelto) {
 				continue // keep the existing doc comment
 			}
-			if _, ya := insertar[f.Linea]; ya {
-				continue
-			}
 			if i == 0 {
 				f.Texto = strings.Replace(f.Texto, "La función `"+fd.Name.Name+"`", fd.Name.Name, 1)
 				f.Texto = strings.Replace(f.Texto, "El método `"+nombreFunc(fd)+"`", fd.Name.Name, 1)
 			}
-			insertar[f.Linea] = f.Texto
+			pos := a.fset.Position(posiciones[i])
+			col := pos.Column
+			if pos.Line == 1 {
+				col -= a.prefijo
+			}
+			linea := lineas[f.Linea-1]
+			if col < 1 || col-1 > len(linea) {
+				continue
+			}
+			if strings.TrimSpace(linea[:col-1]) == "" {
+				if _, ya := arriba[f.Linea]; !ya {
+					arriba[f.Linea] = f.Texto
+				}
+				continue
+			}
+			if _, ya := final[f.Linea]; !ya && !dentro[f.Linea] && !conComentario[f.Linea] {
+				final[f.Linea] = strings.Join(strings.Fields(f.Texto), " ")
+			}
 		}
 	}
 	var sb strings.Builder
 	for i, l := range lineas {
-		if c, ok := insertar[i+1]; ok {
+		if c, ok := arriba[i+1]; ok {
 			sangria := l[:len(l)-len(strings.TrimLeft(l, " \t"))]
 			for _, parte := range partirComentario(c, 90) {
 				sb.WriteString(sangria + "// " + parte + "\n")
 			}
 		}
 		sb.WriteString(l)
+		if c, ok := final[i+1]; ok {
+			sb.WriteString(" // " + c)
+		}
 		if i < len(lineas)-1 {
 			sb.WriteString("\n")
 		}
 	}
 	out, err := format.Source([]byte(sb.String()))
 	if err != nil {
-		return "", errorDeSintaxis(err)
+		return "", fmt.Errorf("no pude añadir los comentarios sin estropear el código: %v", errorDeSintaxis(err))
 	}
 	return string(out), nil
+}
+
+// lineasOcupadas scans the parsed text and reports the lines whose end lies inside a multi-line raw
+// string or block comment (nothing can be added there) and the lines that already hold a comment.
+func (a *archivo) lineasOcupadas() (dentro, conComentario map[int]bool) {
+	dentro, conComentario = map[int]bool{}, map[int]bool{}
+	fset := token.NewFileSet()
+	fl := fset.AddFile("x.go", -1, len(a.texto))
+	var sc scanner.Scanner
+	sc.Init(fl, []byte(a.texto), func(token.Position, string) {}, scanner.ScanComments)
+	for {
+		p, tok, lit := sc.Scan()
+		if tok == token.EOF {
+			break
+		}
+		if tok != token.COMMENT && !(tok == token.STRING && strings.HasPrefix(lit, "`")) {
+			continue
+		}
+		desde := fset.Position(p).Line
+		hasta := desde + strings.Count(lit, "\n")
+		for l := desde; l < hasta; l++ {
+			dentro[l] = true
+		}
+		if tok == token.COMMENT {
+			conComentario[desde] = true
+			conComentario[hasta] = true
+		}
+	}
+	return dentro, conComentario
 }
 
 // partirComentario wraps a comment at about ancho runes.

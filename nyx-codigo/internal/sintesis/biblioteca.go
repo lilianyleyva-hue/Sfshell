@@ -85,6 +85,9 @@ func (b *Biblioteca) aprender(nombre, descripcion string, e *Expr, f nucleo.Firm
 	if !esIdent(nombre) || strings.ContainsAny(nombre, "λ?") {
 		return nil, fmt.Errorf("sintesis: «%s» no sirve como nombre de función", nombre)
 	}
+	if demasiadoHondo(e) {
+		return nil, errDemasiadoHondo
+	}
 	if tieneHuecos(e) {
 		return nil, errors.New("sintesis: el programa tiene huecos sin rellenar")
 	}

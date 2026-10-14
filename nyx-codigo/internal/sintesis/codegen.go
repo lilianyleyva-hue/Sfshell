@@ -6,11 +6,13 @@ import (
 	"go/format"
 	goparser "go/parser"
 	"go/token"
+	"math"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"nyxcodigo/internal/nucleo"
 )
@@ -22,11 +24,21 @@ import (
 // differential tests); it never evaluates a conditional branch the interpreter would skip.
 
 // gx is one generated Go expression and its precedence: 7 operand, 6 unary, 5 * / %, 4 + -, 3 comparison,
-// 2 &&, 1 ||. usos counts how often a loop variable was used.
+// 2 &&, 1 ||. usos counts how often a loop variable was used. fresca marks a slice that was just built and
+// that nothing else refers to, so it may be changed in place.
 type gx struct {
-	s    string
-	prec int
-	usos *int
+	s      string
+	prec   int
+	usos   *int
+	fresca bool
+}
+
+// plantillasFrescas are the primitives whose Go always builds a new slice. Everything else may share memory
+// with its arguments (tomar and quitar return parts of their argument, si may return a parameter…), so
+// ordenar, ordenarDesc and invertir copy before changing it in place.
+var plantillasFrescas = map[string]bool{
+	"concat": true, "agrega": true, "unicos": true, "rango": true, "sumaAcumulada": true, "digitos": true,
+	"runas": true, "palabras": true, "dividir": true, "largos": true,
 }
 
 func (x gx) en(p int) string {
@@ -76,6 +88,8 @@ type generador struct {
 	vistas     map[string]bool
 	aprendidas map[*Primitiva]string // learned component → helper name
 	globales   map[string]bool
+	fijas      map[string]bool   // names of the shipped helpers this file uses
+	renombres  map[string]string // shipped helper → name used in this file (when its own name is taken)
 	err        error
 }
 
@@ -101,10 +115,14 @@ func AGo(e *Expr, f nucleo.Firma) (string, error) {
 	if !mismoTipo(e.Tipo, f.Res[0]) {
 		return "", fmt.Errorf("sintesis: el programa da %s y la función debe dar %s", e.Tipo.Go(), f.Res[0].Go())
 	}
+	if demasiadoHondo(e) {
+		return "", errDemasiadoHondo
+	}
 	if f.Nombre == "" || !esIdent(f.Nombre) {
 		f.Nombre = "Solucion"
 	}
-	g := &generador{vistas: map[string]bool{}, aprendidas: map[*Primitiva]string{}, globales: map[string]bool{}}
+	g := &generador{vistas: map[string]bool{}, aprendidas: map[*Primitiva]string{}, globales: map[string]bool{},
+		fijas: map[string]bool{}, renombres: map[string]string{}}
 	for p := range paquetesGo {
 		g.globales[p] = true
 	}
@@ -112,7 +130,10 @@ func AGo(e *Expr, f nucleo.Firma) (string, error) {
 		g.globales[r] = true
 	}
 	g.globales[f.Nombre] = true
-	g.reservar(e, map[*Primitiva]bool{})
+	// first the shipped helpers (renamed when the function itself has their name), then the learned
+	// components, whose helper names must avoid all of them
+	g.reservarFijas(e, map[*Primitiva]bool{})
+	g.reservarAprendidas(e, map[*Primitiva]bool{})
 	principal := g.funcion(f.Nombre, f, e)
 	if g.err != nil {
 		return "", g.err
@@ -125,33 +146,91 @@ func AGo(e *Expr, f nucleo.Firma) (string, error) {
 		sb.WriteString(a)
 		sb.WriteString("\n")
 	}
-	return terminarFuente(sb.String())
+	return terminarFuente(sb.String(), f.Nombre)
 }
 
-// terminarFuente adds the imports the code uses and formats it.
-func terminarFuente(src string) (string, error) {
+// terminarFuente adds the imports the code uses and formats it. principal is the name of the main function:
+// when it is also the name of a package the code uses, the package is imported under another name; when it
+// is a Go builtin the code needs, there is no way to write the code and it says so.
+func terminarFuente(src, principal string) (string, error) {
 	fset := token.NewFileSet()
-	af, err := goparser.ParseFile(fset, "solucion.go", src, 0)
+	af, err := goparser.ParseFile(fset, "solucion.go", src, goparser.ParseComments)
 	if err != nil {
-		return "", fmt.Errorf("sintesis: el código generado no se puede leer: %v\n%s", err, src)
+		return "", fmt.Errorf("sintesis: no pude escribir el programa en Go (el código generado no se puede leer: %v)", primeraLinea(err))
+	}
+	declaradas := map[string]bool{}
+	for _, d := range af.Decls {
+		fd, ok := d.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+		if declaradas[fd.Name.Name] {
+			return "", fmt.Errorf("sintesis: no pude escribir el programa en Go (la función «%s» sale dos veces)", fd.Name.Name)
+		}
+		declaradas[fd.Name.Name] = true
 	}
 	usados := map[string]bool{}
-	ast.Inspect(af, func(n ast.Node) bool {
-		if sel, ok := n.(*ast.SelectorExpr); ok {
-			if id, ok := sel.X.(*ast.Ident); ok {
+	var selectores []*ast.Ident // package names used in selectors (strings in strings.Fields)
+	otrosUsos := 0              // identifiers named like the main function, besides its declaration
+	var visitar func(n ast.Node) bool
+	visitar = func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.FuncDecl:
+			if x.Name.Name == principal { // its own name is not a use
+				ast.Inspect(x.Type, visitar)
+				if x.Body != nil {
+					ast.Inspect(x.Body, visitar)
+				}
+				return false
+			}
+		case *ast.SelectorExpr:
+			if id, ok := x.X.(*ast.Ident); ok {
 				if ruta, ok := paquetesGo[id.Name]; ok {
 					usados[ruta] = true
+					selectores = append(selectores, id)
+					return false
 				}
+			}
+			ast.Inspect(x.X, visitar) // the name after the dot is a field or method, never a use
+			return false
+		case *ast.Ident:
+			if x.Name == principal {
+				otrosUsos++
 			}
 		}
 		return true
-	})
+	}
+	for _, d := range af.Decls {
+		ast.Inspect(d, visitar)
+	}
+	if otrosUsos > 0 {
+		return "", fmt.Errorf("sintesis: la función no puede llamarse «%s»: el código necesita ese nombre de Go", principal)
+	}
+	alias := ""
+	if ruta, ok := paquetesGo[principal]; ok && usados[ruta] {
+		// the function has the name of a package the code uses: import that package under another name
+		alias = "go" + strings.ToUpper(principal[:1]) + principal[1:]
+		for _, id := range selectores {
+			if id.Name == principal {
+				id.Name = alias
+			}
+		}
+		var sb strings.Builder
+		if err := format.Node(&sb, fset, af); err != nil {
+			return "", fmt.Errorf("sintesis: no pude escribir el programa en Go (%v)", primeraLinea(err))
+		}
+		src = sb.String()
+	}
 	if len(usados) > 0 {
 		rutas := make([]string, 0, len(usados))
 		for r := range usados {
-			rutas = append(rutas, strconv.Quote(r))
+			linea := strconv.Quote(r)
+			if alias != "" && r == paquetesGo[principal] {
+				linea = alias + " " + linea
+			}
+			rutas = append(rutas, linea)
 		}
-		sort.Strings(rutas)
+		sort.Slice(rutas, func(i, j int) bool { return rutaDe(rutas[i]) < rutaDe(rutas[j]) })
 		bloqueImp := "import " + rutas[0] + "\n"
 		if len(rutas) > 1 {
 			bloqueImp = "import (\n\t" + strings.Join(rutas, "\n\t") + "\n)\n"
@@ -160,36 +239,126 @@ func terminarFuente(src string) (string, error) {
 	}
 	out, err := format.Source([]byte(src))
 	if err != nil {
-		return "", fmt.Errorf("sintesis: el código generado no tiene formato Go: %v\n%s", err, src)
+		return "", fmt.Errorf("sintesis: no pude escribir el programa en Go (el código generado no tiene formato Go: %v)", primeraLinea(err))
 	}
 	return string(out), nil
 }
 
+// rutaDe returns the quoted path of an import line ("alias \"ruta\"" or "\"ruta\"").
+func rutaDe(linea string) string {
+	if i := strings.IndexByte(linea, '"'); i >= 0 {
+		return linea[i:]
+	}
+	return linea
+}
+
+// primeraLinea keeps an error message short: its first line, at most 200 bytes.
+func primeraLinea(err error) string {
+	s := err.Error()
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	if len(s) > 200 {
+		corte := 200
+		for corte > 0 && !utf8.RuneStart(s[corte]) {
+			corte--
+		}
+		s = s[:corte] + "…"
+	}
+	return s
+}
+
 var reNombreFunc = regexp.MustCompile(`^func (\w+)`)
 
-// reservar records the helper names e needs, so locals never shadow them.
-func (g *generador) reservar(e *Expr, vistos map[*Primitiva]bool) {
+// reservarFijas records the shipped helpers e needs (through learned components too), so locals and learned
+// helpers never take their names. A helper whose name is already taken (by the main function) gets another
+// name in this file.
+func (g *generador) reservarFijas(e *Expr, vistos map[*Primitiva]bool) {
 	if e == nil {
 		return
 	}
 	if p := e.Op; p != nil && !vistos[p] {
 		vistos[p] = true
-		if m := reNombreFunc.FindStringSubmatch(p.Ayudante); m != nil {
-			g.globales[m[1]] = true
+		if m := reNombreFunc.FindStringSubmatch(p.Ayudante); m != nil && !g.fijas[m[1]] {
+			nombre := m[1]
+			g.fijas[nombre] = true
+			if g.globales[nombre] {
+				nuevo := nombre + "Aux"
+				for i := 2; g.globales[nuevo]; i++ {
+					nuevo = nombre + "Aux" + strconv.Itoa(i)
+				}
+				g.renombres[nombre] = nuevo
+				nombre = nuevo
+			}
+			g.globales[nombre] = true
 		}
 		if p.Cuerpo != nil {
-			g.nombreAprendida(p)
-			g.reservar(p.Cuerpo, vistos)
+			g.reservarFijas(p.Cuerpo, vistos)
 		}
 	}
 	for _, h := range e.Hijos {
-		g.reservar(h, vistos)
+		g.reservarFijas(h, vistos)
 	}
 	for _, l := range e.Lambdas {
 		if l != nil {
-			g.reservar(l.Cuerpo, vistos)
+			g.reservarFijas(l.Cuerpo, vistos)
 		}
 	}
+}
+
+// reservarAprendidas names the helpers of the learned components e uses (after reservarFijas).
+func (g *generador) reservarAprendidas(e *Expr, vistos map[*Primitiva]bool) {
+	if e == nil {
+		return
+	}
+	if p := e.Op; p != nil && !vistos[p] {
+		vistos[p] = true
+		if p.Cuerpo != nil {
+			g.nombreAprendida(p)
+			g.reservarAprendidas(p.Cuerpo, vistos)
+		}
+	}
+	for _, h := range e.Hijos {
+		g.reservarAprendidas(h, vistos)
+	}
+	for _, l := range e.Lambdas {
+		if l != nil {
+			g.reservarAprendidas(l.Cuerpo, vistos)
+		}
+	}
+}
+
+// renombrar applies the helper renames of this file to a piece of Go (a template or a helper's code).
+func (g *generador) renombrar(codigo string) string {
+	for viejo, nuevo := range g.renombres {
+		codigo = cambiarIdent(codigo, viejo, nuevo)
+	}
+	return codigo
+}
+
+// cambiarIdent replaces the identifier viejo (whole, not after a dot) by nuevo.
+func cambiarIdent(codigo, viejo, nuevo string) string {
+	esLetra := func(r rune) bool { return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) }
+	var sb strings.Builder
+	for i := 0; i < len(codigo); {
+		j := strings.Index(codigo[i:], viejo)
+		if j < 0 {
+			sb.WriteString(codigo[i:])
+			break
+		}
+		j += i
+		fin := j + len(viejo)
+		antes, _ := utf8.DecodeLastRuneInString(codigo[:j])
+		despues, _ := utf8.DecodeRuneInString(codigo[fin:])
+		sb.WriteString(codigo[i:j])
+		if (j == 0 || !esLetra(antes) && antes != '.') && (fin == len(codigo) || !esLetra(despues)) {
+			sb.WriteString(nuevo)
+		} else {
+			sb.WriteString(viejo)
+		}
+		i = fin
+	}
+	return sb.String()
 }
 
 // nombreAprendida returns the helper name of a learned component (lower-case first letter).
@@ -218,7 +387,7 @@ func (g *generador) ayuda(codigo string) {
 		return
 	}
 	g.vistas[codigo] = true
-	g.ayudas = append(g.ayudas, codigo)
+	g.ayudas = append(g.ayudas, g.renombrar(codigo))
 }
 
 func (g *generador) fallo(formato string, a ...any) {
@@ -323,7 +492,11 @@ func (fg *funcGen) lit(v V, t nucleo.Tipo) gx {
 var reTpl = regexp.MustCompile(`\{(\d+)(?::(\d))?\}`)
 
 func (fg *funcGen) plantilla(p *Primitiva, args []gx) gx {
-	s := reTpl.ReplaceAllStringFunc(p.Go, func(m string) string {
+	tpl := p.Go
+	if p.Ayudante != "" && len(fg.g.renombres) > 0 {
+		tpl = fg.g.renombrar(tpl)
+	}
+	s := reTpl.ReplaceAllStringFunc(tpl, func(m string) string {
 		sub := reTpl.FindStringSubmatch(m)
 		i, _ := strconv.Atoi(sub[1])
 		if i >= len(args) {
@@ -340,7 +513,7 @@ func (fg *funcGen) plantilla(p *Primitiva, args []gx) gx {
 	if pr == 0 {
 		pr = 7
 	}
-	return gx{s: s, prec: pr}
+	return gx{s: s, prec: pr, fresca: plantillasFrescas[p.Nombre] && p.Cuerpo == nil}
 }
 
 func (fg *funcGen) hijos(e *Expr, b *bloque, env map[int]gx, prof int) []gx {
@@ -417,10 +590,11 @@ func (fg *funcGen) expr(e *Expr, b *bloque, env map[int]gx, prof int) gx {
 			base = "invertida"
 		}
 		n := fg.nuevo(base)
-		if esIdent(xs.s) {
-			b.linea(n + " := slices.Clone(" + xs.s + ")")
-		} else {
+		if xs.fresca {
 			b.linea(n + " := " + xs.s)
+		} else {
+			// the list may share memory with a parameter or another value: change a copy
+			b.linea(n + " := slices.Clone(" + xs.s + ")")
 		}
 		if p.Nombre != "invertir" {
 			b.linea("slices.Sort(" + n + ")")
@@ -428,7 +602,7 @@ func (fg *funcGen) expr(e *Expr, b *bloque, env map[int]gx, prof int) gx {
 		if p.Nombre != "ordenar" {
 			b.linea("slices.Reverse(" + n + ")")
 		}
-		return gx{s: n, prec: 7}
+		return gx{s: n, prec: 7, fresca: true}
 	case "primero", "ultimo", "elemento":
 		xs := fg.identificador(fg.expr(e.Hijos[0], b, env, prof), b, nombreLista(e.Hijos[0]))
 		switch p.Nombre {
@@ -722,18 +896,27 @@ func (fg *funcGen) recorrer(b *bloque, fuente *Expr, etapas []etapa, env map[int
 		}
 		fg.cuerpoBucle(b, etapas, env, prof, inits, final, accion, gx{s: n, prec: 7, usos: usos}, cabecera)
 		return
-	case esOp(fuente, "rango"):
-		a := fg.expr(fuente.Hijos[0], b, env, prof)
+	case esOp(fuente, "rango") && rangoContable(fuente):
+		// (rango a b) with a constant a becomes a counting loop. The interpreter has no result when the range
+		// has more than maxLargo numbers (or when n+1 overflows), so a guard returns the zero value there and
+		// the loop is always short: i never overflows.
+		a := ent(fuente.Hijos[0].Const)
 		op, hasta := " < ", fuente.Hijos[1]
+		tope := a + maxLargo // b > a + maxLargo ⇔ too many numbers
 		if esOp(hasta, "+") && len(hasta.Hijos) == 2 && hasta.Hijos[1].EsConst && ent(hasta.Hijos[1].Const) == 1 {
 			op, hasta = " <= ", hasta.Hijos[0]
+			tope-- // n+1 > a + maxLargo ⇔ n > a + maxLargo - 1
 		}
 		z := fg.expr(hasta, b, env, prof)
-		if !esSimple(z) && strings.Contains(z.s, "(") {
+		if !esIdent(z.s) && !(hasta.EsConst) {
 			z = fg.identificador(z, b, "hasta")
 		}
+		if !hasta.EsConst || ent(hasta.Const) > tope {
+			fg.guarda(b, z.en(4)+" > "+strconv.Itoa(tope), "con más de "+strconv.Itoa(maxLargo)+" números")
+		}
 		n := fg.nuevo("i")
-		cabecera = func() string { return "for " + n + " := " + a.s + "; " + n + op + z.en(4) + "; " + n + "++" }
+		desde := fg.lit(a, tI)
+		cabecera = func() string { return "for " + n + " := " + desde.s + "; " + n + op + z.en(4) + "; " + n + "++" }
 		fg.cuerpoBucle(b, etapas, env, prof, inits, final, accion, gx{s: n, prec: 7, usos: usos}, cabecera)
 		return
 	case esOp(fuente, "palabras"):
@@ -757,6 +940,16 @@ func (fg *funcGen) recorrer(b *bloque, fuente *Expr, etapas []etapa, env map[int
 		return "for _, " + n + " := range " + xs.s
 	}
 	fg.cuerpoBucle(b, etapas, env, prof, inits, final, accion, gx{s: n, prec: 7, usos: usos}, cabecera)
+}
+
+// rangoContable reports whether (rango a b) can be written as a counting loop: a is a constant small
+// enough that a + maxLargo does not overflow.
+func rangoContable(fuente *Expr) bool {
+	if len(fuente.Hijos) != 2 || !fuente.Hijos[0].EsConst {
+		return false
+	}
+	a := ent(fuente.Hijos[0].Const)
+	return a <= math.MaxInt-maxLargo
 }
 
 func (fg *funcGen) cuerpoBucle(b *bloque, etapas []etapa, env map[int]gx, prof int, inits []string, final int,

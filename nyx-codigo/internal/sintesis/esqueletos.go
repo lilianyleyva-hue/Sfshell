@@ -890,7 +890,7 @@ func (s *sesion) completar(sk *Expr, limite time.Time, aceptar func(e *Expr, vec
 		if i == len(huecos) {
 			evals++
 			s.evalEsq++
-			if evals&255 == 0 && (time.Now().After(limite) || s.ctx.Err() != nil) {
+			if evals&7 == 0 && (time.Now().After(limite) || s.ctx.Err() != nil) {
 				return false
 			}
 			e := rellenar(sk, elegidos)

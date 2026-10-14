@@ -4,13 +4,18 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"nyxcodigo/internal/nucleo"
 )
 
 // Describir writes the program in simple Spanish: "la suma de los números pares de nums".
 func Describir(e *Expr, f nucleo.Firma) string {
-	d := &descriptor{nombres: map[int]string{}}
+	if demasiadoHondo(e) {
+		return "un programa demasiado anidado para describirlo"
+	}
+	d := &descriptor{nombres: map[int]string{}, nPar: len(f.Params)}
 	for i, p := range f.Params {
 		n := p.Nombre
 		if n == "" {
@@ -21,8 +26,12 @@ func Describir(e *Expr, f nucleo.Firma) string {
 	return d.expr(e)
 }
 
+// descriptor walks a program keeping the names of the variables in scope: the parameters take slots
+// 0..nPar-1 and the parameters of each enclosing lambda the next ones (prof of them in scope).
 type descriptor struct {
 	nombres map[int]string
+	nPar    int
+	prof    int
 }
 
 func (d *descriptor) expr(e *Expr) string {
@@ -143,6 +152,8 @@ func (d *descriptor) plantilla(frase string, e *Expr) string {
 	})
 }
 
+// conVars describes something inside lambda l (an argument of the node being described): l's parameters
+// take the slots after those in scope, named as l names them.
 func (d *descriptor) conVars(l *Lambda, f func() string) string {
 	nombres := l.nombres
 	if len(nombres) != len(l.Params) {
@@ -150,11 +161,13 @@ func (d *descriptor) conVars(l *Lambda, f func() string) string {
 	}
 	viejos := map[int]string{}
 	for i := range l.Params {
-		slot := d.slotLambda(l, i)
+		slot := d.slotLambda(i)
 		viejos[slot] = d.nombres[slot]
 		d.nombres[slot] = nombres[i]
 	}
+	d.prof += len(l.Params)
 	s := f()
+	d.prof -= len(l.Params)
 	for k, v := range viejos {
 		if v == "" {
 			delete(d.nombres, k)
@@ -165,34 +178,8 @@ func (d *descriptor) conVars(l *Lambda, f func() string) string {
 	return s
 }
 
-// slotLambda finds the env slot of the i-th parameter of l from the variables its body uses.
-func (d *descriptor) slotLambda(l *Lambda, i int) int {
-	// parameters take the highest slots in scope: find the largest variable index used in the body
-	max := -1
-	var rec func(x *Expr)
-	rec = func(x *Expr) {
-		if x == nil {
-			return
-		}
-		if x.esVar() && x.Var > max {
-			max = x.Var
-		}
-		for _, h := range x.Hijos {
-			rec(h)
-		}
-		for _, ll := range x.Lambdas {
-			if ll != nil {
-				rec(ll.Cuerpo)
-			}
-		}
-	}
-	rec(l.Cuerpo)
-	inicio := max - len(l.Params) + 1
-	if inicio < 0 {
-		inicio = 0
-	}
-	return inicio + i
-}
+// slotLambda is the env slot of the i-th parameter of a lambda argument of the node being described.
+func (d *descriptor) slotLambda(i int) int { return d.nPar + d.prof + i }
 
 func (d *descriptor) lambda(l *Lambda) string {
 	if l == nil || l.Cuerpo == nil || l.Cuerpo.Hueco {
@@ -236,7 +223,7 @@ func (d *descriptor) cualidad(l *Lambda) (adj string, sust *sustantivoTipo, ok b
 		return "", nil, false
 	}
 	b := l.Cuerpo
-	esX := func(x *Expr) bool { return x.esVar() && usaVar(b, x.Var) > 0 && x.Var == d.slotLambda(l, 0) }
+	esX := func(x *Expr) bool { return x.esVar() && x.Var == d.slotLambda(0) }
 	negar := false
 	if b.Op.Nombre == "no" && len(b.Hijos) == 1 && b.Hijos[0].Op != nil {
 		negar = true
@@ -378,10 +365,9 @@ func fraseAprendida(nombre, descripcion string, f nucleo.Firma) string {
 		if p.Nombre == "" {
 			continue
 		}
-		re := regexp.MustCompile(`\b` + regexp.QuoteMeta(p.Nombre) + `\b`)
-		if re.MatchString(frase) {
+		if nueva, hay := cambiarPalabra(frase, p.Nombre, "{"+strconv.Itoa(i)+"}"); hay {
 			usado = true
-			frase = re.ReplaceAllString(frase, "{"+strconv.Itoa(i)+"}")
+			frase = nueva
 		}
 	}
 	if frase == "" || !usado {
@@ -392,6 +378,37 @@ func fraseAprendida(nombre, descripcion string, f nucleo.Firma) string {
 		return nombre + "(" + strings.Join(partes, ", ") + ")"
 	}
 	return frase
+}
+
+// cambiarPalabra replaces the whole-word occurrences of palabra in texto (Unicode-aware: "s" in "más" or
+// "n" in "también" is not a word of its own) and reports whether there was one.
+func cambiarPalabra(texto, palabra, por string) (string, bool) {
+	if palabra == "" {
+		return texto, false
+	}
+	esLetra := func(r rune) bool { return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.Is(unicode.Mn, r) }
+	var sb strings.Builder
+	hay := false
+	for i := 0; i < len(texto); {
+		j := strings.Index(texto[i:], palabra)
+		if j < 0 {
+			sb.WriteString(texto[i:])
+			break
+		}
+		j += i
+		fin := j + len(palabra)
+		antes, _ := utf8.DecodeLastRuneInString(texto[:j])
+		despues, _ := utf8.DecodeRuneInString(texto[fin:])
+		sb.WriteString(texto[i:j])
+		if (j == 0 || !esLetra(antes)) && (fin == len(texto) || !esLetra(despues)) {
+			sb.WriteString(por)
+			hay = true
+		} else {
+			sb.WriteString(palabra)
+		}
+		i = fin
+	}
+	return sb.String(), hay
 }
 
 // letras describes comparisons of a word length with a number: "p tiene más de 3 letras".

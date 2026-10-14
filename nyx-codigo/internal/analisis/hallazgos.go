@@ -589,8 +589,8 @@ func (h *buscador) indicesMasUno(fd *ast.FuncDecl) {
 		}
 		recorrer(cuerpo, func(m ast.Node, anc pila) bool {
 			ix, ok := m.(*ast.IndexExpr)
-			if !ok || codigo(ix.X) != s {
-				return true
+			if !ok || codigo(ix.X) != s || !h.secuencia(ix.X) {
+				return true // a map lookup (m[k+1]) never goes out of range
 			}
 			b, ok := quitarParen(ix.Index).(*ast.BinaryExpr)
 			if !ok || b.Op != token.ADD {
@@ -612,6 +612,26 @@ func (h *buscador) indicesMasUno(fd *ast.FuncDecl) {
 		})
 		return true
 	})
+}
+
+// secuencia reports whether indexing e can go out of range: a slice, array, pointer to array or string.
+// When the type is unknown it answers true (the loop shape already suggests a list).
+func (h *buscador) secuencia(e ast.Expr) bool {
+	t := h.a.tipo(e)
+	if t == nil {
+		return true
+	}
+	u := t.Underlying()
+	if p, ok := u.(*types.Pointer); ok {
+		u = p.Elem().Underlying()
+	}
+	switch x := u.(type) {
+	case *types.Slice, *types.Array:
+		return true
+	case *types.Basic:
+		return x.Info()&types.IsString != 0
+	}
+	return false
 }
 
 func esLen(call *ast.CallExpr) bool {

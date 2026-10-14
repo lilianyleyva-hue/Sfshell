@@ -646,6 +646,10 @@ func nombreTipoReceptor(e ast.Expr) string {
 		return x.Name
 	case *ast.ParenExpr:
 		return nombreTipoReceptor(x.X)
+	case *ast.IndexExpr: // generic receiver: T[P]
+		return nombreTipoReceptor(x.X)
+	case *ast.IndexListExpr:
+		return nombreTipoReceptor(x.X)
 	}
 	return ""
 }

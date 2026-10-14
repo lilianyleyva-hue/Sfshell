@@ -4,8 +4,16 @@ import "sort"
 
 // Conditionals (§4.7 step 8, "Unificar"). Every target-type entry carries the mask of the examples it
 // satisfies. When the cheapest terms cover every example together, a decision tree is built whose splits are
-// bool entries; its cost is the sum of its parts. To avoid memorizing the examples, every leaf must cover at
-// least two examples and at least four examples are needed.
+// bool entries chosen cheapest first (the cheapest tree wins, which with equal costs prefers the split that
+// separates the terms best); its cost is the sum of its parts.
+//
+// Two rules keep the trees from memorizing the examples and the work bounded (they are not in the spec and
+// are listed as deviations):
+//   - a leaf is a term that satisfies at least two examples of all of them (minEjemplosHoja), so a tree needs
+//     at least three examples;
+//   - trees have depth at most profUnificar (8 leaves), and one attempt tries at most trabajoUnificar splits.
+//
+// Plain si enumeration (cost 25) stays available for everything else.
 
 type arbolCond struct {
 	termino int32 // leaf: entry id (≥ 0)
@@ -19,7 +27,11 @@ func (a *arbolCond) hoja() bool { return a.si == nil }
 const (
 	maxTerminosUnificar = 200
 	maxPredsUnificar    = 1500
-	maxPredsHondo       = 120
+	maxPredsHondo       = 120 // splits tried above the last level
+	minEjemplosHoja     = 2
+	minEjemplosUnificar = 2*minEjemplosHoja - 1
+	profUnificar        = 3
+	trabajoUnificar     = 300000
 )
 
 type unificador struct {
@@ -30,6 +42,8 @@ type unificador struct {
 	vistos   int // len(mo.objetivos) at last run
 	vistosB  int
 	mejor    *arbolCond
+	trabajo  int                   // splits left in this attempt
+	memo     map[uint64]*arbolCond // last-level subtrees of this attempt, by example set
 }
 
 func (u *unificador) actualizar() bool {
@@ -43,7 +57,7 @@ func (u *unificador) actualizar() bool {
 	}
 	for _, id := range mo.objetivos[u.vistos:] {
 		m := mo.entradas[id].mask
-		if popcount(m) < 2 || porMascara[m] || len(u.terminos) >= maxTerminosUnificar {
+		if popcount(m) < minEjemplosHoja || porMascara[m] || len(u.terminos) >= maxTerminosUnificar {
 			continue
 		}
 		porMascara[m] = true
@@ -83,7 +97,7 @@ func (u *unificador) actualizar() bool {
 // intentar returns a new cheapest tree when one exists.
 func (u *unificador) intentar() *arbolCond {
 	mo := u.mo
-	if mo.nEj < 4 || mo.nEj > 64 {
+	if mo.nEj < minEjemplosUnificar || mo.nEj > 64 {
 		return nil
 	}
 	if !u.actualizar() {
@@ -99,7 +113,10 @@ func (u *unificador) intentar() *arbolCond {
 	sort.SliceStable(u.preds, func(i, j int) bool {
 		return mo.entradas[u.preds[i]].costo < mo.entradas[u.preds[j]].costo
 	})
-	a := u.construir(mo.completa(), 2)
+	u.trabajo = trabajoUnificar
+	u.memo = map[uint64]*arbolCond{}
+	a := u.construir(mo.completa(), profUnificar)
+	u.memo = nil
 	if a == nil {
 		return nil
 	}
@@ -110,10 +127,9 @@ func (u *unificador) intentar() *arbolCond {
 	return a
 }
 
+// terminoPara returns the cheapest term that satisfies every example in e (terms satisfy at least
+// minEjemplosHoja examples of all of them, not necessarily of e).
 func (u *unificador) terminoPara(e uint64) *arbolCond {
-	if popcount(e) < 2 {
-		return nil
-	}
 	for _, id := range u.terminos { // cost order
 		if u.mo.entradas[id].mask&e == e {
 			return &arbolCond{termino: id, pred: -1, costo: u.mo.entradas[id].costo}
@@ -126,8 +142,13 @@ func (u *unificador) construir(e uint64, prof int) *arbolCond {
 	if t := u.terminoPara(e); t != nil {
 		return t
 	}
-	if prof == 0 || popcount(e) < 4 {
+	if prof == 0 || popcount(e) < 2 || u.trabajo <= 0 {
 		return nil
+	}
+	if prof == 1 {
+		if a, ok := u.memo[e]; ok {
+			return a
+		}
 	}
 	var mejor *arbolCond
 	limite := len(u.preds)
@@ -135,6 +156,11 @@ func (u *unificador) construir(e uint64, prof int) *arbolCond {
 		limite = maxPredsHondo
 	}
 	for _, p := range u.preds[:limite] {
+		u.trabajo--
+		if u.trabajo <= 0 || u.trabajo%4096 == 0 && u.mo.ctx.Err() != nil {
+			u.trabajo = 0
+			break
+		}
 		pc := u.mo.entradas[p].costo
 		if mejor != nil && costoSiUnificar+pc+2*costoParam >= mejor.costo {
 			break
@@ -156,6 +182,9 @@ func (u *unificador) construir(e uint64, prof int) *arbolCond {
 		if mejor == nil || total < mejor.costo {
 			mejor = &arbolCond{termino: -1, pred: p, si: si, no: no, costo: total}
 		}
+	}
+	if prof == 1 && u.trabajo > 0 {
+		u.memo[e] = mejor
 	}
 	return mejor
 }

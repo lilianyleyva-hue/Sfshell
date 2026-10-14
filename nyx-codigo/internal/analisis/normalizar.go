@@ -92,12 +92,14 @@ type trozo struct {
 // armar builds "package main" + imports + declarations + func main() { statements }.
 func armar(src string) (string, error) {
 	trozos := partirTrozos(src)
-	var imports, decls, stmts []string
+	var imports, previas, decls, stmts []string
 	tieneMain := false
 	for _, t := range trozos {
 		switch {
 		case t.imp:
 			imports = append(imports, t.texto)
+		case t.decl && !strings.HasPrefix(strings.TrimSpace(t.texto), "func"):
+			previas = append(previas, t.texto) // const, var and type go before func main
 		case t.decl:
 			decls = append(decls, t.texto)
 			if strings.HasPrefix(strings.TrimSpace(t.texto), "func main(") {
@@ -113,6 +115,11 @@ func armar(src string) (string, error) {
 	sb.WriteString("package main\n\n")
 	for _, im := range imports {
 		sb.WriteString(im)
+		sb.WriteString("\n")
+	}
+	for _, d := range previas {
+		sb.WriteString("\n")
+		sb.WriteString(d)
 		sb.WriteString("\n")
 	}
 	if len(stmts) > 0 {
@@ -136,6 +143,7 @@ func armar(src string) (string, error) {
 
 // partirTrozos splits a snippet into top-level declarations (func, type, import, and var/const blocks
 // that start a line before any statement) and statements, using go/scanner so strings and comments are safe.
+// A var or const that comes after a statement stays a statement: it may use the variables before it.
 func partirTrozos(src string) []trozo {
 	fset := token.NewFileSet()
 	fl := fset.AddFile("x.go", -1, len(src))
@@ -154,9 +162,11 @@ func partirTrozos(src string) []trozo {
 	inicio := 0 // byte offset of the current statement run
 	prof := 0   // bracket depth
 	inicioLinea := true
+	vistaSentencia := false // a statement came before
 	for i := 0; i < len(toks); i++ {
 		t := toks[i]
-		if prof == 0 && inicioLinea && (t.tok == token.FUNC || t.tok == token.TYPE || t.tok == token.IMPORT) {
+		valor := (t.tok == token.VAR || t.tok == token.CONST) && !vistaSentencia
+		if prof == 0 && inicioLinea && (t.tok == token.FUNC || t.tok == token.TYPE || t.tok == token.IMPORT || valor) {
 			// a func literal statement "func() { … }()" is not a declaration
 			if t.tok == token.FUNC && i+1 < len(toks) && toks[i+1].tok == token.LPAREN && esLiteralFunc(toks, i) {
 				goto normal
@@ -203,6 +213,9 @@ func partirTrozos(src string) []trozo {
 			prof++
 		case token.RPAREN, token.RBRACE, token.RBRACK:
 			prof--
+		}
+		if t.tok != token.SEMICOLON && t.tok != token.COMMENT {
+			vistaSentencia = true
 		}
 		inicioLinea = t.tok == token.SEMICOLON || t.tok == token.COMMENT
 	}

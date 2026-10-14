@@ -1,12 +1,7 @@
-//go:build toolchain
-
 package recetas_test
 
-// These tests run the shipped knowledge through the real sandbox (arenero), as the app does:
-//
-//	go test -tags toolchain ./internal/recetas/
-//
-// They skip when Go is not installed.
+// These tests run the shipped knowledge through the real sandbox (arenero), as the app does.
+// They run with a plain `go test` and skip when Go is not installed (exec.LookPath("go") fails).
 
 import (
 	"context"

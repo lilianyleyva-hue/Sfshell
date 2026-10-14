@@ -57,9 +57,15 @@ func (n *nodoS) String() string {
 	return "(" + strings.Join(partes, " ") + ")"
 }
 
+// maxProfundidadParse bounds the nesting of a program text. The synthesizer builds programs of about ten
+// nodes; the bound keeps a corrupt or crafted text (from memoria, for example) from exhausting the stack,
+// which would end the whole process.
+const maxProfundidadParse = 200
+
 type lectorS struct {
-	s string
-	i int
+	s    string
+	i    int
+	prof int
 }
 
 func (l *lectorS) espacios() {
@@ -79,6 +85,11 @@ func (l *lectorS) nodo() (*nodoS, error) {
 	}
 	switch l.s[l.i] {
 	case '(':
+		if l.prof >= maxProfundidadParse {
+			return nil, fmt.Errorf("sintesis: el programa tiene demasiados paréntesis anidados (más de %d)", maxProfundidadParse)
+		}
+		l.prof++
+		defer func() { l.prof-- }()
 		l.i++
 		n := &nodoS{lista: true}
 		for {
@@ -121,6 +132,9 @@ func (l *lectorS) nodo() (*nodoS, error) {
 			switch ch {
 			case '[', '{':
 				prof++
+				if prof > maxProfundidadParse {
+					return nil, fmt.Errorf("sintesis: el valor tiene demasiados corchetes anidados (más de %d)", maxProfundidadParse)
+				}
 			case ']', '}':
 				prof--
 			case '"', '\'':

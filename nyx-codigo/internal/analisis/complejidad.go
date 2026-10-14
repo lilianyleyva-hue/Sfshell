@@ -173,10 +173,19 @@ type complejidad struct {
 	funcs   map[string]*ast.FuncDecl // plain functions and "T.M" methods
 	memo    map[*ast.FuncDecl]*resultadoFunc
 	enCurso map[*ast.FuncDecl]bool
+	fijas   map[*ast.FuncDecl]map[string]bool // locals that never change and come from constants
+	bucles  []bucleAbierto                    // enclosing for loops while costing a body
+}
+
+// bucleAbierto is an enclosing for loop: its counter (when it counts up) and its order.
+type bucleAbierto struct {
+	contador string
+	o        orden
 }
 
 func nuevaComplejidad(a *archivo) *complejidad {
-	c := &complejidad{a: a, funcs: map[string]*ast.FuncDecl{}, memo: map[*ast.FuncDecl]*resultadoFunc{}, enCurso: map[*ast.FuncDecl]bool{}}
+	c := &complejidad{a: a, funcs: map[string]*ast.FuncDecl{}, memo: map[*ast.FuncDecl]*resultadoFunc{}, enCurso: map[*ast.FuncDecl]bool{},
+		fijas: map[*ast.FuncDecl]map[string]bool{}}
 	for _, d := range a.f.Decls {
 		if fd, ok := d.(*ast.FuncDecl); ok && fd.Name != nil && fd.Body != nil {
 			c.funcs[nombreFunc(fd)] = fd
@@ -254,6 +263,9 @@ func (c *complejidad) de(fd *ast.FuncDecl) *resultadoFunc {
 	}
 	c.enCurso[fd] = true
 	defer delete(c.enCurso, fd)
+	abiertos := c.bucles // a callee is costed on its own: the caller's loops do not enclose it
+	c.bucles = nil
+	defer func() { c.bucles = abiertos }()
 
 	r := &resultadoFunc{}
 	r.recursiva = c.alcanza(fd, fd)
@@ -372,12 +384,16 @@ func (c *complejidad) costeStmt(s ast.Stmt, fd *ast.FuncDecl) coste {
 		}
 		return k
 	case *ast.ForStmt:
-		o, desc := c.costeBucleFor(x)
+		o, desc := c.costeBucleFor(x, fd)
+		c.bucles = append(c.bucles, bucleAbierto{contador: contadorCreciente(x), o: o})
 		dentro := c.costeLista(x.Body.List, fd)
+		c.bucles = c.bucles[:len(c.bucles)-1]
 		return maxCoste(componer(o, desc, dentro), c.costeExpr(x.Cond, fd))
 	case *ast.RangeStmt:
-		o, desc := c.costeBucleRange(x)
+		o, desc := c.costeBucleRange(x, fd)
+		c.bucles = append(c.bucles, bucleAbierto{o: o})
 		dentro := c.costeLista(x.Body.List, fd)
+		c.bucles = c.bucles[:len(c.bucles)-1]
 		return maxCoste(componer(o, desc, dentro), c.costeExpr(x.X, fd))
 	}
 	return c.costeExpr(s, fd)
@@ -467,12 +483,12 @@ func (c *complejidad) esConstante(e ast.Expr) bool {
 	return false
 }
 
-func (c *complejidad) costeBucleRange(r *ast.RangeStmt) (orden, string) {
+func (c *complejidad) costeBucleRange(r *ast.RangeStmt, fd *ast.FuncDecl) (orden, string) {
 	switch x := r.X.(type) {
 	case *ast.CompositeLit:
 		return o1, "un bucle de tamaño fijo"
 	default:
-		if c.esConstante(x) {
+		if c.esFijo(x, fd) {
 			return o1, "un bucle de tamaño fijo"
 		}
 		if t := c.a.tipo(r.X); t != nil {
@@ -521,13 +537,29 @@ func esLiteralEntero(e ast.Expr) bool {
 	return ok && b.Kind == token.INT
 }
 
-func (c *complejidad) costeBucleFor(f *ast.ForStmt) (orden, string) {
+func (c *complejidad) costeBucleFor(f *ast.ForStmt, fd *ast.FuncDecl) (orden, string) {
 	if f.Cond == nil {
 		return oLin, "un bucle que se repite hasta que algo lo corta"
 	}
 	enCond := identsDe(f.Cond)
+	// 0. it steps by the counter of an enclosing loop (j += i, as in the sieve of Eratosthenes): over all
+	// the rounds of the outer loop it gives n/2 + n/3 + … ≈ n log n steps in total
+	if paso, ok := pasoDe(f); ok {
+		for k := len(c.bucles) - 1; k >= 0; k-- {
+			b := c.bucles[k]
+			if b.contador == "" || b.contador != paso || contadorCreciente(f) == paso {
+				continue
+			}
+			total := oNLogN
+			o := orden{total.p2 - b.o.p2, total.lg - b.o.lg}
+			if b.o.p2 == 0 || o.p2 < 0 || o.lg < 0 {
+				o = oLin
+			}
+			return o, "un bucle que salta de `" + paso + "` en `" + paso + "` (sumando todas sus vueltas, n/2 + n/3 + … ≈ n log n pasos)"
+		}
+	}
 	// 1. a variable of the condition is divided (or the range is halved) in each round
-	divide, multiplica := "", ""
+	divide, multiplica, resto := "", "", ""
 	revisar := func(n ast.Node) {
 		ast.Inspect(n, func(x ast.Node) bool {
 			switch y := x.(type) {
@@ -552,6 +584,10 @@ func (c *complejidad) costeBucleFor(f *ast.ForStmt) (orden, string) {
 								case token.MUL, token.SHL:
 									multiplica = id.Name
 								}
+							}
+							// b = a % b (Euclid): the remainder at least halves the pair every two rounds
+							if b, ok := quitarParen(rhs).(*ast.BinaryExpr); ok && b.Op == token.REM && !c.esFijo(b.Y, fd) {
+								resto = id.Name
 							}
 							if divide == "" && mitadEn(rhs) {
 								divide = id.Name
@@ -581,6 +617,8 @@ func (c *complejidad) costeBucleFor(f *ast.ForStmt) (orden, string) {
 		return oLog, "un bucle que divide `" + divide + "` en cada vuelta"
 	case multiplica != "":
 		return oLog, "un bucle que multiplica `" + multiplica + "` en cada vuelta"
+	case resto != "":
+		return oLog, "un bucle que cambia `" + resto + "` por el resto de una división en cada vuelta (como el algoritmo de Euclides), así que da pocas vueltas"
 	}
 	b, ok := quitarParen(f.Cond).(*ast.BinaryExpr)
 	if !ok {
@@ -607,9 +645,9 @@ func (c *complejidad) costeBucleFor(f *ast.ForStmt) (orden, string) {
 			return oRaiz, "un bucle que llega hasta la raíz cuadrada de `" + codigo(otro) + "`"
 		}
 	}
-	if c.esConstante(b.X) || c.esConstante(b.Y) {
+	if c.esFijo(b.X, fd) || c.esFijo(b.Y, fd) {
 		otro := b.X
-		if c.esConstante(b.X) {
+		if c.esFijo(b.X, fd) {
 			otro = b.Y
 		}
 		if id, ok := quitarParen(otro).(*ast.Ident); ok && c.contadorDelFor(f, id.Name) {
@@ -623,6 +661,9 @@ func (c *complejidad) costeBucleFor(f *ast.ForStmt) (orden, string) {
 	}
 	if call, ok := quitarParen(cota).(*ast.CallExpr); ok {
 		if id, ok := call.Fun.(*ast.Ident); ok && id.Name == "len" && len(call.Args) == 1 {
+			if c.arregloFijo(call.Args[0]) {
+				return o1, "un bucle de tamaño fijo"
+			}
 			return oLin, "un bucle que recorre `" + codigo(call.Args[0]) + "`"
 		}
 	}
@@ -634,6 +675,223 @@ func (c *complejidad) costeBucleFor(f *ast.ForStmt) (orden, string) {
 		}
 	}
 	return oLin, "un bucle que va hasta `" + codigo(cota) + "`"
+}
+
+// arregloFijo reports whether e is a small fixed-size array (or a pointer to one).
+func (c *complejidad) arregloFijo(e ast.Expr) bool {
+	t := c.a.tipo(e)
+	if t == nil {
+		return false
+	}
+	u := t.Underlying()
+	if p, ok := u.(*types.Pointer); ok {
+		u = p.Elem().Underlying()
+	}
+	a, ok := u.(*types.Array)
+	return ok && a.Len() <= 64
+}
+
+// contadorCreciente returns the counter of a loop that counts up (i++ or i += k), or "".
+func contadorCreciente(f *ast.ForStmt) string {
+	switch p := f.Post.(type) {
+	case *ast.IncDecStmt:
+		if id, ok := p.X.(*ast.Ident); ok && p.Tok == token.INC {
+			return id.Name
+		}
+	case *ast.AssignStmt:
+		if len(p.Lhs) == 1 && len(p.Rhs) == 1 && p.Tok == token.ADD_ASSIGN {
+			if id, ok := p.Lhs[0].(*ast.Ident); ok {
+				if b, ok := quitarParen(p.Rhs[0]).(*ast.BasicLit); ok && b.Kind == token.INT && b.Value != "0" {
+					return id.Name
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// pasoDe returns v when the loop steps its counter by a variable: "j += v" or "j = j + v".
+func pasoDe(f *ast.ForStmt) (string, bool) {
+	p, ok := f.Post.(*ast.AssignStmt)
+	if !ok || len(p.Lhs) != 1 || len(p.Rhs) != 1 {
+		return "", false
+	}
+	j, ok := p.Lhs[0].(*ast.Ident)
+	if !ok {
+		return "", false
+	}
+	rhs := quitarParen(p.Rhs[0])
+	switch p.Tok {
+	case token.ADD_ASSIGN:
+		if v, ok := rhs.(*ast.Ident); ok && v.Name != j.Name {
+			return v.Name, true
+		}
+	case token.ASSIGN:
+		if b, ok := rhs.(*ast.BinaryExpr); ok && b.Op == token.ADD {
+			x, y := quitarParen(b.X), quitarParen(b.Y)
+			if esIdent(x, j.Name) {
+				if v, ok := y.(*ast.Ident); ok && v.Name != j.Name {
+					return v.Name, true
+				}
+			}
+			if esIdent(y, j.Name) {
+				if v, ok := x.(*ast.Ident); ok && v.Name != j.Name {
+					return v.Name, true
+				}
+			}
+		}
+	}
+	return "", false
+}
+
+// esFijo reports whether e has a value that does not depend on the input: constants, and locals that
+// are only ever given constant values (k := 5).
+func (c *complejidad) esFijo(e ast.Expr, fd *ast.FuncDecl) bool {
+	if c.esConstante(e) {
+		return true
+	}
+	if fd == nil || fd.Body == nil {
+		return false
+	}
+	fijas := c.fijasDe(fd)
+	return c.exprFija(e, func(n string) bool { return fijas[n] })
+}
+
+// exprFija reports whether e is built only from constants and names for which fija is true.
+func (c *complejidad) exprFija(e ast.Expr, fija func(string) bool) bool {
+	switch x := e.(type) {
+	case nil:
+		return false
+	case *ast.BasicLit:
+		return true
+	case *ast.ParenExpr:
+		return c.exprFija(x.X, fija)
+	case *ast.UnaryExpr:
+		return x.Op != token.AND && x.Op != token.ARROW && c.exprFija(x.X, fija)
+	case *ast.BinaryExpr:
+		return c.exprFija(x.X, fija) && c.exprFija(x.Y, fija)
+	case *ast.Ident:
+		return c.esConstante(x) || fija(x.Name)
+	case *ast.CallExpr:
+		esTipo := false
+		if c.a.info != nil {
+			if tv, ok := c.a.info.Types[x.Fun]; ok && tv.IsType() {
+				esTipo = true
+			}
+		}
+		if !esTipo && !esIdent(x.Fun, "min") && !esIdent(x.Fun, "max") {
+			return false
+		}
+		for _, a := range x.Args {
+			if !c.exprFija(a, fija) {
+				return false
+			}
+		}
+		return len(x.Args) > 0
+	}
+	return false
+}
+
+// fijasDe finds the locals of fd that never change and only receive constant values (by name, so a
+// name with any changing definition is not fixed). Parameters and results are never fixed.
+func (c *complejidad) fijasDe(fd *ast.FuncDecl) map[string]bool {
+	if r, ok := c.fijas[fd]; ok {
+		return r
+	}
+	no := map[string]bool{}
+	if fd.Recv != nil {
+		for _, campo := range fd.Recv.List {
+			for _, n := range campo.Names {
+				no[n.Name] = true
+			}
+		}
+	}
+	for _, l := range []*ast.FieldList{fd.Type.Params, fd.Type.Results} {
+		if l == nil {
+			continue
+		}
+		for _, campo := range l.List {
+			for _, n := range campo.Names {
+				no[n.Name] = true
+			}
+		}
+	}
+	valores := map[string][]ast.Expr{}
+	candidatas := map[string]bool{}
+	marcar := func(e ast.Expr) {
+		if id, ok := quitarParen(e).(*ast.Ident); ok {
+			no[id.Name] = true
+		}
+	}
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.AssignStmt:
+			if x.Tok != token.DEFINE && x.Tok != token.ASSIGN {
+				for _, l := range x.Lhs {
+					marcar(l)
+				}
+				break
+			}
+			for i, l := range x.Lhs {
+				id, ok := l.(*ast.Ident)
+				if !ok {
+					continue
+				}
+				if len(x.Lhs) != len(x.Rhs) {
+					no[id.Name] = true
+					continue
+				}
+				candidatas[id.Name] = true
+				valores[id.Name] = append(valores[id.Name], x.Rhs[i])
+			}
+		case *ast.IncDecStmt:
+			marcar(x.X)
+		case *ast.RangeStmt:
+			marcar(x.Key)
+			marcar(x.Value)
+		case *ast.UnaryExpr:
+			if x.Op == token.AND {
+				marcar(x.X)
+			}
+		case *ast.ValueSpec:
+			for i, id := range x.Names {
+				switch {
+				case len(x.Values) == 0:
+					candidatas[id.Name] = true // the zero value
+				case len(x.Values) != len(x.Names):
+					no[id.Name] = true
+				default:
+					candidatas[id.Name] = true
+					valores[id.Name] = append(valores[id.Name], x.Values[i])
+				}
+			}
+		}
+		return true
+	})
+	fija := func(n string) bool { return candidatas[n] && !no[n] }
+	for cambio := true; cambio; {
+		cambio = false
+		for n := range candidatas {
+			if no[n] {
+				continue
+			}
+			for _, v := range valores[n] {
+				if !c.exprFija(v, fija) {
+					no[n] = true
+					cambio = true
+					break
+				}
+			}
+		}
+	}
+	r := map[string]bool{}
+	for n := range candidatas {
+		if !no[n] {
+			r[n] = true
+		}
+	}
+	c.fijas[fd] = r
+	return r
 }
 
 // contadorDelFor reports whether name is the loop counter (initialized in Init and stepped in Post).
