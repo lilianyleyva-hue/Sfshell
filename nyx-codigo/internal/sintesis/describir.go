@@ -386,7 +386,9 @@ func cambiarPalabra(texto, palabra, por string) (string, bool) {
 	if palabra == "" {
 		return texto, false
 	}
-	esLetra := func(r rune) bool { return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.Is(unicode.Mn, r) }
+	esLetra := func(r rune) bool {
+		return r == '_' || unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.Is(unicode.Mn, r)
+	}
 	var sb strings.Builder
 	hay := false
 	for i := 0; i < len(texto); {

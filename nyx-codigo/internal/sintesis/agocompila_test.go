@@ -326,6 +326,11 @@ func TestAGoNombresQueChocan(t *testing.T) {
 		{"func F(x []int) int", "(suma (mapea (λ y (contar (λ z (== z y)) x)) x))"},
 		{"func F(y []int) []int", "(filtra (λ x (> x (largo y))) y)"},
 		{"func F(x int, y int) int", "(suma (mapea (λ z (* z x)) (rango y (+ x y))))"},
+		// lists that share memory with a parameter are copied before being sorted or reversed
+		{"func F(nums []int) []int", "(concat (ordenar (tomar nums 2)) nums)"},
+		{"func F(nums []int) []int", "(concat (invertir (quitar nums 1)) nums)"},
+		{"func F(nums []int) []int", "(concat (ordenarDesc (tomar nums 3)) nums)"},
+		{"func F(nums []int) []int", "(concat (ordenar (filtra esPar nums)) (invertir nums))"},
 	} {
 		f, err := sintesis.LeerFirmaPrueba(c[0])
 		if err != nil {

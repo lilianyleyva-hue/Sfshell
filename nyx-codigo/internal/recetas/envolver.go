@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"nyxcodigo/internal/nucleo"
@@ -74,7 +75,8 @@ func Envolver(funcionFuente string, f nucleo.Firma) (programa string, aCaso func
 	}
 	// the declarations after the package clause and the imports, as written (comments included)
 	inicio := archivo.Name.End()
-	imports := map[string]string{} // path → spec text
+	imports := map[string]string{}       // key → spec text
+	nombresImport := map[string]string{} // import path → the name it is bound to ("_" and "." imports excluded)
 	var orden []string
 	for _, d := range archivo.Decls {
 		gd, ok := d.(*ast.GenDecl)
@@ -88,27 +90,41 @@ func Envolver(funcionFuente string, f nucleo.Firma) (programa string, aCaso func
 			is := sp.(*ast.ImportSpec)
 			ruta, _ := strconv.Unquote(is.Path.Value)
 			texto := is.Path.Value
+			clave := ruta
+			nombre := nombreImplicito(is.Path.Value)
 			if is.Name != nil {
 				texto = is.Name.Name + " " + texto
-			}
-			clave := ruta
-			if is.Name != nil {
 				clave = is.Name.Name + " " + ruta
+				nombre = is.Name.Name
 			}
 			if _, ya := imports[clave]; !ya {
 				imports[clave] = texto
 				orden = append(orden, clave)
 			}
+			if _, ya := nombresImport[ruta]; !ya && nombre != "_" && nombre != "." {
+				nombresImport[ruta] = nombre
+			}
 		}
 	}
 	cuerpo := src[fset.Position(inicio).Offset:]
-	g := &generador{f: f}
+	g, err := nuevoGenerador(f, archivo, nombresImport)
+	if err != nil {
+		return "", nil, err
+	}
 	principal := g.main()
 	ayudantes := g.ayudantes() // before imports(): it decides whether strconv is needed
 	for _, ruta := range g.imports() {
-		if _, ya := imports[ruta]; !ya {
-			imports[ruta] = strconv.Quote(ruta)
-			orden = append(orden, ruta)
+		nombre := g.pq(ruta)
+		if nombresImport[ruta] == nombre {
+			continue // the code imports it already, under the name the generated code uses
+		}
+		texto, clave := strconv.Quote(ruta), ruta
+		if nombre != ruta {
+			texto, clave = nombre+" "+texto, nombre+" "+ruta
+		}
+		if _, ya := imports[clave]; !ya {
+			imports[clave] = texto
+			orden = append(orden, clave)
 		}
 	}
 	sort.Strings(orden)
@@ -200,10 +216,220 @@ func imprimible(t nucleo.Tipo) bool {
 
 // ---- code generation ----
 
+// The generated code must not clash with the wrapped code, which can declare anything: a function or a
+// helper called entrada, err, envLinea or fmt. So every name the generator writes is chosen against the
+// file: the helpers share a prefix that no identifier of the file starts with ("env" unless taken), the
+// standard packages are aliased when a top-level declaration takes their name (or reused under the name
+// the file already imports them with), and main's locals avoid the function and its defined types.
+
+// nombresAyudantes are the package-level helpers the generator may write (with the "env" prefix).
+var nombresAyudantes = []string{
+	"envLinea", "envUnEntero", "envUnDecimal", "envUnBool",
+	"envEntero", "envDecimal", "envBool", "envTexto", "envRuna", "envByte",
+	"envEnteros", "envDecimales", "envBools", "envPalabras", "envRunas", "envBytes",
+	"envMatrizEnteros", "envMatrizDecimales", "envUnir", "envUnirRunas",
+}
+
+// paquetesGenerados are the standard packages the generated code uses.
+var paquetesGenerados = []string{"bufio", "fmt", "os", "strings", "strconv"}
+
+// predeclaradosUsados are the predeclared names the generated code needs with their Go meaning.
+var predeclaradosUsados = []string{"append", "len", "make", "string", "rune", "int", "float64", "bool", "byte", "error", "any", "nil", "true", "false"}
+
 type generador struct {
-	f       nucleo.Firma
-	usados  map[string]bool
-	strconv bool
+	f        nucleo.Firma
+	usados   map[string]bool
+	strconv  bool
+	prefijo  string            // prefix of the helpers: "env", or another when the file uses "env…" names
+	paquetes map[string]string // import path → name the generated code uses for it
+	locales  map[string]string // base name of a local of main → the name chosen
+	evitar   map[string]bool   // names main's locals must not take
+}
+
+// nuevoGenerador chooses the generated names against the wrapped file. nombresImport maps each import path
+// of the file to the name it is bound to. It fails when the file redeclares a predeclared name the
+// generated code needs (len, append, string…).
+func nuevoGenerador(f nucleo.Firma, archivo *ast.File, nombresImport map[string]string) (*generador, error) {
+	idents := map[string]bool{}
+	ast.Inspect(archivo, func(n ast.Node) bool {
+		if id, ok := n.(*ast.Ident); ok {
+			idents[id.Name] = true
+		}
+		return true
+	})
+	superior := map[string]bool{} // package-level names: declarations and import names
+	for _, d := range archivo.Decls {
+		switch x := d.(type) {
+		case *ast.FuncDecl:
+			if x.Recv == nil {
+				superior[x.Name.Name] = true
+			}
+		case *ast.GenDecl:
+			for _, sp := range x.Specs {
+				switch s := sp.(type) {
+				case *ast.TypeSpec:
+					superior[s.Name.Name] = true
+				case *ast.ValueSpec:
+					for _, id := range s.Names {
+						superior[id.Name] = true
+					}
+				case *ast.ImportSpec:
+					nombre := nombreImplicito(s.Path.Value)
+					if s.Name != nil {
+						nombre = s.Name.Name
+					}
+					if nombre != "_" && nombre != "." {
+						superior[nombre] = true
+						idents[nombre] = true
+					}
+				}
+			}
+		}
+	}
+	for _, p := range predeclaradosUsados {
+		if superior[p] {
+			return nil, fmt.Errorf("el código declara `%s`, y el programa que lo envuelve necesita el `%s` de Go: dale otro nombre", p, p)
+		}
+	}
+	g := &generador{f: f, paquetes: map[string]string{}, locales: map[string]string{}, evitar: map[string]bool{}}
+	g.prefijo = ""
+	for _, p := range []string{"env", "nyx", "nyxEnv", "envoltorio", "nyxEnvoltorio"} {
+		if !algunoEmpiezaPor(idents, p) {
+			g.prefijo = p
+			break
+		}
+	}
+	for i := 1; g.prefijo == ""; i++ {
+		if p := "env" + strconv.Itoa(i); !algunoEmpiezaPor(idents, p) {
+			g.prefijo = p
+		}
+	}
+	for _, ruta := range paquetesGenerados {
+		// An alias of the file (f "fmt") is never reused: the helpers' locals could shadow it. The package is
+		// imported again under a free name instead, which Go allows.
+		switch {
+		case nombresImport[ruta] == ruta:
+			g.paquetes[ruta] = ruta
+		case superior[ruta]:
+			g.paquetes[ruta] = g.prefijo + strings.ToUpper(ruta[:1]) + ruta[1:]
+		default:
+			g.paquetes[ruta] = ruta
+		}
+	}
+	g.evitar[f.Nombre] = true
+	for _, p := range f.Params {
+		tiposDefinidos(p.Tipo, g.evitar)
+	}
+	for _, t := range f.Res {
+		tiposDefinidos(t, g.evitar)
+	}
+	for _, h := range nombresAyudantes {
+		g.evitar[g.n(h)] = true
+	}
+	for _, n := range g.paquetes {
+		g.evitar[n] = true
+	}
+	return g, nil
+}
+
+func algunoEmpiezaPor(nombres map[string]bool, prefijo string) bool {
+	for n := range nombres {
+		if strings.HasPrefix(n, prefijo) {
+			return true
+		}
+	}
+	return false
+}
+
+// tiposDefinidos adds to m the names of the defined types inside t.
+func tiposDefinidos(t nucleo.Tipo, m map[string]bool) {
+	if t.Definido && t.Nombre != "" {
+		m[t.Nombre] = true
+	}
+	if t.Elem != nil {
+		tiposDefinidos(*t.Elem, m)
+	}
+	if t.Clave != nil {
+		tiposDefinidos(*t.Clave, m)
+	}
+	for _, c := range t.Campos {
+		tiposDefinidos(c.Tipo, m)
+	}
+}
+
+// n is the name of a helper ("envLinea") with the chosen prefix.
+func (g *generador) n(ayudante string) string {
+	return g.prefijo + strings.TrimPrefix(ayudante, "env")
+}
+
+// pq is the name the generated code uses for a standard package.
+func (g *generador) pq(ruta string) string {
+	if n := g.paquetes[ruta]; n != "" {
+		return n
+	}
+	return ruta
+}
+
+// local is the name of a local of main: base when it is free, else base2, base3…
+func (g *generador) local(base string) string {
+	if n, ok := g.locales[base]; ok {
+		return n
+	}
+	n := base
+	for i := 2; g.evitar[n]; i++ {
+		n = base + strconv.Itoa(i)
+	}
+	g.locales[base] = n
+	g.evitar[n] = true
+	return n
+}
+
+// renombres maps the generator's fixed names to the chosen ones (only the ones that change).
+func (g *generador) renombres() map[string]string {
+	m := map[string]string{}
+	for _, h := range nombresAyudantes {
+		if n := g.n(h); n != h {
+			m[h] = n
+		}
+	}
+	for _, ruta := range paquetesGenerados {
+		if n := g.pq(ruta); n != ruta {
+			m[ruta] = n
+		}
+	}
+	return m
+}
+
+// reemplazarPalabras replaces whole identifiers of texto according to m. texto is the generator's own
+// code: every identifier in it is the generator's, and its string literals hold none of m's keys.
+func reemplazarPalabras(texto string, m map[string]string) string {
+	if len(m) == 0 {
+		return texto
+	}
+	var sb strings.Builder
+	for i := 0; i < len(texto); {
+		r, w := utf8.DecodeRuneInString(texto[i:])
+		if r != '_' && !unicode.IsLetter(r) {
+			sb.WriteString(texto[i : i+w])
+			i += w
+			continue
+		}
+		j := i + w
+		for j < len(texto) {
+			r2, w2 := utf8.DecodeRuneInString(texto[j:])
+			if r2 != '_' && !unicode.IsLetter(r2) && !unicode.IsDigit(r2) {
+				break
+			}
+			j += w2
+		}
+		palabra := texto[i:j]
+		if n, ok := m[palabra]; ok {
+			palabra = n
+		}
+		sb.WriteString(palabra)
+		i = j
+	}
+	return sb.String()
 }
 
 func (g *generador) usar(h string) {
@@ -222,42 +448,45 @@ func (g *generador) imports() []string {
 }
 
 func (g *generador) main() string {
+	fmtP, osP := g.pq("fmt"), g.pq("os")
+	entrada, errV := g.local("entrada"), g.local("err")
 	var sb strings.Builder
-	sb.WriteString("func main() {\n\tentrada := bufio.NewReader(os.Stdin)\n")
+	fmt.Fprintf(&sb, "func main() {\n\t%s := %s.NewReader(%s.Stdin)\n", entrada, g.pq("bufio"), osP)
 	var args []string
 	for i, p := range g.f.Params {
 		variadico := g.f.Variadica && i == len(g.f.Params)-1
 		l, _ := lectorDe(p.Tipo, variadico)
 		g.usar(l.ayudante)
-		nombre := "e" + strconv.Itoa(i)
+		nombre := g.local("e" + strconv.Itoa(i))
+		leido := g.local("v" + strconv.Itoa(i))
 		etiqueta := nombreParam(p, i)
-		fmt.Fprintf(&sb, "\tfmt.Fprintln(os.Stderr, %s)\n", strconv.Quote("Escribe "+l.pregunta+" ("+etiqueta+"):"))
-		fmt.Fprintf(&sb, "\tv%d, err := %s(entrada)\n", i, l.ayudante)
-		fmt.Fprintf(&sb, "\tif err != nil {\n\t\tfmt.Fprintln(os.Stderr, %s, err)\n\t\tos.Exit(1)\n\t}\n", strconv.Quote("No entiendo "+etiqueta+":"))
-		sb.WriteString("\t" + g.convertir(nombre, "v"+strconv.Itoa(i), p.Tipo) + "\n")
+		fmt.Fprintf(&sb, "\t%s.Fprintln(%s.Stderr, %s)\n", fmtP, osP, strconv.Quote("Escribe "+l.pregunta+" ("+etiqueta+"):"))
+		fmt.Fprintf(&sb, "\t%s, %s := %s(%s)\n", leido, errV, g.n(l.ayudante), entrada)
+		fmt.Fprintf(&sb, "\tif %s != nil {\n\t\t%s.Fprintln(%s.Stderr, %s, %s)\n\t\t%s.Exit(1)\n\t}\n", errV, fmtP, osP, strconv.Quote("No entiendo "+etiqueta+":"), errV, osP)
+		sb.WriteString("\t" + g.convertir(nombre, leido, p.Tipo) + "\n")
 		if variadico {
 			args = append(args, nombre+"...")
 		} else {
 			args = append(args, nombre)
 		}
 	}
-	var res []string
+	res := make([]string, len(g.f.Res))
 	for i := range g.f.Res {
-		res = append(res, "r"+strconv.Itoa(i))
+		res[i] = g.local("r" + strconv.Itoa(i))
 	}
 	fmt.Fprintf(&sb, "\t%s := %s(%s)\n", strings.Join(res, ", "), g.f.Nombre, strings.Join(args, ", "))
 	ultimo := len(g.f.Res) - 1
 	if g.f.Res[ultimo].Clase == nucleo.CError {
-		fmt.Fprintf(&sb, "\tif r%d != nil {\n\t\tfmt.Println(\"error:\", r%d)\n\t\treturn\n\t}\n", ultimo, ultimo)
+		fmt.Fprintf(&sb, "\tif %s != nil {\n\t\t%s.Println(\"error:\", %s)\n\t\treturn\n\t}\n", res[ultimo], fmtP, res[ultimo])
 	}
 	for i, t := range g.f.Res {
 		if t.Clase == nucleo.CError {
 			continue
 		}
-		sb.WriteString("\t" + g.imprimir("r"+strconv.Itoa(i), t) + "\n")
+		sb.WriteString("\t" + g.imprimir(res[i], t) + "\n")
 	}
 	if len(g.f.Params) == 0 {
-		sb.WriteString("\t_ = entrada\n")
+		sb.WriteString("\t_ = " + entrada + "\n")
 	}
 	sb.WriteString("}\n")
 	return sb.String()
@@ -265,6 +494,8 @@ func (g *generador) main() string {
 
 // convertir declares nombre of type t from the helper's value v.
 func (g *generador) convertir(nombre, v string, t nucleo.Tipo) string {
+	fmtP, osP := g.pq("fmt"), g.pq("os")
+	i, x, fila, f := g.local("i"), g.local("x"), g.local("fila"), g.local("f")
 	switch t.Clase {
 	case nucleo.CInt, nucleo.CFloat, nucleo.CBool, nucleo.CString, nucleo.CRune, nucleo.CByte:
 		if t.Go() == base(t) {
@@ -273,8 +504,8 @@ func (g *generador) convertir(nombre, v string, t nucleo.Tipo) string {
 		return nombre + " := " + t.Go() + "(" + v + ")"
 	case nucleo.CArreglo:
 		return "var " + nombre + " " + t.Go() + "\n\tif len(" + v + ") != " + strconv.Itoa(t.Largo) +
-			" {\n\t\tfmt.Fprintln(os.Stderr, " + strconv.Quote("Hacen falta exactamente "+strconv.Itoa(t.Largo)+" valores") + ")\n\t\tos.Exit(1)\n\t}\n" +
-			"\tfor i, x := range " + v + " {\n\t\t" + nombre + "[i] = " + conversionElem(*t.Elem, "x") + "\n\t}"
+			" {\n\t\t" + fmtP + ".Fprintln(" + osP + ".Stderr, " + strconv.Quote("Hacen falta exactamente "+strconv.Itoa(t.Largo)+" valores") + ")\n\t\t" + osP + ".Exit(1)\n\t}\n" +
+			"\tfor " + i + ", " + x + " := range " + v + " {\n\t\t" + nombre + "[" + i + "] = " + conversionElem(*t.Elem, x) + "\n\t}"
 	case nucleo.CLista:
 		e := *t.Elem
 		if e.Clase == nucleo.CLista {
@@ -282,14 +513,14 @@ func (g *generador) convertir(nombre, v string, t nucleo.Tipo) string {
 			if t.Go() == "[]"+e.Go() && e.Go() == "[]"+base(ee) {
 				return nombre + " := " + v
 			}
-			return "var " + nombre + " " + t.Go() + "\n\tfor _, fila := range " + v + " {\n\t\tvar f " + e.Go() +
-				"\n\t\tfor _, x := range fila {\n\t\t\tf = append(f, " + conversionElem(ee, "x") + ")\n\t\t}\n\t\t" +
-				nombre + " = append(" + nombre + ", f)\n\t}"
+			return "var " + nombre + " " + t.Go() + "\n\tfor _, " + fila + " := range " + v + " {\n\t\tvar " + f + " " + e.Go() +
+				"\n\t\tfor _, " + x + " := range " + fila + " {\n\t\t\t" + f + " = append(" + f + ", " + conversionElem(ee, x) + ")\n\t\t}\n\t\t" +
+				nombre + " = append(" + nombre + ", " + f + ")\n\t}"
 		}
 		if t.Go() == "[]"+base(e) {
 			return nombre + " := " + v
 		}
-		return "var " + nombre + " " + t.Go() + "\n\tfor _, x := range " + v + " {\n\t\t" + nombre + " = append(" + nombre + ", " + conversionElem(e, "x") + ")\n\t}"
+		return "var " + nombre + " " + t.Go() + "\n\tfor _, " + x + " := range " + v + " {\n\t\t" + nombre + " = append(" + nombre + ", " + conversionElem(e, x) + ")\n\t}"
 	}
 	return nombre + " := " + v
 }
@@ -321,30 +552,37 @@ func base(t nucleo.Tipo) string {
 }
 
 func (g *generador) imprimir(r string, t nucleo.Tipo) string {
+	fmtP := g.pq("fmt")
 	switch t.Clase {
 	case nucleo.CRune, nucleo.CByte:
-		return "fmt.Println(string(rune(" + r + ")))"
+		return fmtP + ".Println(string(rune(" + r + ")))"
 	case nucleo.CLista, nucleo.CArreglo:
 		e := *t.Elem
 		switch e.Clase {
 		case nucleo.CRune, nucleo.CByte:
 			g.usar("envUnirRunas")
-			return "fmt.Println(envUnirRunas(" + r + "[:]))"
+			return fmtP + ".Println(" + g.n("envUnirRunas") + "(" + r + "[:]))"
 		case nucleo.CLista, nucleo.CArreglo:
 			if e.Elem != nil && e.Elem.Basico() {
-				return "for _, fila := range " + r + " {\n\t\tfmt.Println(envUnir(fila[:]))\n\t}"
+				fila := g.local("fila")
+				return "for _, " + fila + " := range " + r + " {\n\t\t" + fmtP + ".Println(" + g.n("envUnir") + "(" + fila + "[:]))\n\t}"
 			}
 		}
 		if e.Basico() {
 			g.usar("envUnir")
-			return "fmt.Println(envUnir(" + r + "[:]))"
+			return fmtP + ".Println(" + g.n("envUnir") + "(" + r + "[:]))"
 		}
 	}
-	return "fmt.Println(" + r + ")"
+	return fmtP + ".Println(" + r + ")"
 }
 
-// ayudantes returns the helper functions used by main.
+// ayudantes returns the helper functions used by main, with the chosen names.
 func (g *generador) ayudantes() string {
+	return reemplazarPalabras(g.ayudantesFijos(), g.renombres())
+}
+
+// ayudantesFijos writes the helpers with their fixed names (env… and the plain package names).
+func (g *generador) ayudantesFijos() string {
 	var sb strings.Builder
 	sb.WriteString(`
 // envLinea reads one line without its line break; at the end of the input it fails.

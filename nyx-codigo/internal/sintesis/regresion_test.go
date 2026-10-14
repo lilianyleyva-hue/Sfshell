@@ -105,12 +105,13 @@ func TestRegresionAGoNombresDeAyudantes(t *testing.T) {
 			t.Errorf("%s: %v", c.prog, err)
 			continue
 		}
-		for nombre, n := range declaraciones(t, src) {
+		decls := declaraciones(t, src)
+		for nombre, n := range decls {
 			if n > 1 {
 				t.Errorf("%s: «%s» declarada %d veces:\n%s", c.prog, nombre, n, src)
 			}
 		}
-		if !strings.Contains(src, "func "+c.ayudante+"(") {
+		if decls[c.ayudante] != 1 {
 			t.Errorf("%s: falta el ayudante %s:\n%s", c.prog, c.ayudante, src)
 		}
 		if hayGo {
@@ -447,8 +448,10 @@ func TestRegresionUnificarTresEjemplos(t *testing.T) {
 			r.Agregar(p)
 		}
 	}
+	// With -3, 4 and 0 alone, (si (esPar n) n (neg n)) fits as well as (si (esNegativo n) (neg n) n) at the
+	// same cost: three examples decide only when an odd positive one is among them.
 	f := debeFirma(t, "func Absoluto(n int) int")
-	ejs := []nucleo.Caso{casoEj([]V{-3}, 3), casoEj([]V{4}, 4), casoEj([]V{0}, 0)}
+	ejs := []nucleo.Caso{casoEj([]V{-3}, 3), casoEj([]V{5}, 5), casoEj([]V{0}, 0)}
 	s, err := nuevaSesion(context.Background(), Especificacion{Firma: f, Ejemplos: ejs}, r, Opciones{}.normalizar(), true)
 	if err != nil {
 		t.Fatal(err)

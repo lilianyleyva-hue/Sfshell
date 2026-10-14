@@ -110,7 +110,7 @@ func (fg *funcGen) reducir(e *Expr, b *bloque, env map[int]gx, prof int) gx {
 		fg.recorrer(b, fuente, etapas, env, prof, []string{"var " + n + " " + e.Tipo.Go()}, 1, func(cur *bloque, x gx) {
 			cur.linea(n + " = append(" + n + ", " + x.s + ")")
 		})
-		return gx{s: n, prec: 7}
+		return gx{s: n, prec: 7, fresca: true} // just built here: nothing else refers to it
 	case "pliega":
 		a := fg.expr(ini, b, env, prof)
 		n := fg.nuevo("acumulado")

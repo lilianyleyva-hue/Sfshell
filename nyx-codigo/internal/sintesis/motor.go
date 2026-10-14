@@ -21,16 +21,18 @@ const (
 
 const numTipos = 12 // len(tiposDSL)
 
-// Bounds on the work between two clock checks and on the memory of the bank. The clock is read every
-// intervalo candidates; intervalo adapts so that about one millisecond passes between two reads (cheap
-// candidates are checked every 1 024, expensive ones on large inputs every time). MaxBanco counts entries,
-// but one entry caches a whole output vector, so the bank also stops ("banco_lleno") when the estimated size
-// of its vectors passes maxBytesBanco.
+// Bounds on the checks of the clock and on the memory of the bank. The clock is read once per candidate
+// (about 50 ns, far less than one evaluation): the deadline is checked on every read; the context, the grace
+// after the first solution and the progress event every intervaloRevision candidates and right after a slow
+// candidate (more than umbralLento). While candidates are slow (large inputs), the deadline and the context
+// are also checked between the inputs of one candidate, so no candidate overruns the limit by more than one
+// evaluation on one input. MaxBanco counts entries, but one entry caches a whole output vector, so the bank
+// also stops ("banco_lleno") when the estimated size of its vectors passes maxBytesBanco.
 const (
-	intervaloInicial = 16
-	intervaloMaximo  = 1024
-	maxBytesBanco    = 128 << 20
-	bytesPorEntrada  = 96 // the entrada struct, its slices and its place in the indexes
+	intervaloRevision = 1024
+	umbralLento       = time.Millisecond
+	maxBytesBanco     = 128 << 20
+	bytesPorEntrada   = 96 // the entrada struct, its slices and its place in the indexes
 )
 
 type entrada struct {
@@ -124,9 +126,9 @@ type motor struct {
 	motivo     string
 	limite     time.Time // hard deadline (zero = none)
 	tPrimera   time.Time
-	intervalo  int       // candidates between two clock checks
-	proxRev    int       // explorados value of the next check
-	ultimaRev  time.Time // time of the last check
+	proxRev    int       // explorados value of the next full check
+	ultimo     time.Time // start of the previous candidate
+	lento      bool      // the previous candidate took more than umbralLento
 	bytes      int64     // estimated size of the cached vectors
 	maxBytes   int64
 	alSolucion func(id int32)
@@ -145,7 +147,7 @@ type motor struct {
 
 func nuevoMotor(ctx context.Context, m, nEj int, esperado []V, objetivo int) *motor {
 	mo := &motor{ctx: ctx, m: m, nEj: nEj, esperado: esperado, objetivo: objetivo, hojas: map[int][]hojaPendiente{},
-		maxCosto: 90, maxBanco: 400000, maxBytes: maxBytesBanco, intervalo: intervaloInicial, proxRev: intervaloInicial}
+		maxCosto: 90, maxBanco: 400000, maxBytes: maxBytesBanco, proxRev: intervaloRevision}
 	for t := 0; t < numTipos; t++ {
 		mo.visto[t] = map[uint64][]int32{}
 	}
@@ -321,27 +323,20 @@ func (mo *motor) elegir(op *opMotor, i, rem, c int) {
 	}
 }
 
-// revisar reads the clock and the context; it also adapts how many candidates pass until the next check.
-func (mo *motor) revisar() {
-	ahora := time.Now()
-	if !mo.ultimaRev.IsZero() {
-		switch d := ahora.Sub(mo.ultimaRev); {
-		case d > 2*time.Millisecond:
-			mo.intervalo = max(1, mo.intervalo/4)
-		case d < 500*time.Microsecond:
-			mo.intervalo = min(intervaloMaximo, mo.intervalo*2)
-		}
-	}
-	mo.ultimaRev = ahora
-	mo.proxRev = mo.explorados + mo.intervalo
-	if mo.ctx.Err() != nil {
+// vencido reports whether the deadline has passed or the context is done, stopping the search when so.
+func (mo *motor) vencido(ahora time.Time) bool {
+	if !mo.limite.IsZero() && ahora.After(mo.limite) || mo.ctx.Err() != nil {
 		mo.parar = true
 		mo.motivo = "tiempo"
-		return
+		return true
 	}
-	if !mo.limite.IsZero() && ahora.After(mo.limite) {
-		mo.parar = true
-		mo.motivo = "tiempo"
+	return false
+}
+
+// revisar is the full check: context, grace after the first solution and progress event.
+func (mo *motor) revisar(ahora time.Time) {
+	mo.proxRev = mo.explorados + intervaloRevision
+	if mo.vencido(ahora) {
 		return
 	}
 	if !mo.tPrimera.IsZero() && ahora.Sub(mo.tPrimera) > time.Second {
@@ -357,8 +352,18 @@ func (mo *motor) revisar() {
 
 func (mo *motor) probar(op *opMotor, c int) {
 	mo.explorados++
-	if mo.explorados >= mo.proxRev {
-		mo.revisar()
+	ahora := time.Now()
+	if !mo.ultimo.IsZero() {
+		mo.lento = ahora.Sub(mo.ultimo) > umbralLento
+	}
+	mo.ultimo = ahora
+	if !mo.limite.IsZero() && ahora.After(mo.limite) {
+		mo.parar = true
+		mo.motivo = "tiempo"
+		return
+	}
+	if mo.lento || mo.explorados >= mo.proxRev {
+		mo.revisar(ahora)
 		if mo.parar {
 			return
 		}
@@ -489,6 +494,9 @@ func (mo *motor) evaluar(op *opMotor, out []V) (algun bool) {
 		out[j] = v
 		if !esFallo(v) {
 			algun = true
+		}
+		if mo.lento && j+1 < mo.m && mo.vencido(time.Now()) {
+			return false // out of time in the middle of a slow candidate: drop it
 		}
 	}
 	return algun
