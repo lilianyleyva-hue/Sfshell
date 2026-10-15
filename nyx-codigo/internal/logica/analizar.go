@@ -44,7 +44,7 @@ func (z *analizador) calcularPistas(fs []frase) {
 	for i, f := range fs {
 		var seg []tok
 		vaciar := func() {
-			if b := bolsaToks(seg, z.lem); len(b) > 0 {
+			if b := bolsaToks(seg, z.lem); len(b) > 0 && len(z.pistas) < maxPistas {
 				z.pistas = append(z.pistas, pista{frase: i, bolsa: b})
 			}
 			seg = nil
@@ -60,13 +60,29 @@ func (z *analizador) calcularPistas(fs []frase) {
 	}
 }
 
+// Limits of the parser: they keep the work bounded (the parser rescans a sentence at every
+// nesting level, so very long or very deeply nested inputs would otherwise pin a CPU).
+const (
+	maxTokensArgumento       = 2000
+	maxProfundidadParentesis = 60
+	maxTokensSinComa         = 80
+	maxPistas                = 300
+)
+
+var errDemasiadoLargo = fmt.Errorf("logica: el texto es demasiado largo para leerlo como un argumento (más de %d palabras): %w", maxTokensArgumento, nucleo.ErrNoSoportado)
+
 // AnalizarArgumento parses premises and a conclusion. Sentences are split on ; . newlines and
 // "y además"; the conclusion is the ¿…? sentence or the one introduced by "por lo tanto",
-// "entonces", "luego", "así que" or "¿se sigue que". It returns an error wrapping
-// nucleo.ErrNoEntiendo when nothing can be read.
+// "entonces", "luego", "así que" or "¿se sigue que". Inside a sentence, depth-0 commas and
+// "y si" separate formulas ("p → q, p" are two premises; "si p, q" is one). It returns an error
+// wrapping nucleo.ErrNoEntiendo when nothing can be read.
 func AnalizarArgumento(texto string, lem nucleo.Lematizador) (Argumento, error) {
 	z := nuevoAnalizador(lem)
-	fs := partirFrases(tokenizar(texto))
+	ts := tokenizar(texto)
+	if len(ts) > maxTokensArgumento {
+		return Argumento{}, errDemasiadoLargo
+	}
+	fs := partirFrases(ts)
 	if len(fs) == 0 {
 		return Argumento{}, fmt.Errorf("logica: texto vacío: %w", nucleo.ErrNoEntiendo)
 	}
@@ -90,19 +106,19 @@ func AnalizarArgumento(texto string, lem nucleo.Lematizador) (Argumento, error) 
 			continue
 		}
 		z.actual = i
-		p, err := z.formula(f.toks)
+		ps, err := z.formulas(f.toks)
 		if err != nil {
 			return Argumento{}, err
 		}
-		arg.Premisas = append(arg.Premisas, p)
+		arg.Premisas = append(arg.Premisas, ps...)
 	}
 	if ic >= 0 && !esQueConcluye(fs[ic]) {
 		z.actual = ic
-		c, err := z.formula(fs[ic].toks)
+		cs, err := z.formulas(fs[ic].toks)
 		if err != nil {
 			return Argumento{}, err
 		}
-		arg.Conclusion = c
+		arg.Conclusion = conjuncion(cs)
 	}
 	if len(arg.Premisas) == 0 {
 		return Argumento{}, fmt.Errorf("logica: no encuentro premisas: %w", nucleo.ErrNoEntiendo)
@@ -119,6 +135,9 @@ func AnalizarFormula(texto string, a *Atomos, lem nucleo.Lematizador) (Formula, 
 		z.at = a
 	}
 	ts := tokenizar(texto)
+	if len(ts) > maxTokensArgumento {
+		return nil, z.at, nil, errDemasiadoLargo
+	}
 	var limpio []tok
 	for _, t := range ts {
 		switch t.norma {
@@ -127,11 +146,11 @@ func AnalizarFormula(texto string, a *Atomos, lem nucleo.Lematizador) (Formula, 
 		}
 		limpio = append(limpio, t)
 	}
-	f, err := z.formula(limpio)
+	fs, err := z.formulas(limpio)
 	if err != nil {
 		return nil, z.at, nil, err
 	}
-	return f, z.at, z.notas, nil
+	return conjuncion(fs), z.at, z.notas, nil
 }
 
 var errVacia = fmt.Errorf("logica: falta una parte de la frase: %w", nucleo.ErrNoEntiendo)
@@ -147,12 +166,131 @@ func (z *analizador) formula(ts []tok) (Formula, error) {
 	return z.equiv(ts)
 }
 
+// formulas parses one sentence that may hold several formulas: depth-0 commas and "y si" separate
+// them ("p → q, p"; "si llueve, el suelo se moja y si el suelo se moja, la gente resbala"), while
+// "si A, B", "o A, o B", "ni A, ni B" and "si A, entonces B" stay together.
+func (z *analizador) formulas(ts []tok) ([]Formula, error) {
+	var out []Formula
+	for _, seg := range segmentar(ts) {
+		f, err := z.formula(seg)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	if len(out) == 0 {
+		return nil, errVacia
+	}
+	return out, nil
+}
+
+var (
+	tokComa = tok{orig: ",", norma: ",", sim: true}
+	tokY    = tok{orig: "y", norma: "y"}
+)
+
+// inicioCondicion reports whether ts starts with "si"/"cuando"/"siempre que"/"en caso de que" and
+// has something after it; it returns the marker length.
+func inicioCondicion(ts []tok) (int, bool) {
+	for _, seq := range secCondicion {
+		if empiezaPor(ts, seq) && len(ts) > len(seq) {
+			return len(seq), true
+		}
+	}
+	return 0, false
+}
+
+// condicionAbierta: a condition segment with no depth-0 "entonces", "->" or comma after the marker
+// (it still needs its consequent, or it must be split without a comma).
+func condicionAbierta(ts []tok) bool {
+	l, ok := inicioCondicion(ts)
+	if !ok {
+		return false
+	}
+	i, _ := buscarNivel0(ts[l:], 1, []string{"entonces"}, []string{"->"}, []string{","})
+	return i < 0
+}
+
+// segmentar splits a sentence into its formulas (see formulas).
+func segmentar(ts []tok) [][]tok {
+	ts = recortar(sinComillas(ts))
+	var partes [][]tok
+	prof, ini := 0, 0
+	for i := 0; i < len(ts); i++ {
+		switch ts[i].norma {
+		case "(":
+			prof++
+		case ")":
+			prof--
+		case ",":
+			if prof == 0 {
+				partes = append(partes, ts[ini:i])
+				ini = i + 1
+			}
+		case "y", "e", "pero":
+			if prof == 0 && i > ini && i+1 < len(ts) {
+				if _, ok := inicioCondicion(ts[i+1:]); ok {
+					partes = append(partes, ts[ini:i])
+					ini = i + 1
+				}
+			}
+		}
+	}
+	partes = append(partes, ts[ini:])
+	var limpias [][]tok
+	for _, p := range partes {
+		p = recortar(p)
+		if len(p) > 1 && (p[0].norma == "y" || p[0].norma == "e" || p[0].norma == "pero" || p[0].norma == "ademas" || p[0].norma == "tambien") {
+			p = recortar(p[1:])
+		}
+		if len(p) > 0 {
+			limpias = append(limpias, p)
+		}
+	}
+	var out [][]tok
+	for i := 0; i < len(limpias); {
+		p := append([]tok(nil), limpias[i]...) // a copy: the pieces below are appended to
+		i++
+		switch {
+		case len(out) > 0 && p[0].norma == "entonces":
+			out[len(out)-1] = append(append(out[len(out)-1], tokComa), p...)
+		case condicionAbierta(p):
+			l, _ := inicioCondicion(p)
+			corto := len(p)-l == 1
+			// "si llueve y si hace frío, nieva": one-word conditions join the next condition
+			for corto && i < len(limpias) && condicionAbierta(limpias[i]) {
+				q := limpias[i]
+				lq, _ := inicioCondicion(q)
+				p = append(append(p, tokY), q[lq:]...)
+				i++
+			}
+			if i < len(limpias) {
+				if _, esCond := inicioCondicion(limpias[i]); !esCond {
+					p = append(append(p, tokComa), limpias[i]...)
+					i++
+				}
+			}
+			out = append(out, p)
+		case p[0].norma == "o" || p[0].norma == "u" || p[0].norma == "ni":
+			for i < len(limpias) && limpias[i][0].norma == p[0].norma {
+				p = append(append(p, tokComa), limpias[i]...)
+				i++
+			}
+			out = append(out, p)
+		default:
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 func parentesisEquilibrados(ts []tok) error {
-	p := 0
+	p, maxP := 0, 0
 	for _, t := range ts {
 		switch t.norma {
 		case "(":
 			p++
+			maxP = max(maxP, p)
 		case ")":
 			p--
 			if p < 0 {
@@ -162,6 +300,9 @@ func parentesisEquilibrados(ts []tok) error {
 	}
 	if p != 0 {
 		return fmt.Errorf("logica: falta cerrar un paréntesis: %w", nucleo.ErrNoEntiendo)
+	}
+	if maxP > maxProfundidadParentesis {
+		return fmt.Errorf("logica: hay %d paréntesis anidados; leo hasta %d: %w", maxP, maxProfundidadParentesis, nucleo.ErrNoSoportado)
 	}
 	return nil
 }
@@ -265,6 +406,8 @@ func (z *analizador) impl(ts []tok) (Formula, error) {
 			a, b = cuerpo[:i], cuerpo[i+l:]
 		} else if i, _ := buscarNivel0(cuerpo, 1, []string{","}); i > 0 {
 			a, b = cuerpo[:i], cuerpo[i+1:]
+		} else if len(cuerpo) > maxTokensSinComa {
+			return nil, fmt.Errorf("logica: la condición «%s…» es muy larga; sepárala con una coma o con «entonces»: %w", textoToks(cuerpo[:6]), nucleo.ErrNoEntiendo)
 		} else if len(cuerpo) >= 2 {
 			i := z.partirSinComa(cuerpo)
 			a, b = cuerpo[:i], cuerpo[i:]

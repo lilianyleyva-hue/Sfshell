@@ -347,6 +347,10 @@ func clausulas(ts []tokP, v Verbos) [][]tokP {
 			nuevo = true
 		case esNombre(sig):
 			nuevo = true
+		case pronombresObjeto[sig.w] && i+2 < len(ts):
+			// "y los reparto entre 4": an object pronoun followed by a verb starts a clause
+			_, esV := lemaVerbo(ts[i+2].w)
+			nuevo = esV
 		default:
 			if _, ok := lemaVerbo(sig.w); ok {
 				nuevo = true
@@ -380,6 +384,8 @@ func pareceVerbo(w string) bool {
 	return false
 }
 
+var pronombresObjeto = conjuntoPal(`lo la los las le les me nos se`)
+
 var mayusculasNoNombre = conjuntoPal(`el la los las un una unos unas si en de del al cuantos cuantas cuanto cuanta
 que cual entre a con por para y o hay dentro hace se le juntos ambos todos luego despues cada mi tu su yo
 calcula halla resuelve`)
@@ -387,8 +393,18 @@ calcula halla resuelve`)
 var parientes = conjuntoPal(`padre madre hijo hija hermano hermana abuelo abuela tio tia primo prima amigo amiga
 nieto nieta`)
 
+// esNombre: a capitalised word that is not a function word. At the start of a sentence every word
+// is capitalised, so there a known verb ("Compra 3 bolsas…") is not a name.
 func esNombre(t tokP) bool {
-	return t.mayus && !mayusculasNoNombre[t.w] && t.num == nil && len(t.w) > 1
+	if !t.mayus || mayusculasNoNombre[t.w] || t.num != nil || len(t.w) <= 1 {
+		return false
+	}
+	if t.inicio {
+		if _, esVerbo := lemaVerbo(t.w); esVerbo {
+			return false
+		}
+	}
+	return true
 }
 
 // ---- Plantear ----
@@ -862,6 +878,11 @@ func relaciones(fs []frase, v Verbos) (Planteamiento, bool) {
 			switch t.w {
 			case "doble", "triple", "cuadruple", "mitad", "veces", "suman", "edades", "mayor", "menor", "ambos", "juntos":
 				hayRelacion = true
+			case "mas", "menos":
+				// "5 años menos que Luis", "3 más que Ana"
+				if i+1 < len(f.toks) && f.toks[i+1].w == "que" {
+					hayRelacion = true
+				}
 			}
 		}
 	}
@@ -1379,13 +1400,17 @@ func (s *situ) clausula(c []tokP) {
 	if relativo {
 		suj, explicito, i = s.ultimo, true, 1
 	}
-	for i < len(c) && (funcionalesP[c[i].w] && c[i].w != "se" && c[i].w != "le" && c[i].w != "les" && c[i].w != "en" && c[i].w != "a" || c[i].w == ",") {
+	esPariente := func(k int) bool {
+		return k+1 < len(c) && (c[k].w == "su" || c[k].w == "el" || c[k].w == "la") && parientes[singular(c[k+1].w)]
+	}
+	// skip leading function words, but "su hermana" is a subject
+	for i < len(c) && !esPariente(i) && (funcionalesP[c[i].w] && c[i].w != "se" && c[i].w != "le" && c[i].w != "les" && c[i].w != "en" && c[i].w != "a" || c[i].w == ",") {
 		i++
 	}
 	if i < len(c) && esNombre(c[i]) {
 		suj, explicito = c[i].orig, true
 		i++
-	} else if i+1 < len(c) && (c[i].w == "su" || c[i].w == "el" || c[i].w == "la") && parientes[singular(c[i+1].w)] {
+	} else if esPariente(i) {
 		suj, explicito = singular(c[i+1].w), true
 		i += 2
 	}
@@ -1432,13 +1457,15 @@ func (s *situ) clausula(c []tokP) {
 		return
 	}
 	// quantity, object, receiver
-	var num, factor *big.Rat
+	var num, factor, divisor *big.Rat
 	obj, objTxt, receptor := "", "", ""
 	obj2, obj2Txt := "", "" // the noun after a second number: "3 cajas de 12 caramelos"
 	mitad, cada, grupos := false, false, false
 	for j := k + 1; j < len(c); j++ {
 		t := c[j]
 		switch {
+		case t.esNum() && divisor == nil && j > 0 && c[j-1].w == "entre":
+			divisor = t.num // "reparte … entre 4 niños"
 		case t.esNum() && num == nil:
 			num = t.num
 		case t.esNum() && factor == nil:
@@ -1498,6 +1525,9 @@ func (s *situ) clausula(c []tokP) {
 		s.ultimo = receptor
 	}
 	actual := s.cant(suj, obj)
+	if lema == "repartir" && divisor == nil && num != nil && factor != nil {
+		divisor = factor // "reparte 20 caramelos 4 amigos" (no "entre"): the second number divides
+	}
 	var cantE Expr
 	switch {
 	case mitad:
@@ -1506,6 +1536,16 @@ func (s *situ) clausula(c []tokP) {
 		cantE = Op{Op: '*', A: Num{V: num}, B: Num{V: factor}}
 	case num != nil:
 		cantE = Num{V: num}
+	case lema == "repartir" && divisor != nil:
+		// "los reparto entre 4": what is shared is what there is
+		origen := actual
+		if origen.ini == nil && len(origen.cambios) == 0 && s.tiene("(todos)", obj) {
+			origen = s.cant("(todos)", obj)
+		}
+		if origen.ini == nil && len(origen.cambios) == 0 {
+			return
+		}
+		cantE = origen.expr()
 	default:
 		return
 	}
@@ -1530,8 +1570,8 @@ func (s *situ) clausula(c []tokP) {
 		actual.cambios = append(actual.cambios, cambio{'+', cantE})
 		s.mapeo = append(s.mapeo, frase+nombre+": "+actual.expr().String()+" "+unidad)
 	case "repartir":
-		if factor != nil {
-			s.reparto = Op{Op: '/', A: cantE, B: Num{V: factor}}
+		if divisor != nil {
+			s.reparto = Op{Op: '/', A: cantE, B: Num{V: divisor}}
 			s.mapeo = append(s.mapeo, frase+"a cada uno: "+s.reparto.String()+" "+unidad)
 		}
 	case "restar", "transferir":

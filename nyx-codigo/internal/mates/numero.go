@@ -25,7 +25,42 @@ const (
 	maxBitsPotencia = 200_000 // integer powers are capped at this many result bits
 	maxFactorial    = 5_000
 	maxCifrasTexto  = 2_000 // longer integers are abbreviated in String
+	// maxBitsOperando caps every exact operand and result of an arithmetic step, so a chain of
+	// products cannot grow without limit (powers are capped at maxBitsPotencia bits).
+	maxBitsOperando = 2 * maxBitsPotencia
+	// maxBitsTanteoCuadrados: above this size only small square factors are extracted from a radicand.
+	maxBitsTanteoCuadrados = 2_048
 )
+
+// ErrNoReal: a float64 step gave NaN (0·∞, ∞−∞, sin(∞)…).
+var ErrNoReal = errors.New("el resultado no es un número real")
+
+// finito rejects approximate values that overflowed (±Inf) or are not numbers (NaN), so they never
+// reach big.Float (which panics on NaN) or the user.
+func finito(v valor) (valor, error) {
+	if !v.aprox {
+		return v, nil
+	}
+	switch {
+	case math.IsNaN(v.f):
+		return valor{}, ErrNoReal
+	case math.IsInf(v.f, 0):
+		return valor{}, ErrDemasiadoGrande
+	}
+	return v, nil
+}
+
+// bitsValor is the size of an exact value (its largest numerator, denominator or radicand).
+func bitsValor(v valor) int {
+	if v.aprox || v.a == nil {
+		return 0
+	}
+	b := bitsRat(v.a)
+	if v.conRadical() {
+		b = max(b, bitsRat(v.b), v.r.BitLen())
+	}
+	return b
+}
 
 // Radical is Coef·√Radicando.
 type Radical struct {
@@ -367,14 +402,19 @@ func raizRacional(q *big.Rat) valor {
 }
 
 // extraerCuadrados writes m = k²·s with s free of square factors found by trial division up to 10⁶
-// (a remaining cofactor that is a perfect square is extracted too).
+// (a remaining cofactor that is a perfect square is extracted too). Very large radicands (more than
+// maxBitsTanteoCuadrados bits) only get the primes up to 1000 tried, so the work stays bounded.
 func extraerCuadrados(m *big.Int) (k, s *big.Int) {
 	k, s = big.NewInt(1), new(big.Int).Set(m)
 	if r := new(big.Int).Sqrt(s); new(big.Int).Mul(r, r).Cmp(s) == 0 {
 		return r, big.NewInt(1)
 	}
+	limite := int64(1_000_000)
+	if m.BitLen() > maxBitsTanteoCuadrados {
+		limite = 1_000
+	}
 	var p, p2, q, rem big.Int
-	for i := int64(2); i <= 1_000_000; i++ {
+	for i := int64(2); i <= limite; i++ {
 		p.SetInt64(i)
 		p2.Mul(&p, &p)
 		if p2.Cmp(s) > 0 {
@@ -519,7 +559,9 @@ func potenciaRat(b *big.Rat, k int64) (valor, error) {
 	return vRat(r), nil
 }
 
-// raizEntera returns the exact q-th root of n ≥ 0, if there is one.
+// raizEntera returns the exact q-th root of n ≥ 0, if there is one. The floor root comes from
+// Newton's iteration started above the root (x ← ((q−1)·x + n/x^(q−1))/q until it stops going down),
+// which takes O(log bits) big-integer steps instead of a bit-by-bit binary search.
 func raizEntera(n *big.Int, q int64) (*big.Int, bool) {
 	if n.Sign() == 0 || n.Cmp(big.NewInt(1)) == 0 {
 		return new(big.Int).Set(n), true
@@ -531,25 +573,29 @@ func raizEntera(n *big.Int, q int64) (*big.Int, bool) {
 		r := new(big.Int).Sqrt(n)
 		return r, new(big.Int).Mul(r, r).Cmp(n) == 0
 	}
-	// binary search on [1, 2^(bits/q + 1)]
-	lo := big.NewInt(1)
-	hi := new(big.Int).Lsh(big.NewInt(1), uint(n.BitLen()/int(q)+1))
-	qq := big.NewInt(q)
-	var mid, p big.Int
-	for lo.Cmp(hi) <= 0 {
-		mid.Add(lo, hi)
-		mid.Rsh(&mid, 1)
-		p.Exp(&mid, qq, nil)
-		switch p.Cmp(n) {
-		case 0:
-			return new(big.Int).Set(&mid), true
-		case -1:
-			lo = new(big.Int).Add(&mid, big.NewInt(1))
-		default:
-			hi = new(big.Int).Sub(&mid, big.NewInt(1))
-		}
+	r := raizEnteraSuelo(n, q)
+	return r, new(big.Int).Exp(r, big.NewInt(q), nil).Cmp(n) == 0
+}
+
+// raizEnteraSuelo is ⌊n^(1/q)⌋ for n > 0, q ≥ 2 (Newton from above; monotone, so it ends).
+func raizEnteraSuelo(n *big.Int, q int64) *big.Int {
+	bits := n.BitLen()
+	if int64(bits) <= q {
+		return big.NewInt(1) // 1 ≤ n < 2^q
 	}
-	return nil, false
+	x := new(big.Int).Lsh(big.NewInt(1), uint((int64(bits)+q-1)/q)) // ≥ the root
+	qm1, qq := big.NewInt(q-1), big.NewInt(q)
+	for {
+		t := new(big.Int).Exp(x, qm1, nil)
+		t.Quo(n, t)
+		y := new(big.Int).Mul(x, qm1)
+		y.Add(y, t)
+		y.Quo(y, qq)
+		if y.Cmp(x) >= 0 {
+			return x
+		}
+		x = y
+	}
 }
 
 func factorial(v valor) (valor, error) {

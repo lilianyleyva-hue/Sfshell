@@ -30,7 +30,24 @@ func hoja(e Expr) (valor, bool) {
 	return valor{}, false
 }
 
+// aplicarOp applies one binary operation. Exact operands and results are capped at maxBitsOperando
+// bits and approximate results must be finite, so every step costs a bounded amount of work and no
+// ±Inf or NaN travels on (big.Float panics on NaN).
 func aplicarOp(op byte, a, b valor) (valor, error) {
+	if bitsValor(a) > maxBitsOperando || bitsValor(b) > maxBitsOperando {
+		return valor{}, ErrDemasiadoGrande
+	}
+	v, err := aplicarOpBruto(op, a, b)
+	if err != nil {
+		return valor{}, err
+	}
+	if bitsValor(v) > maxBitsOperando {
+		return valor{}, ErrDemasiadoGrande
+	}
+	return finito(v)
+}
+
+func aplicarOpBruto(op byte, a, b valor) (valor, error) {
 	switch op {
 	case '+':
 		return sumar(a, b), nil
@@ -48,7 +65,19 @@ func aplicarOp(op byte, a, b valor) (valor, error) {
 	return valor{}, fmt.Errorf("operación desconocida %q", op)
 }
 
+// aplicarFunc applies a one-argument function; approximate results must be finite (see aplicarOp).
 func aplicarFunc(nombre string, a valor) (valor, error) {
+	if bitsValor(a) > maxBitsOperando {
+		return valor{}, ErrDemasiadoGrande
+	}
+	v, err := aplicarFuncBruta(nombre, a)
+	if err != nil {
+		return valor{}, err
+	}
+	return finito(v)
+}
+
+func aplicarFuncBruta(nombre string, a valor) (valor, error) {
 	switch nombre {
 	case "√":
 		return raiz(a)
@@ -301,6 +330,18 @@ func mensaje(err error) string {
 
 const precComprobar = 256
 
+// floatDe turns a float64 into a big.Float of the checking precision; NaN and ±Inf are errors
+// (big.Float.SetFloat64 panics on NaN, and an overflowed value cannot be checked).
+func floatDe(f float64) (*big.Float, error) {
+	switch {
+	case math.IsNaN(f):
+		return nil, ErrNoReal
+	case math.IsInf(f, 0):
+		return nil, ErrDemasiadoGrande
+	}
+	return new(big.Float).SetPrec(precComprobar).SetFloat64(f), nil
+}
+
 // evaluarFloat computes e in big.Float by a different path (no reductions, no exact radicals).
 func evaluarFloat(e Expr, vals map[string]float64) (*big.Float, error) {
 	nuevo := func() *big.Float { return new(big.Float).SetPrec(precComprobar) }
@@ -311,13 +352,13 @@ func evaluarFloat(e Expr, vals map[string]float64) (*big.Float, error) {
 		if x.v.racional() {
 			return nuevo().SetRat(x.v.a), nil
 		}
-		return nuevo().SetFloat64(x.v.float()), nil
+		return floatDe(x.v.float())
 	case Var:
 		f, ok := vals[x.Nombre]
 		if !ok {
 			return nil, ErrIncognita
 		}
-		return nuevo().SetFloat64(f), nil
+		return floatDe(f)
 	case Neg:
 		a, err := evaluarFloat(x.A, vals)
 		if err != nil {
@@ -350,7 +391,7 @@ func evaluarFloat(e Expr, vals map[string]float64) (*big.Float, error) {
 		if err != nil {
 			return nil, err
 		}
-		return nuevo().SetFloat64(v.float()), nil
+		return floatDe(v.float())
 	case Op:
 		a, err := evaluarFloat(x.A, vals)
 		if err != nil {
@@ -359,6 +400,9 @@ func evaluarFloat(e Expr, vals map[string]float64) (*big.Float, error) {
 		b, err := evaluarFloat(x.B, vals)
 		if err != nil {
 			return nil, err
+		}
+		if a.IsInf() || b.IsInf() {
+			return nil, ErrDemasiadoGrande
 		}
 		r := nuevo()
 		switch x.Op {
@@ -376,7 +420,7 @@ func evaluarFloat(e Expr, vals map[string]float64) (*big.Float, error) {
 		case '%':
 			ai, _ := a.Int(nil)
 			bi, _ := b.Int(nil)
-			if bi.Sign() == 0 {
+			if ai == nil || bi == nil || bi.Sign() == 0 {
 				return nil, ErrDivisionCero
 			}
 			return r.SetInt(new(big.Int).Mod(ai, new(big.Int).Abs(bi))), nil
@@ -389,9 +433,9 @@ func evaluarFloat(e Expr, vals map[string]float64) (*big.Float, error) {
 			bf, _ := b.Float64()
 			if af < 0 {
 				// odd roots of negatives
-				return r.SetFloat64(-math.Pow(-af, bf)), nil
+				return floatDe(-math.Pow(-af, bf))
 			}
-			return r.SetFloat64(math.Pow(af, bf)), nil
+			return floatDe(math.Pow(af, bf))
 		}
 	}
 	return nil, fmt.Errorf("expresión desconocida %T", e)
@@ -421,7 +465,7 @@ func potenciaFloat(b *big.Float, k int64) *big.Float {
 // rationals, 1e-9 otherwise).
 func comprobarValor(e Expr, v valor, vals map[string]float64) bool {
 	f, err := evaluarFloat(e, vals)
-	if err != nil {
+	if err != nil || f.IsInf() {
 		return false
 	}
 	var g *big.Float
@@ -432,7 +476,10 @@ func comprobarValor(e Expr, v valor, vals map[string]float64) bool {
 			tol = 1e-20
 		}
 	} else {
-		g = new(big.Float).SetPrec(precComprobar).SetFloat64(v.float())
+		g, err = floatDe(v.float())
+		if err != nil {
+			return false
+		}
 	}
 	d := new(big.Float).Sub(f, g)
 	d.Abs(d)

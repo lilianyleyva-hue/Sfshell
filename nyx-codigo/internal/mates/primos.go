@@ -23,12 +23,27 @@ const (
 	maxDivisores       = 10_000
 	rondasMillerRabin  = 20
 	tiempoDivisoresMax = 3 * time.Second
+	// maxBitsPrimalidad bounds the numbers given to Miller-Rabin inside Factorizar and the resolvers:
+	// 20 rounds on 4096 bits take about a second; on 16 384 bits, half a minute.
+	maxBitsPrimalidad = 4_096
+	// pasoCtx: the trial-division loop looks at the deadline every this many candidate divisors.
+	pasoCtx = 2_048
 )
 
-// EsPrimo: Miller-Rabin with 20 rounds (plus Baillie-PSW, as big.Int.ProbablyPrime does).
+// ErrPrimalidadGrande: the number is too big for Miller-Rabin to answer in reasonable time.
+var ErrPrimalidadGrande = fmt.Errorf("%w: solo sé si un número es primo hasta %d cifras", nucleo.ErrNoSoportado, maxCifrasPrimalidad)
+
+// maxCifrasPrimalidad is maxBitsPrimalidad in decimal digits (bits·log10 2).
+const maxCifrasPrimalidad = maxBitsPrimalidad * 30103 / 100000
+
+// EsPrimo: Miller-Rabin with 20 rounds (plus Baillie-PSW, as big.Int.ProbablyPrime does). It has no
+// size limit: callers that take user input bound the size first (cabeEnPrimalidad).
 func EsPrimo(x *big.Int) bool {
 	return x != nil && x.Sign() > 0 && x.ProbablyPrime(rondasMillerRabin)
 }
+
+// cabeEnPrimalidad reports whether Miller-Rabin on x is affordable.
+func cabeEnPrimalidad(x *big.Int) bool { return x.BitLen() <= maxBitsPrimalidad }
 
 // MCD is the greatest common divisor of |a| and |b| (mcd(0, 0) = 0).
 func MCD(a, b *big.Int) *big.Int {
@@ -44,7 +59,9 @@ func MCM(a, b *big.Int) *big.Int {
 }
 
 // Factorizar returns the prime factorization of |x| (x ≠ 0): trial division up to 10⁶, then
-// Pollard-Brent for what is left, with a 3 s limit (or ctx, whichever ends first).
+// Pollard-Brent for what is left, with a 3 s limit (or ctx, whichever ends first). The deadline is
+// checked throughout; Miller-Rabin only runs on cofactors of at most maxBitsPrimalidad bits, so a
+// huge number that trial division does not finish gives an honest error instead of a long wait.
 func Factorizar(ctx context.Context, x *big.Int) ([]Factor, error) {
 	if x == nil || x.Sign() == 0 {
 		return nil, errors.New("el 0 no se puede descomponer en factores primos")
@@ -61,12 +78,13 @@ func Factorizar(ctx context.Context, x *big.Int) ([]Factor, error) {
 		}
 		cuenta[s] += k
 	}
-	if EsPrimo(n) {
+	if cabeEnPrimalidad(n) && EsPrimo(n) {
 		return []Factor{{Primo: n, Exp: 1}}, nil
 	}
 	// trial division
 	var q, r big.Int
 	d := new(big.Int)
+	vueltas := 0
 	for i := int64(2); i <= limiteTanteo; {
 		if n.Cmp(big.NewInt(1)) == 0 {
 			break
@@ -86,12 +104,14 @@ func Factorizar(ctx context.Context, x *big.Int) ([]Factor, error) {
 		}
 		if k > 0 {
 			añadir(d, k)
-			if EsPrimo(n) {
+			// a prime cofactor ends the search early (only when the test is cheap)
+			if cabeEnPrimalidad(n) && EsPrimo(n) {
 				break
 			}
 		}
-		if i%4096 == 0 && ctx.Err() != nil {
-			return nil, nucleo.ErrSinTiempo
+		vueltas++
+		if vueltas%pasoCtx == 0 && ctx.Err() != nil {
+			return nil, fmt.Errorf("%w: no he terminado de descomponer %s", nucleo.ErrSinTiempo, recortar(x.String()))
 		}
 		if i == 2 {
 			i = 3
@@ -102,17 +122,23 @@ func Factorizar(ctx context.Context, x *big.Int) ([]Factor, error) {
 	if n.Cmp(big.NewInt(1)) > 0 {
 		pila := []*big.Int{n}
 		for len(pila) > 0 {
+			if ctx.Err() != nil {
+				return nil, fmt.Errorf("%w: no he terminado de descomponer %s", nucleo.ErrSinTiempo, recortar(x.String()))
+			}
 			m := pila[len(pila)-1]
 			pila = pila[:len(pila)-1]
 			if m.Cmp(big.NewInt(1)) == 0 {
 				continue
+			}
+			if !cabeEnPrimalidad(m) {
+				return nil, fmt.Errorf("%w: queda un factor de %d cifras y no sé si es primo", nucleo.ErrNoSoportado, len(m.String()))
 			}
 			if EsPrimo(m) {
 				añadir(m, 1)
 				continue
 			}
 			// perfect powers first (Pollard struggles with p^k)
-			if b, k, ok := potenciaPerfecta(m); ok {
+			if b, k, ok := potenciaPerfecta(ctx, m); ok {
 				for i := 0; i < k; i++ {
 					pila = append(pila, new(big.Int).Set(b))
 				}
@@ -133,9 +159,13 @@ func Factorizar(ctx context.Context, x *big.Int) ([]Factor, error) {
 	return out, nil
 }
 
-// potenciaPerfecta finds m = b^k with k ≥ 2.
-func potenciaPerfecta(m *big.Int) (*big.Int, int, bool) {
-	for k := m.BitLen(); k >= 2; k-- {
+// potenciaPerfecta finds m = b^k with k ≥ 2. m has no prime factor below 10⁶ (trial division ran
+// first), so b ≥ 10⁶ > 2^19 and k ≤ bits/19.
+func potenciaPerfecta(ctx context.Context, m *big.Int) (*big.Int, int, bool) {
+	for k := m.BitLen() / 19; k >= 2; k-- {
+		if k%64 == 0 && ctx.Err() != nil {
+			return nil, 0, false
+		}
 		if b, ok := raizEntera(m, int64(k)); ok && b.Cmp(big.NewInt(1)) > 0 {
 			return b, k, true
 		}
@@ -164,11 +194,14 @@ func pollardBrent(ctx context.Context, n *big.Int) (*big.Int, error) {
 		for rr := 1; g.Cmp(uno) == 0; rr *= 2 {
 			x = new(big.Int).Set(y)
 			for i := 0; i < rr; i++ {
+				if i%m == 0 && ctx.Err() != nil {
+					return nil, fmt.Errorf("%w: no he podido descomponer %s a tiempo", nucleo.ErrSinTiempo, recortar(n.String()))
+				}
 				y = f(y)
 			}
 			for k := 0; k < rr && g.Cmp(uno) == 0; k += m {
 				if ctx.Err() != nil {
-					return nil, fmt.Errorf("%w: no he podido descomponer %s a tiempo", nucleo.ErrSinTiempo, n)
+					return nil, fmt.Errorf("%w: no he podido descomponer %s a tiempo", nucleo.ErrSinTiempo, recortar(n.String()))
 				}
 				ys = new(big.Int).Set(y)
 				for i := 0; i < min(m, rr-k); i++ {
@@ -186,7 +219,10 @@ func pollardBrent(ctx context.Context, n *big.Int) (*big.Int, error) {
 		}
 		if g.Cmp(n) == 0 {
 			// backtrack
-			for {
+			for i := 0; ; i++ {
+				if i%m == 0 && ctx.Err() != nil {
+					return nil, fmt.Errorf("%w: no he podido descomponer %s a tiempo", nucleo.ErrSinTiempo, recortar(n.String()))
+				}
 				ys = f(ys)
 				d := new(big.Int).Sub(x, ys)
 				d.Abs(d)
@@ -200,7 +236,7 @@ func pollardBrent(ctx context.Context, n *big.Int) (*big.Int, error) {
 			return g, nil
 		}
 	}
-	return nil, fmt.Errorf("%w: no encuentro factores de %s", nucleo.ErrNoSoportado, n)
+	return nil, fmt.Errorf("%w: no encuentro factores de %s", nucleo.ErrNoSoportado, recortar(n.String()))
 }
 
 // Divisores returns the positive divisors of |x| in order (at most 10 000 divisors).
@@ -235,6 +271,50 @@ func Divisores(x *big.Int) ([]*big.Int, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Cmp(out[j]) < 0 })
 	return out, nil
+}
+
+// divisorPequeño looks for a divisor of x among 2 and the odd numbers up to limite (and up to √x):
+// the cheap check that decides "no es primo" for most big composites.
+func divisorPequeño(ctx context.Context, x *big.Int, limite int64) (*big.Int, bool) {
+	var q, r big.Int
+	d := new(big.Int)
+	vueltas := 0
+	for i := int64(2); i <= limite; {
+		d.SetInt64(i)
+		if new(big.Int).Mul(d, d).Cmp(x) > 0 {
+			break
+		}
+		if q.QuoRem(x, d, &r); r.Sign() == 0 {
+			return new(big.Int).Set(d), true
+		}
+		vueltas++
+		if vueltas%pasoCtx == 0 && ctx.Err() != nil {
+			break
+		}
+		if i == 2 {
+			i = 3
+		} else {
+			i += 2
+		}
+	}
+	return nil, false
+}
+
+// tanteoCompleto divides x (at most 40 bits) by every number from 2 to √x and reports the first
+// divisor found, so the trace can say the check was really done.
+func tanteoCompleto(x uint64) (uint64, bool) {
+	if x < 4 {
+		return 0, false
+	}
+	if x%2 == 0 {
+		return 2, true
+	}
+	for d := uint64(3); d*d <= x; d += 2 {
+		if x%d == 0 {
+			return d, true
+		}
+	}
+	return 0, false
 }
 
 // textoFactores writes "2^3 · 3 · 5^2".

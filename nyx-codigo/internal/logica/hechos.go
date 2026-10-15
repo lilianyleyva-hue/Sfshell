@@ -50,22 +50,83 @@ func claveHecho(h nucleo.Hecho) string {
 	return fmt.Sprintf("%s|%s|%s|%v", claveTermino(h.Sujeto), relacionNormal(h.Relacion), claveTermino(h.Objeto), h.Negado)
 }
 
-// DescribirHecho writes a fact in Spanish: "toby es un perro", "toby no es un gato",
-// "«capicúa» significa «palíndromo»".
+// DescribirHecho writes a fact in Spanish: "toby es perro", "toby no es gato",
+// "«capicua» significa «palindromo»". The terms are the stored lemmas; see DescribirHechoCon.
 func DescribirHecho(h nucleo.Hecho) string {
+	return DescribirHechoCon(h, nil)
+}
+
+// DescribirHechoCon writes a fact using the words as the user wrote them when formas (see
+// FormasEscritas) has them: "Toby es mamífero" instead of "toby es mamifero".
+func DescribirHechoCon(h nucleo.Hecho, formas map[string]string) string {
 	no := ""
 	if h.Negado {
 		no = "no "
 	}
+	s, o := formaBonita(h.Sujeto, formas), formaBonita(h.Objeto, formas)
 	switch relacionNormal(h.Relacion) {
 	case "es_un":
-		return fmt.Sprintf("%s %ses %s", h.Sujeto, no, h.Objeto)
+		return fmt.Sprintf("%s %ses %s", s, no, o)
 	case "significa":
-		return fmt.Sprintf("«%s» %ssignifica «%s»", h.Sujeto, no, h.Objeto)
+		return fmt.Sprintf("«%s» %ssignifica «%s»", s, no, o)
 	case "tiene":
-		return fmt.Sprintf("%s %stiene %s", h.Sujeto, no, h.Objeto)
+		return fmt.Sprintf("%s %stiene %s", s, no, o)
 	}
-	return fmt.Sprintf("%s %s%s %s", h.Sujeto, no, strings.ReplaceAll(h.Relacion, "_", " "), h.Objeto)
+	return fmt.Sprintf("%s %s%s %s", s, no, strings.ReplaceAll(h.Relacion, "_", " "), o)
+}
+
+// FormasEscritas collects, from the texts of the facts and rules (and any extra texts), how each
+// word was written: normalized word → word as written ("toby" → "Toby", "mamiferos" → "mamíferos").
+func FormasEscritas(b BaseHechos, extra ...string) map[string]string {
+	formas := map[string]string{}
+	meter := func(texto string) {
+		for _, t := range tokenizar(texto) {
+			if t.sim || t.norma == "" {
+				continue
+			}
+			if _, ya := formas[t.norma]; !ya {
+				formas[t.norma] = t.orig
+			}
+		}
+	}
+	if b != nil {
+		for _, h := range b.Todos() {
+			meter(h.Texto)
+		}
+		for _, r := range b.Reglas() {
+			meter(r.Texto)
+		}
+	}
+	for _, t := range extra {
+		meter(t)
+	}
+	return formas
+}
+
+// formaBonita rewrites a stored term with the written forms: a word is replaced by how it was
+// written, or by the singular of a written plural ("mamíferos" → "mamífero"). Names keep their
+// capital; the rest is lowercased.
+func formaBonita(termino string, formas map[string]string) string {
+	if len(formas) == 0 || esVariable(termino) {
+		return termino
+	}
+	var out []string
+	for _, w := range strings.Fields(termino) {
+		n := nucleo.Normalizar(w)
+		switch {
+		case formas[n] != "":
+			out = append(out, formas[n])
+		case formas[n+"s"] != "":
+			f := formas[n+"s"]
+			out = append(out, f[:len(f)-1])
+		case formas[n+"es"] != "":
+			f := formas[n+"es"]
+			out = append(out, f[:len(f)-2])
+		default:
+			out = append(out, w)
+		}
+	}
+	return strings.Join(out, " ")
 }
 
 // DescribirRegla writes a rule in Spanish (its Texto when it has one).

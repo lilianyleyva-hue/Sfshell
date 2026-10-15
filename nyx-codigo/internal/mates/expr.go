@@ -163,7 +163,7 @@ var palabrasNumero = map[string]int64{
 // It returns the value and how many words it used (0 if none).
 func numeroPalabras(ws []string, i int) (int64, int) {
 	var total, grupo int64
-	j, hay := i, false
+	j, hay, ultimoMil := i, false, false
 	for j < len(ws) {
 		w := ws[j]
 		if v, ok := palabrasNumero[w]; ok {
@@ -174,6 +174,7 @@ func numeroPalabras(ws []string, i int) (int64, int) {
 			}
 			grupo += v
 			hay = true
+			ultimoMil = false
 			j++
 			if v >= 30 && v < 100 && j+1 < len(ws) && ws[j] == "y" {
 				if u, ok := palabrasNumero[ws[j+1]]; ok && u >= 1 && u <= 9 {
@@ -183,19 +184,23 @@ func numeroPalabras(ws []string, i int) (int64, int) {
 			}
 			continue
 		}
-		if w == "mil" && (hay || j == i) {
+		if w == "mil" && (hay || j == i) && !ultimoMil {
 			if grupo == 0 {
 				grupo = 1
 			}
 			total += grupo * 1000
 			grupo = 0
 			hay = true
+			ultimoMil = true
 			j++
 			continue
 		}
-		if (w == "millon" || w == "millones") && hay {
+		// "millón" needs a pending group ("dos millones") or "mil millones"; a chain such as "millones
+		// millones" stops here, so the value never overflows
+		if (w == "millon" || w == "millones") && hay && (grupo > 0 || ultimoMil) && total+grupo < 1_000_000 {
 			total = (total + grupo) * 1_000_000
 			grupo = 0
+			ultimoMil = false
 			j++
 			continue
 		}
