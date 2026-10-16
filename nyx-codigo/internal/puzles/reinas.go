@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/bits"
 	"math/rand"
 	"time"
 
@@ -15,10 +16,12 @@ var solucionesReinas = []int{1, 1, 0, 0, 2, 10, 4, 40, 92, 352, 724, 2680, 14200
 
 const (
 	maxReinasBitmask = 30
-	maxReinasContar  = 17
+	// maxReinasContar: counting every solution for 15 queens takes about 1 s here; 16 already
+	// takes more than the 5 s limit, so the count is offered up to 15.
+	maxReinasContar = 15
 )
 
-// Reinas places n queens. With todas it counts every solution (bitmask backtracking, n ≤ 17,
+// Reinas places n queens. With todas it counts every solution (bitmask backtracking, n ≤ 15,
 // cross-checked with the known table and, for n ≤ 8, with the generic CSP solver); otherwise it
 // finds one (bitmask backtracking for n ≤ 30, min-conflicts for larger n). una[i] is the column of
 // the queen in row i (0-based). Every placement is re-checked.
@@ -97,7 +100,71 @@ func ComprobarReinas(cols []int) error {
 	return nil
 }
 
+// contadorReinas holds the state of contarReinas (a plain method recursion is faster than a closure).
+type contadorReinas struct {
+	completo uint64
+	nodos    int
+	ctx      context.Context
+	limite   time.Time
+	cortado  bool
+}
+
+func (c *contadorReinas) rec(ocup, diag1, diag2 uint64) int {
+	if ocup == c.completo {
+		return 1
+	}
+	total := 0
+	libres := c.completo &^ (ocup | diag1 | diag2)
+	for libres != 0 {
+		bit := libres & -libres
+		libres &^= bit
+		c.nodos++
+		if c.nodos&0xFFFFF == 0 && (c.ctx.Err() != nil || time.Now().After(c.limite)) {
+			c.cortado = true
+		}
+		if c.cortado {
+			return 0
+		}
+		total += c.rec(ocup|bit, (diag1|bit)<<1&c.completo, (diag2|bit)>>1)
+	}
+	return total
+}
+
+// contarReinas counts every solution with bitmasks, using the left–right mirror symmetry: queens of
+// the first row in the left half count twice, and for odd n the middle column once.
+func contarReinas(ctx context.Context, n int, limite time.Time) (int, error) {
+	if n == 1 {
+		return 1, nil
+	}
+	c := &contadorReinas{completo: uint64(1)<<uint(n) - 1, ctx: ctx, limite: limite}
+	cuenta := 0
+	for col := 0; col < n/2; col++ {
+		bit := uint64(1) << uint(col)
+		cuenta += 2 * c.rec(bit, bit<<1&c.completo, bit>>1)
+	}
+	if n%2 == 1 {
+		bit := uint64(1) << uint(n/2)
+		cuenta += c.rec(bit, bit<<1&c.completo, bit>>1)
+	}
+	if c.cortado {
+		return 0, fmt.Errorf("puzles: sin tiempo con %d reinas: %w", n, nucleo.ErrSinTiempo)
+	}
+	return cuenta, nil
+}
+
 func reinasBitmask(ctx context.Context, n int, todas bool, limite time.Time) (int, []int, error) {
+	if todas {
+		// one placement with the plain search (fast), then the count with the symmetric one
+		_, una, err := reinasBitmask(ctx, n, false, limite)
+		if err != nil {
+			return 0, nil, err
+		}
+		cuenta, err := contarReinas(ctx, n, limite)
+		if err != nil {
+			return 0, nil, err
+		}
+		return cuenta, una, nil
+	}
 	completo := uint64(1)<<uint(n) - 1
 	cols := make([]int, n)
 	var una []int
@@ -121,11 +188,7 @@ func reinasBitmask(ctx context.Context, n int, todas bool, limite time.Time) (in
 				errBusca = fmt.Errorf("puzles: sin tiempo con %d reinas: %w", n, nucleo.ErrSinTiempo)
 				return false
 			}
-			c := 0
-			for b := bit; b > 1; b >>= 1 {
-				c++
-			}
-			cols[fila] = c
+			cols[fila] = bits.TrailingZeros64(bit)
 			if !rec(fila+1, ocup|bit, (diag1|bit)<<1&completo, (diag2|bit)>>1) {
 				return false
 			}

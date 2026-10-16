@@ -20,6 +20,7 @@ type ResultadoCaballeros struct {
 	Textos   []string  // the statements as read
 	Modelos  [][]bool  // all assignments that satisfy every statement (true = caballero)
 	Notas    []string
+	Femenino bool // the puzzle says "caballera"/"escudera": answers use those words
 }
 
 const maxPersonasCaballeros = 12
@@ -32,11 +33,19 @@ var verbosDecir = map[string]bool{
 var palabrasCaballero = map[string]bool{
 	"caballero": true, "caballeros": true, "veraz": true, "veraces": true, "honesto": true, "honestos": true,
 	"sincero": true, "sinceros": true,
+	"caballera": true, "caballeras": true, "honesta": true, "honestas": true, "sincera": true, "sinceras": true,
 }
 
 var palabrasEscudero = map[string]bool{
 	"escudero": true, "escuderos": true, "bribon": true, "bribones": true, "mentiroso": true, "mentirosos": true,
 	"embustero": true, "embusteros": true, "villano": true, "villanos": true,
+	"escudera": true, "escuderas": true, "bribona": true, "bribonas": true, "mentirosa": true, "mentirosas": true,
+	"embustera": true, "embusteras": true, "villana": true, "villanas": true,
+}
+
+// palabrasFemeninas are the feminine forms; when the puzzle uses them the answer does too.
+var palabrasFemeninas = map[string]bool{
+	"caballera": true, "caballeras": true, "escudera": true, "escuderas": true,
 }
 
 // EsCaballeros reports whether the text looks like a knights-and-knaves puzzle.
@@ -138,10 +147,13 @@ func Caballeros(ctx context.Context, texto string) (ResultadoCaballeros, error) 
 			return ResultadoCaballeros{}, err
 		}
 		res.Dichos = append(res.Dichos, Equiv{Atomo{d.quien}, f})
-		res.Textos = append(res.Textos, l.personas[d.quien]+" dice: «"+strings.TrimSpace(textoToks(d.toks))+"»")
+		res.Textos = append(res.Textos, l.personas[d.quien]+" dice: «"+strings.TrimSpace(fraseTexto(texto, d.toks))+"»")
 	}
 	res.Personas = l.personas
 	res.Notas = l.notas
+	for _, t := range tokenizar(texto) {
+		res.Femenino = res.Femenino || palabrasFemeninas[t.norma]
+	}
 	n := len(l.personas)
 	if n > maxPersonasCaballeros {
 		return ResultadoCaballeros{}, fmt.Errorf("logica: hay %d personas; solo resuelvo hasta %d: %w", n, maxPersonasCaballeros, nucleo.ErrNoSoportado)
@@ -298,7 +310,8 @@ func (l *lectorCaballeros) simple(ts []tok, quien int) (Formula, error) {
 				for _, u := range sujetos {
 					otros = otros || u.norma == "yo" || esNombrePropio(u) || (utf8.RuneCountInString(u.orig) == 1 && u.mayus)
 				}
-				if otros && !l.directo {
+				if (otros && !l.directo) || len(l.personas) == 1 {
+					// with a single person, "A dice que él es escudero" can only be about A
 					gente = append(gente, quien)
 				} else if len(l.personas) == 2 {
 					gente = append(gente, 1-quien)
@@ -404,12 +417,22 @@ func exactamenteUno(fs []Formula) Formula {
 
 // DescribirCaballeros writes one model: "A es caballero y B es escudero".
 func DescribirCaballeros(personas []string, m []bool) string {
+	return DescribirCaballerosCon(personas, m, false)
+}
+
+// DescribirCaballerosCon is DescribirCaballeros with the feminine words when femenino is set:
+// "Ana es caballera y Bea es escudera".
+func DescribirCaballerosCon(personas []string, m []bool, femenino bool) string {
+	caballero, escudero := "caballero", "escudero"
+	if femenino {
+		caballero, escudero = "caballera", "escudera"
+	}
 	var partes []string
 	for i, p := range personas {
 		if i < len(m) && m[i] {
-			partes = append(partes, p+" es caballero")
+			partes = append(partes, p+" es "+caballero)
 		} else {
-			partes = append(partes, p+" es escudero")
+			partes = append(partes, p+" es "+escudero)
 		}
 	}
 	return unirY(partes)

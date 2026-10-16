@@ -5,6 +5,7 @@ package logica
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -203,12 +204,14 @@ func atomosUsados(fs ...Formula) []int {
 	for _, f := range fs {
 		rec(f)
 	}
+	// the distinct indices, sorted (not a scan up to the largest index, which may be huge)
 	var out []int
-	for i := 0; i <= maxAtomo(fs...); i++ {
-		if vistos[i] {
+	for i := range vistos {
+		if i >= 0 {
 			out = append(out, i)
 		}
 	}
+	sort.Ints(out)
 	return out
 }
 

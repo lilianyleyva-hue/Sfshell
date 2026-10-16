@@ -140,29 +140,34 @@ const marcaLit = '\x00'
 func proteger(s string) protegido {
 	var p protegido
 	var sb strings.Builder
+	busca := nuevoBuscador(s)
+	corch := nuevosCorchetes(s)
+	var parentesis map[int]int // computed on the first "("
 	for i := 0; i < len(s); {
 		c := s[i]
 		fin := -1
 		switch {
 		case c == '[':
-			fin = cierreCorchete(s, i)
+			fin = corch.cierre(i)
 		case c == '(':
-			fin = cierreParentesis(s, i)
-		case c == '"':
-			if k := strings.IndexByte(s[i+1:], '"'); k >= 0 {
-				fin = i + 1 + k
+			if parentesis == nil {
+				parentesis = parentesisPorLinea(s)
 			}
+			fin = parentesis[i]
+		case c == '"':
+			fin = busca.en(`"`, i+1)
 		case strings.HasPrefix(s[i:], "«"):
-			if k := strings.Index(s[i:], "»"); k >= 0 {
-				fin = i + k + len("»") - 1
+			if k := busca.en("»", i); k >= 0 {
+				fin = k + len("»") - 1
 			}
 		case strings.HasPrefix(s[i:], "“"):
-			if k := strings.Index(s[i:], "”"); k >= 0 {
-				fin = i + k + len("”") - 1
+			if k := busca.en("”", i); k >= 0 {
+				fin = k + len("”") - 1
 			}
 		case c == '\'':
+			// 'x' or a short quoted rune ('ñ'): look only a few bytes ahead
 			if i+2 < len(s) {
-				if k := strings.IndexByte(s[i+1:], '\''); k > 0 && k <= 4 {
+				if k := strings.IndexByte(s[i+1:min(len(s), i+6)], '\''); k > 0 && k <= 4 {
 					fin = i + 1 + k
 				}
 			}
@@ -273,6 +278,15 @@ func segmentos(t string) []string {
 	var out []string
 	for _, linea := range strings.FieldsFunc(t, func(r rune) bool { return r == '\n' || r == ';' }) {
 		piezas := strings.Split(linea, ",")
+		if len(piezas) > maxPiezasPegadas {
+			// a long comma run is not a tuple: gluing would rescan it once per comma
+			for _, pz := range piezas {
+				if pz = strings.TrimSpace(pz); pz != "" {
+					out = append(out, pz)
+				}
+			}
+			continue
+		}
 		acum := ""
 		for i, pz := range piezas {
 			if acum != "" {
@@ -287,6 +301,9 @@ func segmentos(t string) []string {
 	}
 	return out
 }
+
+// maxPiezasPegadas: lines with more comma pieces than this are not glued (see segmentos).
+const maxPiezasPegadas = 64
 
 func tieneEjemplo(s string) bool {
 	if reFlecha.MatchString(s) {
@@ -632,7 +649,10 @@ func partirNivel(s string) []string {
 	return out
 }
 
-// paramsPorTipo names parameters idiomatically: nums, palabras, s, n, c, matriz, m; repeats become a, b….
+// paramsPorTipo names parameters idiomatically: nums, palabras, s, n, c, matriz, m; repeats become
+// a, b… (ints), s, t… (strings), x, y… (floats). Names are always distinct: the repeated groups are
+// named first, then the others take their usual name or, if it is taken, an alternative ("b" for a
+// bool next to two ints a, b becomes "ok"; a rune "c" next to ints a, b, c becomes "r").
 func paramsPorTipo(ts []nucleo.Tipo) []nucleo.Param {
 	out := make([]nucleo.Param, len(ts))
 	cuenta := map[string]int{}
@@ -642,21 +662,51 @@ func paramsPorTipo(ts []nucleo.Tipo) []nucleo.Param {
 		cuenta[nombres[i]]++
 	}
 	letras := map[string][]string{
-		"n": {"a", "b", "c", "d", "e", "f"}, "s": {"s", "t", "u", "v", "w", "z"}, "x": {"x", "y", "z", "u", "v", "w"},
+		"n": {"a", "b", "c", "d", "e", "f", "g", "h"}, "s": {"s", "t", "u", "v", "w", "z"},
+		"x": {"x", "y", "z", "u", "v", "w"},
 	}
-	usados := map[string]int{}
-	for i, t := range ts {
-		nom := nombres[i]
-		if cuenta[nom] > 1 {
-			k := usados[nom]
-			usados[nom]++
-			if ls, ok := letras[nom]; ok && k < len(ls) {
-				nom = ls[k]
-			} else {
-				nom += strconv.Itoa(k + 1)
+	alternativas := map[string][]string{
+		"b": {"ok", "cond", "bandera"}, "c": {"r", "letra", "car"}, "s": {"texto", "cad"}, "n": {"num", "k"},
+		"x": {"f", "real"}, "m": {"mapa", "dic"}, "nums": {"lista", "valores"}, "palabras": {"lista", "textos"},
+		"matriz": {"tabla"}, "letras": {"runas"}, "xs": {"lista", "elems"}, "v": {"valor", "dato"},
+	}
+	tomados := map[string]bool{}
+	tomar := func(i int, candidatos []string) {
+		for _, c := range candidatos {
+			if !tomados[c] {
+				tomados[c] = true
+				out[i] = nucleo.Param{Nombre: c, Tipo: ts[i]}
+				return
 			}
 		}
-		out[i] = nucleo.Param{Nombre: nom, Tipo: t}
+		for k := 1; ; k++ {
+			c := nombres[i] + strconv.Itoa(k)
+			if !tomados[c] {
+				tomados[c] = true
+				out[i] = nucleo.Param{Nombre: c, Tipo: ts[i]}
+				return
+			}
+		}
+	}
+	// repeated groups first (they need a sequence of names), then the single ones
+	usados := map[string]int{}
+	for i := range ts {
+		nom := nombres[i]
+		if cuenta[nom] < 2 {
+			continue
+		}
+		var cand []string
+		ls := letras[nom]
+		for k := usados[nom]; k < len(ls); k++ {
+			cand = append(cand, ls[k])
+		}
+		usados[nom]++
+		tomar(i, cand)
+	}
+	for i := range ts {
+		if nom := nombres[i]; cuenta[nom] < 2 {
+			tomar(i, append([]string{nom}, alternativas[nom]...))
+		}
 	}
 	return out
 }

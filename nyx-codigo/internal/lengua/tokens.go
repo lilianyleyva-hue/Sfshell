@@ -15,6 +15,8 @@ import (
 // Desde/Hasta are byte offsets in s; a quoted token's Texto excludes the quotes.
 func Tokenizar(s string) []nucleo.Token {
 	var out []nucleo.Token
+	busca := nuevoBuscador(s)
+	corch := nuevosCorchetes(s)
 	i := 0
 	for i < len(s) {
 		r, n := utf8.DecodeRuneInString(s[i:])
@@ -33,17 +35,17 @@ func Tokenizar(s string) []nucleo.Token {
 			i = j
 		case r == '"' || r == '«' || r == '“' || r == '”':
 			cierre := map[rune]string{'"': `"`, '«': "»", '“': "”", '”': "”"}[r]
-			k := strings.Index(s[i+n:], cierre)
-			if k < 0 && r == '“' {
-				k = strings.Index(s[i+n:], `"`)
+			fin := busca.en(cierre, i+n)
+			if fin < 0 && r == '“' {
 				cierre = `"`
+				fin = busca.en(cierre, i+n)
 			}
-			if k < 0 {
+			if fin < 0 {
 				out = append(out, simbolo(s, i, n))
 				i += n
 				continue
 			}
-			ini, fin := i+n, i+n+k
+			ini := i + n
 			txt := s[ini:fin]
 			out = append(out, nucleo.Token{Texto: txt, Norma: nucleo.Normalizar(txt), Clase: "cita", Desde: ini, Hasta: fin})
 			i = fin + len(cierre)
@@ -58,7 +60,7 @@ func Tokenizar(s string) []nucleo.Token {
 			out = append(out, simbolo(s, i, n))
 			i += n
 		case r == '[':
-			j := cierreCorchete(s, i)
+			j := corch.cierre(i)
 			if j < 0 {
 				out = append(out, simbolo(s, i, n))
 				i += n
@@ -113,6 +115,122 @@ func esIdentASCII(s string) bool {
 		}
 	}
 	return true
+}
+
+// ---- linear scanning ----
+//
+// A text full of unmatched openers ("[[[[…", "««««…") must not be rescanned to the end once per
+// opener: the helpers below reuse what earlier scans found, so a whole text costs linear time.
+
+// buscador finds the first occurrence of a closing string at or after a position. The last answer
+// for each string is reused: if the first "»" from position d is at r, it is also the first one from
+// any position in [d, r]; if there is none from d, there is none from any later position.
+type buscador struct {
+	s      string
+	ultimo map[string][2]int // closing string → {desde, resultado}
+}
+
+func nuevoBuscador(s string) *buscador { return &buscador{s: s, ultimo: map[string][2]int{}} }
+
+// en returns the byte index of the first sub at or after i, or -1.
+func (b *buscador) en(sub string, i int) int {
+	if i > len(b.s) {
+		return -1
+	}
+	if u, ok := b.ultimo[sub]; ok && i >= u[0] && (u[1] < 0 || i <= u[1]) {
+		return u[1]
+	}
+	k := strings.Index(b.s[i:], sub)
+	if k >= 0 {
+		k += i
+	}
+	b.ultimo[sub] = [2]int{i, k}
+	return k
+}
+
+// corchetes pairs "[" with "]" as cierreCorchete does (nesting; quoted text skipped) and keeps the
+// answer for every "[" a scan meets outside quotes, so each one is decided once. A scan budget of a
+// few times the text length bounds adversarial mixes of quotes and brackets; past it, an undecided
+// "[" counts as unmatched.
+type corchetes struct {
+	s       string
+	memo    map[int]int
+	trabajo int
+	limite  int
+}
+
+func nuevosCorchetes(s string) *corchetes {
+	return &corchetes{s: s, memo: map[int]int{}, limite: 8*len(s) + 4096}
+}
+
+func (c *corchetes) cierre(i int) int {
+	if j, ok := c.memo[i]; ok {
+		return j
+	}
+	if c.trabajo > c.limite {
+		return -1
+	}
+	var pila []int
+	enCita := byte(0)
+	s := c.s
+	for j := i; j < len(s); j++ {
+		c.trabajo++
+		ch := s[j]
+		if enCita != 0 {
+			if ch == '\\' {
+				j++
+				continue
+			}
+			if ch == enCita {
+				enCita = 0
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			enCita = ch
+		case '[':
+			pila = append(pila, j)
+		case ']':
+			k := pila[len(pila)-1]
+			pila = pila[:len(pila)-1]
+			c.memo[k] = j
+			if len(pila) == 0 {
+				return j
+			}
+		}
+	}
+	for _, k := range pila {
+		c.memo[k] = -1
+	}
+	return -1
+}
+
+// parentesisPorLinea pairs every "(" of s with its ")" on the same line (nesting counted, no quote
+// handling), as cierreParentesis does, in one pass: unmatched ones get -1.
+func parentesisPorLinea(s string) map[int]int {
+	m := map[int]int{}
+	var pila []int
+	for j := 0; j < len(s); j++ {
+		switch s[j] {
+		case '(':
+			pila = append(pila, j)
+		case ')':
+			if len(pila) > 0 {
+				m[pila[len(pila)-1]] = j
+				pila = pila[:len(pila)-1]
+			}
+		case '\n':
+			for _, k := range pila {
+				m[k] = -1
+			}
+			pila = pila[:0]
+		}
+	}
+	for _, k := range pila {
+		m[k] = -1
+	}
+	return m
 }
 
 // cierreCorchete returns the index of the "]" closing the "[" at i, or -1.

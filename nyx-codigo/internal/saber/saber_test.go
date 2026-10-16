@@ -1039,6 +1039,10 @@ func TestIndexarGOROOT(t *testing.T) {
 	if r := ix2.Buscar(nil, "strings.Builder", 1); len(r) == 0 || r[0].Simbolo != "Builder" {
 		t.Errorf("Builder = %+v", r)
 	}
+	// type and method without the package (regression: used to find nothing)
+	if r := ix2.Buscar(nil, "Buffer.Grow", 3); len(r) == 0 || r[0].Paquete != "bytes" || r[0].Nombre != "ExampleBuffer_Grow" {
+		t.Errorf("Buffer.Grow = %+v", r)
+	}
 }
 
 func TestProgramaSinJuego(t *testing.T) {

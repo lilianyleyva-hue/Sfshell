@@ -321,8 +321,23 @@ var (
 	reVariarPorc   = regexp.MustCompile(`\b(aumenta\w*|sube|subir|incrementa\w*|suma\w*|rebaja\w*|descuenta\w*|disminu\w*|baja|bajar|resta\w*|quita\w*)\s+(?:un|en un|el)?\s*(-?\d+(?:[.,]\d+)?)\s*(?:%|por ciento)\s+(?:a|de|sobre)?\s*(?:los|las|el|la)?\s*(-?\d+(?:[.,]\d+)?)`)
 )
 
+// normalizarNumeros is nucleo.Normalizar keeping the factorial sign: "factoriza 3000!" is about
+// 3000!, not 3000. Without an opening «¡» a «!» right after a digit or «)» is a factorial.
+func normalizarNumeros(s string) string {
+	if !strings.Contains(s, "¡") && strings.Contains(s, "!") {
+		b := []byte(s)
+		for i := 1; i < len(b); i++ {
+			if b[i] == '!' && (esDig(b[i-1]) || b[i-1] == ')') {
+				b[i] = 0
+			}
+		}
+		s = string(b)
+	}
+	return strings.ReplaceAll(nucleo.Normalizar(s), "\x00", "!")
+}
+
 func (resNumeros) Reconoce(p *nucleo.Pregunta) nucleo.Reconocimiento {
-	t := nucleo.Normalizar(textoDe(p))
+	t := normalizarNumeros(textoDe(p))
 	if !reNumExpr.MatchString(t) {
 		return nucleo.Reconocimiento{}
 	}
@@ -372,7 +387,7 @@ func enterosDe(ctx context.Context, t string) ([]*big.Int, []string, error) {
 }
 
 func (rn resNumeros) Resolver(ctx context.Context, p *nucleo.Pregunta, n *nucleo.Nodo) (nucleo.Respuesta, error) {
-	t := nucleo.Normalizar(textoDe(p))
+	t := normalizarNumeros(textoDe(p))
 	switch {
 	case rePorcentajeDe.MatchString(t) || reQuePorc.MatchString(t) || reVariarPorc.MatchString(t):
 		if !(reFactorizar.MatchString(t) || reMCD.MatchString(t) || reMCM.MatchString(t)) {
@@ -419,20 +434,36 @@ func factorizar(ctx context.Context, x *big.Int, txt string, n *nucleo.Nodo) (nu
 	// check: the product gives x back and every factor is prime
 	ok := producto(fs).Cmp(new(big.Int).Abs(x)) == 0
 	for _, f := range fs {
-		ok = ok && EsPrimo(f.Primo)
+		if !ok {
+			break
+		}
+		primo, err := esPrimoCtx(ctx, f.Primo)
+		if err != nil {
+			return nucleo.Respuesta{}, fmt.Errorf("%w: no he terminado de comprobar los factores", nucleo.ErrSinTiempo)
+		}
+		ok = primo
 	}
 	if !ok {
 		return nucleo.Respuesta{}, errSinComprobar
 	}
-	n.Sub(nucleo.PasoComprobar, "Compruebo: multiplico los factores y sale %s; cada factor es primo", new(big.Int).Abs(x)).Bien("")
+	n.Sub(nucleo.PasoComprobar, "Compruebo: multiplico los factores y sale %s; cada factor es primo", recortar(new(big.Int).Abs(x).String())).Bien("")
 	pasos := []string{"Divido entre los primos pequeños y, si queda un trozo grande, busco factores con Pollard-Brent"}
 	if len(fs) == 0 {
 		return respNum("El 1 no tiene factores primos", "factorizacion", pasos,
 			comprobacionCalculo(1, 1, "Comprobado por cálculo", "el 1 no es primo ni compuesto")), nil
 	}
-	texto := new(big.Int).Abs(x).String() + " = " + textoFactores(fs)
+	etiqueta := new(big.Int).Abs(x).String()
+	if len(etiqueta) > 40 {
+		// a long number is named as the user wrote it ("3000!"), or abbreviated
+		if t := strings.TrimPrefix(txt, "-"); t != "" && t != etiqueta && len(t) <= 40 {
+			etiqueta = t
+		} else {
+			etiqueta = etiqueta[:15] + "…" + etiqueta[len(etiqueta)-10:] + " (" + strconv.Itoa(len(etiqueta)) + " cifras)"
+		}
+	}
+	texto := etiqueta + " = " + textoFactores(fs)
 	if len(fs) == 1 && fs[0].Exp == 1 {
-		texto = new(big.Int).Abs(x).String() + " es primo: no se puede descomponer más"
+		texto = etiqueta + " es primo: no se puede descomponer más"
 	}
 	if x.Sign() < 0 {
 		texto = "-" + strings.TrimPrefix(texto, "") + " (con signo menos delante)"
@@ -453,17 +484,32 @@ func primo(ctx context.Context, x *big.Int, txt string, n *nucleo.Nodo) (nucleo.
 			[]string{"Un primo es un número mayor que 1 que solo se divide entre 1 y él mismo"},
 			comprobacionCalculo(1, 1, "Comprobado por cálculo", "por definición")), nil
 	}
-	sub := n.Sub(nucleo.PasoIntento, "Aplico Miller-Rabin con 20 rondas a %s", etiqueta)
-	if EsPrimo(x) {
-		sub.Bien("")
-		pasos := []string{"Prueba de Miller-Rabin con 20 bases: ninguna demuestra que sea compuesto"}
-		if x.BitLen() <= 40 {
-			// small: confirm by trial division as well
-			r := new(big.Int).Sqrt(x)
-			pasos = append(pasos, "Además lo divido entre todos los números hasta √"+x.String()+" ≈ "+r.String()+": ninguno lo divide")
+	if x.BitLen() <= 40 {
+		return primoPequeño(x, etiqueta, n)
+	}
+	if !cabeEnPrimalidad(x) {
+		// too big for Miller-Rabin: a small divisor still proves it is composite
+		if d, ok := divisorPequeño(ctx, x, limiteTanteo); ok {
+			n.Sub(nucleo.PasoIntento, "Busco divisores pequeños de %s", etiqueta).Bien("%s lo divide", d)
+			n.Sub(nucleo.PasoComprobar, "Compruebo: al dividir entre %s el resto es 0", d).Bien("")
+			return respNum("No, "+etiqueta+" no es primo: es divisible entre "+d.String(), "divisores",
+				[]string{"Lo divido entre números pequeños: " + d.String() + " lo divide (el resto es 0)"},
+				comprobacionCalculo(1, 1, "Comprobado por cálculo", "lo dividí entre "+d.String()+" y el resto es 0")), nil
 		}
+		n.Sub(nucleo.PasoError, "%s es demasiado grande para la prueba de Miller-Rabin", recortar(etiqueta)).Mal("")
+		return nucleo.Respuesta{}, ErrPrimalidadGrande
+	}
+	sub := n.Sub(nucleo.PasoIntento, "Aplico Miller-Rabin con 20 rondas a %s", recortar(etiqueta))
+	esPrimo, err := esPrimoCtx(ctx, x)
+	if err != nil {
+		sub.Mal("No me ha dado tiempo")
+		return nucleo.Respuesta{}, fmt.Errorf("%w: no he terminado la prueba de Miller-Rabin", nucleo.ErrSinTiempo)
+	}
+	if esPrimo {
+		sub.Bien("")
+		pasos := []string{"Prueba de Baillie-PSW y de Miller-Rabin con 20 bases al azar: ninguna demuestra que sea compuesto"}
 		return respNum("Sí, "+etiqueta+" es primo (Miller-Rabin, 20 rondas)", "miller-rabin", pasos,
-			comprobacionCalculo(20, 20, "Comprobado por cálculo", "Miller-Rabin con 20 rondas")), nil
+			comprobacionCalculo(20, 20, "Comprobado por cálculo", "Miller-Rabin con 20 rondas (y Baillie-PSW)")), nil
 	}
 	sub.Info("No es primo")
 	pasos := []string{"Miller-Rabin encuentra una base que demuestra que es compuesto"}
@@ -476,6 +522,43 @@ func primo(ctx context.Context, x *big.Int, txt string, n *nucleo.Nodo) (nucleo.
 	}
 	return respNum("No, "+etiqueta+" no es primo", "miller-rabin", pasos,
 		comprobacionCalculo(1, 1, "Comprobado por cálculo", "la prueba de Miller-Rabin demuestra que es compuesto")), nil
+}
+
+// primoPequeño decides a number of at most 40 bits by trial division up to √x (at most about 500 000
+// divisions) and confirms it with Miller-Rabin: the trace only reports checks that really ran.
+func primoPequeño(x *big.Int, etiqueta string, n *nucleo.Nodo) (nucleo.Respuesta, error) {
+	v := x.Uint64()
+	raiz := new(big.Int).Sqrt(x)
+	d, compuesto := tanteoCompleto(v)
+	mr := EsPrimo(x)
+	if compuesto == mr {
+		// the two methods disagree: say nothing rather than something unchecked
+		n.Sub(nucleo.PasoError, "La división y Miller-Rabin no coinciden").Mal("")
+		return nucleo.Respuesta{}, errSinComprobar
+	}
+	if !compuesto {
+		n.Sub(nucleo.PasoIntento, "Divido %s entre 2 y los impares hasta √%s ≈ %s", etiqueta, x, raiz).Bien("ninguno lo divide")
+		n.Sub(nucleo.PasoComprobar, "Miller-Rabin con 20 rondas también dice que es primo").Bien("")
+		pasos := []string{
+			"Lo divido entre 2 y entre todos los impares hasta √" + x.String() + " ≈ " + raiz.String() + ": ninguno lo divide",
+			"La prueba de Miller-Rabin con 20 bases lo confirma",
+		}
+		if raiz.Cmp(big.NewInt(2)) < 0 {
+			pasos[0] = "No hay ningún número entre 2 y √" + x.String() + " por el que dividirlo"
+		}
+		return respNum("Sí, "+etiqueta+" es primo", "division", pasos,
+			comprobacionCalculo(2, 2, "Comprobado por cálculo", "lo dividí entre todos los números hasta su raíz y Miller-Rabin lo confirma")), nil
+	}
+	dd := new(big.Int).SetUint64(d)
+	otro := new(big.Int).Quo(x, dd)
+	if new(big.Int).Mul(dd, otro).Cmp(x) != 0 {
+		return nucleo.Respuesta{}, errSinComprobar
+	}
+	n.Sub(nucleo.PasoIntento, "Divido %s entre números pequeños", etiqueta).Bien("%s lo divide", dd)
+	n.Sub(nucleo.PasoComprobar, "Compruebo: %s · %s = %s", dd, otro, x).Bien("")
+	pasos := []string{"Lo divido entre números pequeños: " + dd.String() + " lo divide", dd.String() + " · " + otro.String() + " = " + x.String()}
+	return respNum("No, "+etiqueta+" no es primo: "+x.String()+" = "+dd.String()+" · "+otro.String(), "division", pasos,
+		comprobacionCalculo(1, 1, "Comprobado por cálculo", "multipliqué "+dd.String()+" · "+otro.String()+" y sale "+x.String())), nil
 }
 
 const maxCriba = 1_000_000
@@ -518,6 +601,13 @@ func listaPrimos(hasta *big.Int, n *nucleo.Nodo) (nucleo.Respuesta, error) {
 func mcd(nums []*big.Int, n *nucleo.Nodo) (nucleo.Respuesta, error) {
 	if len(nums) < 2 {
 		return nucleo.Respuesta{}, fmt.Errorf("%w: el mcd necesita al menos dos números", nucleo.ErrNoEntiendo)
+	}
+	if todosCero(nums) {
+		// every number divides 0, so there is no greatest one: by convention mcd(0, 0) = 0
+		n.Sub(nucleo.PasoIntento, "Todos los números son 0").Bien("mcd = 0 por convenio")
+		return respNum("mcd("+listaInts(nums)+") = 0 (por convenio: todos los números dividen a 0, así que no hay un divisor mayor)", "definicion",
+			[]string{"Cualquier número divide a 0, así que no hay un divisor común mayor; por convenio se dice que el mcd es 0"},
+			comprobacionCalculo(1, 1, "Comprobado por cálculo", "por definición")), nil
 	}
 	var pasos []string
 	g := new(big.Int).Abs(nums[0])
@@ -564,6 +654,15 @@ func mcm(nums []*big.Int, n *nucleo.Nodo) (nucleo.Respuesta, error) {
 	if len(nums) < 2 {
 		return nucleo.Respuesta{}, fmt.Errorf("%w: el mcm necesita al menos dos números", nucleo.ErrNoEntiendo)
 	}
+	for _, x := range nums {
+		if x.Sign() == 0 {
+			// 0 = 0·k is a multiple of every number, and the only multiple of 0 is 0
+			n.Sub(nucleo.PasoIntento, "Uno de los números es 0").Bien("mcm = 0")
+			return respNum("mcm("+listaInts(nums)+") = 0 (el único múltiplo de 0 es el 0)", "definicion",
+				[]string{"El único múltiplo de 0 es el 0, y el 0 es múltiplo de cualquier número (0 = 0·k)"},
+				comprobacionCalculo(1, 1, "Comprobado por cálculo", "por definición: 0 es múltiplo de todos y el 0 solo tiene ese múltiplo")), nil
+		}
+	}
 	m := new(big.Int).Abs(nums[0])
 	var pasos []string
 	for _, x := range nums[1:] {
@@ -604,6 +703,15 @@ func mcm(nums []*big.Int, n *nucleo.Nodo) (nucleo.Respuesta, error) {
 	n.Sub(nucleo.PasoComprobar, "Compruebo: %s es múltiplo de todos y ninguno menor lo es", m).Bien("")
 	return respNum("mcm("+listaInts(nums)+") = "+m.String(), "mcm", pasos,
 		comprobacionCalculo(len(nums)+1, len(nums)+1, "Comprobado por cálculo", "es múltiplo de todos y ninguno menor lo es")), nil
+}
+
+func todosCero(xs []*big.Int) bool {
+	for _, x := range xs {
+		if x.Sign() != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func listaInts(xs []*big.Int) string {

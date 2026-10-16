@@ -174,7 +174,7 @@ func CriptoTodas(ctx context.Context, expr string) ([]map[rune]int, int, error) 
 		return nil, nodos, errBusca
 	}
 	if len(sols) == 0 {
-		return nil, nodos, fmt.Errorf("puzles: «%s» no tiene solución: %w", strings.TrimSpace(expr), nucleo.ErrNoEntiendo)
+		return nil, nodos, &SinSolucion{Que: "«" + strings.TrimSpace(expr) + "»", Motivo: fmt.Sprintf("recorrí todas las asignaciones posibles (%d pasos de búsqueda) y ninguna cuadra", nodos)}
 	}
 	for _, s := range sols {
 		if err := comprobarCripto(ts, s); err != nil {

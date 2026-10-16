@@ -2,6 +2,7 @@ package lengua
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"nyxcodigo/internal/nucleo"
 )
@@ -29,12 +30,16 @@ func Analizar(texto, codigo, modo string, l *Lexico, ctx *nucleo.Contexto) *nucl
 		p.Resto = strings.TrimSpace(texto)
 	}
 	p.Normal = nucleo.Normalizar(p.Resto)
+	// Only the first maxTextoLengua bytes are read for words, numbers and examples: the frame reader
+	// is linear in practice but looks around each cue word, and a request is never that long (code
+	// goes in the code box, which is not limited here).
+	visible = recortarTexto(visible, maxTextoLengua)
 	p.Tokens = Lematizar(visible)
 	p.Numeros = Numeros(visible)
 	if p.Numeros == nil {
 		p.Numeros = []nucleo.Numero{}
 	}
-	p.ParesTexto, p.EjProgramas = ExtraerEjemplos(p.Resto)
+	p.ParesTexto, p.EjProgramas = ExtraerEjemplos(recortarTexto(p.Resto, maxTextoLengua))
 	p.Marco = Marco(p.Tokens, l)
 	p.Firma = FirmaProbable(p.Marco, p.ParesTexto)
 	if p.Firma != nil && len(p.ParesTexto) > 0 {
@@ -46,6 +51,20 @@ func Analizar(texto, codigo, modo string, l *Lexico, ctx *nucleo.Contexto) *nucl
 	p.Intenciones = Intenciones(p)
 	p.ConsultaWeb = ConsultaIngles(p, l)
 	return p
+}
+
+// maxTextoLengua bounds the text Analizar and DetectarSeguimiento read (bytes).
+const maxTextoLengua = 16 << 10
+
+// recortarTexto cuts s to at most n bytes, at a rune boundary.
+func recortarTexto(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
 
 // conceptosDe lists the concepts of a request: the frame's (action, modifiers, element, object) when

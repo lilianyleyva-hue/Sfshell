@@ -11,7 +11,9 @@ import (
 )
 
 // fila is one line of testdata/frases.tsv:
-// texto ⇥ intención ⇥ firma (Forma) ⇥ marco (k=v;…) ⇥ ejemplos (pares | prog:N). "-" skips a check.
+// texto ⇥ intención ⇥ firma (Forma, or "(nil)") ⇥ marco (k=v;…, or "nil" for no frame) ⇥ ejemplos
+// (pares | prog:N). "-" skips a check; it is only allowed where the column does not apply (firma and
+// marco of requests that are not about code), see TestFrasesCobertura.
 type fila struct {
 	linea                                    int
 	texto, intencion, firma, marco, ejemplos string
@@ -68,7 +70,11 @@ func comprobarFila(f fila) string {
 			fallos = append(fallos, "firma "+got)
 		}
 	}
-	if f.marco != "-" {
+	if f.marco == "nil" {
+		if p.Marco != nil {
+			fallos = append(fallos, "marco inesperado (acción "+p.Marco.Accion+")")
+		}
+	} else if f.marco != "-" {
 		if p.Marco == nil {
 			fallos = append(fallos, "sin marco")
 		} else {
@@ -176,5 +182,39 @@ func TestFrasesObligatorias(t *testing.T) {
 	p = Analizar("haz un programa que pida dos números y los sume", "", "", nil, nil)
 	if p.Intenciones[0].Tipo != nucleo.ICrearPrograma || p.Marco == nil || strings.Join(p.Marco.Lee, ",") != "numero,numero" {
 		t.Errorf("programa que pida dos números: %v %+v", p.Intenciones, p.Marco)
+	}
+}
+
+// TestFrasesCobertura keeps the corpus honest: every request about code (create a function or a
+// program, or code to repair, explain, test or run) states its signature and its frame, so a wrong
+// signature cannot pass unnoticed; "-" is only allowed for the firma and marco of other requests.
+func TestFrasesCobertura(t *testing.T) {
+	filas := leerFrases(t)
+	codigo := map[string]bool{"crear_funcion": true, "crear_programa": true, "reparar": true, "explicar": true,
+		"probar": true, "ejecutar": true}
+	firmas, marcos, intenciones, ejemplos := 0, 0, 0, 0
+	for _, f := range filas {
+		if f.intencion != "-" {
+			intenciones++
+		}
+		if f.firma != "-" {
+			firmas++
+		}
+		if f.marco != "-" {
+			marcos++
+		}
+		if f.ejemplos != "-" {
+			ejemplos++
+		}
+		if codigo[f.intencion] && (f.firma == "-" || f.marco == "-") {
+			t.Errorf("frases.tsv:%d %q: una petición de código debe decir su firma y su marco", f.linea, f.texto)
+		}
+		if f.intencion == "-" {
+			t.Errorf("frases.tsv:%d %q: falta la intención", f.linea, f.texto)
+		}
+	}
+	t.Logf("%d frases: intención %d, firma %d, marco %d, ejemplos %d", len(filas), intenciones, firmas, marcos, ejemplos)
+	if firmas < len(filas)*3/4 || marcos < len(filas)*3/4 {
+		t.Errorf("se comprueban pocas firmas (%d) o marcos (%d) de %d frases", firmas, marcos, len(filas))
 	}
 }

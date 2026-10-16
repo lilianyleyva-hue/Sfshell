@@ -1,6 +1,7 @@
 package saber
 
 import (
+	"context"
 	"html"
 	"regexp"
 	"strconv"
@@ -37,6 +38,9 @@ const (
 	minSuelto   = 25       // loose text (outside p/li) needs at least this many runes to count
 	maxTokens   = 400000   // tokens per page (a 2 MiB page has far fewer)
 	maxAtributo = 4096
+	maxPila     = 256  // open elements kept on the stack; deeper start tags are ignored
+	maxBusqueda = 64   // how far down the stack a closing or implicitly closing tag looks
+	cadaTokens  = 1024 // ctx is checked every this many tokens
 )
 
 // ---- tokenizer ----
@@ -311,6 +315,8 @@ type bloqueCrudo struct {
 
 type extractor struct {
 	pila      []string
+	nTitulos  int // open elements of pila in titulos (so clasificar does not scan the stack)
+	nParrafos int // open elements of pila in parrafos
 	omitir    int
 	texto     strings.Builder
 	enPre     int
@@ -340,16 +346,21 @@ type extractor struct {
 // paragraphs; pre and multi-line code become code blocks (entities decoded, line numbers and "$ "
 // prompts removed). Stack Overflow votes come from data-score or itemprop="upvoteCount".
 func ExtraerDocumento(pagina []byte, direccion string) Documento {
-	return extraer(pagina, direccion, "")
+	d, _ := extraer(context.Background(), pagina, direccion, "")
+	return d
 }
 
 // ExtraerSeccion is ExtraerDocumento limited to the part of the page that starts at the element whose
 // id is ancla and ends at the next heading (used for a symbol on pkg.go.dev).
 func ExtraerSeccion(pagina []byte, direccion, ancla string) Documento {
-	return extraer(pagina, direccion, ancla)
+	d, _ := extraer(context.Background(), pagina, direccion, ancla)
+	return d
 }
 
-func extraer(pagina []byte, direccion, ancla string) Documento {
+// extraer does the work of ExtraerDocumento/ExtraerSeccion. Every step is bounded (stack depth, search
+// depth, token count), so the cost is linear in the page; ctx is still checked every cadaTokens tokens and
+// a cancelled extraction returns what it has together with ctx.Err().
+func extraer(ctx context.Context, pagina []byte, direccion, ancla string) (Documento, error) {
 	s := string(pagina)
 	if !utf8.ValidString(s) {
 		s = strings.ToValidUTF8(s, "�")
@@ -357,7 +368,14 @@ func extraer(pagina []byte, direccion, ancla string) Documento {
 	e := &extractor{ancla: ancla, activo: ancla == ""}
 	l := &lectorHTML{s: s}
 	enTitulo := false
+	var errCtx error
 	for n := 0; n < maxTokens; n++ {
+		if n%cadaTokens == cadaTokens-1 {
+			if err := ctx.Err(); err != nil {
+				errCtx = err
+				break
+			}
+		}
 		t, ok := l.siguiente()
 		if !ok {
 			break
@@ -391,23 +409,52 @@ func extraer(pagina []byte, direccion, ancla string) Documento {
 	if len(d.Bloques) > maxBloques {
 		d.Bloques = d.Bloques[:maxBloques]
 	}
-	return d
+	return d, errCtx
 }
 
-func (e *extractor) dentro(nombres map[string]bool) bool {
-	for _, x := range e.pila {
-		if nombres[x] {
-			return true
+// meter pushes an open element. The stack never grows past maxPila, so a page made of thousands of
+// unclosed elements cannot make each later step slower: on a full stack the new element takes the place
+// of the top one (as browsers flatten over-deep trees), unless the top one is a script-like, code or pre
+// element whose counters must stay right; then the new element is ignored and meter returns false.
+func (e *extractor) meter(n string) bool {
+	if len(e.pila) >= maxPila {
+		tope := e.pila[len(e.pila)-1]
+		if omitidos[tope] || tope == "code" || tope == "pre" {
+			return false
+		}
+		e.cortar(len(e.pila) - 1)
+	}
+	e.pila = append(e.pila, n)
+	if titulos[n] {
+		e.nTitulos++
+	}
+	if parrafos[n] {
+		e.nParrafos++
+	}
+	return true
+}
+
+// cortar pops every element from position i up.
+func (e *extractor) cortar(i int) {
+	if i < 0 {
+		i = 0
+	}
+	for _, x := range e.pila[i:] {
+		if titulos[x] {
+			e.nTitulos--
+		}
+		if parrafos[x] {
+			e.nParrafos--
 		}
 	}
-	return false
+	e.pila = e.pila[:i]
 }
 
 func (e *extractor) clasificar() string {
-	if e.dentro(titulos) {
+	if e.nTitulos > 0 {
 		return "titulo"
 	}
-	if e.dentro(parrafos) {
+	if e.nParrafos > 0 {
 		return "parrafo"
 	}
 	return "suelto"
@@ -415,13 +462,16 @@ func (e *extractor) clasificar() string {
 
 // vaciar turns the pending inline text into a block of the current class.
 func (e *extractor) vaciar(clase string) {
-	if clase == "" {
-		clase = e.clasificar()
+	if e.texto.Len() == 0 {
+		return
 	}
 	txt := colapsar(e.texto.String())
 	e.texto.Reset()
 	if txt == "" || !e.activo {
 		return
+	}
+	if clase == "" {
+		clase = e.clasificar()
 	}
 	txt = recortarRunas(txt, maxParrafo)
 	switch clase {
@@ -494,11 +544,8 @@ func (e *extractor) token(t tokenHTML) {
 func (e *extractor) inicio(t tokenHTML) {
 	n := t.nombre
 	if e.omitir > 0 {
-		if omitidos[n] && !vacios[n] && !t.auto {
-			e.pila = append(e.pila, n)
+		if !vacios[n] && !t.auto && e.meter(n) && omitidos[n] {
 			e.omitir++
-		} else if !vacios[n] && !t.auto {
-			e.pila = append(e.pila, n)
 		}
 		return
 	}
@@ -540,8 +587,7 @@ func (e *extractor) inicio(t tokenHTML) {
 	}
 	if omitidos[n] {
 		e.vaciar("")
-		if !vacios[n] && !t.auto {
-			e.pila = append(e.pila, n)
+		if !vacios[n] && !t.auto && e.meter(n) {
 			e.omitir++
 		}
 		return
@@ -550,11 +596,8 @@ func (e *extractor) inicio(t tokenHTML) {
 		if n == "br" {
 			e.codigo.WriteByte('\n')
 		}
-		if !vacios[n] && !t.auto {
-			e.pila = append(e.pila, n)
-			if n == "pre" {
-				e.enPre++
-			}
+		if !vacios[n] && !t.auto && e.meter(n) && n == "pre" {
+			e.enPre++
 		}
 		return
 	}
@@ -573,47 +616,48 @@ func (e *extractor) inicio(t tokenHTML) {
 		}
 		return
 	case n == "code":
+		if !e.meter(n) {
+			return
+		}
 		e.enCode++
 		if e.enCode == 1 {
 			e.marcaCode = e.texto.Len()
 			e.bufCode.Reset()
 		}
-		e.pila = append(e.pila, n)
 		return
 	case bloquesHTML[n]:
 		e.cerrarImplicitos(n)
 		e.vaciar("")
-		e.pila = append(e.pila, n)
-		if n == "pre" {
+		if e.meter(n) && n == "pre" {
 			e.enPre = 1
 			e.codigo.Reset()
 		}
 		return
 	}
-	e.pila = append(e.pila, n) // inline element
+	e.meter(n) // inline element
 }
 
 // cerrarImplicitos closes an open <p> when a block starts, and the previous <li> when a new one starts.
 func (e *extractor) cerrarImplicitos(n string) {
 	if n == "li" {
-		for i := len(e.pila) - 1; i >= 0; i-- {
+		for i := len(e.pila) - 1; i >= 0 && len(e.pila)-i <= maxBusqueda; i-- {
 			x := e.pila[i]
 			if x == "ul" || x == "ol" {
 				break
 			}
 			if x == "li" {
 				e.vaciar("")
-				e.pila = e.pila[:i]
+				e.cortar(i)
 				break
 			}
 		}
 	}
 	if n == "p" || n == "li" || titulos[n] || n == "pre" || n == "div" || n == "table" || n == "ul" || n == "ol" {
-		for i := len(e.pila) - 1; i >= 0; i-- {
+		for i := len(e.pila) - 1; i >= 0 && len(e.pila)-i <= maxBusqueda; i-- {
 			x := e.pila[i]
 			if x == "p" {
 				e.vaciar("")
-				e.pila = e.pila[:i]
+				e.cortar(i)
 				break
 			}
 			if bloquesHTML[x] {
@@ -631,7 +675,7 @@ func (e *extractor) fin(n string) {
 			idx = i
 			break
 		}
-		if len(e.pila)-i > 64 {
+		if len(e.pila)-i > maxBusqueda {
 			break
 		}
 	}
@@ -644,7 +688,7 @@ func (e *extractor) fin(n string) {
 				e.omitir--
 			}
 		}
-		e.pila = e.pila[:idx]
+		e.cortar(idx)
 		if e.omitir < 0 {
 			e.omitir = 0
 		}
@@ -657,7 +701,7 @@ func (e *extractor) fin(n string) {
 				e.enPre--
 			}
 		}
-		e.pila = e.pila[:idx]
+		e.cortar(idx)
 		if e.enPre <= 0 {
 			e.enPre = 0
 			e.emitirCodigo(e.codigo.String())
@@ -693,7 +737,7 @@ func (e *extractor) fin(n string) {
 	if bloque {
 		e.vaciar("")
 	}
-	e.pila = e.pila[:idx]
+	e.cortar(idx)
 	if e.activo && e.ancla != "" && !e.cerrado {
 		switch {
 		case idx < e.nivelAncla: // the element that held the section closed

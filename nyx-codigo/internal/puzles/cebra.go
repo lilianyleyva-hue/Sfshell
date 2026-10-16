@@ -31,7 +31,8 @@ var lexicoCebra = map[string][]string{
 
 var ordenCategorias = []string{"Nacionalidad", "Color", "Mascota", "Bebida", "Tabaco", "Profesión", "Deporte"}
 
-// raizCebra compares value words: "roja"/"rojo" → "roj", "caracoles"/"caracol" → "caracol".
+// raizCebra compares value words: "roja"/"rojo" → "roj", "caracoles"/"caracol" → "caracol",
+// "inglés"/"inglesa"/"ingleses" → "ingl", "japonés"/"japonesa" → "japon".
 func raizCebra(w string) string {
 	w = nucleo.Normalizar(w)
 	n := utf8.RuneCountInString(w)
@@ -44,7 +45,49 @@ func raizCebra(w string) string {
 	if utf8.RuneCountInString(w) > 3 && strings.ContainsAny(w[len(w)-1:], "aeo") {
 		w = w[:len(w)-1]
 	}
+	// nationalities in -és: "inglesa" → "ingles" and "ingleses" → "ingles" still end in -es
+	if utf8.RuneCountInString(w) > 4 && strings.HasSuffix(w, "es") {
+		w = w[:len(w)-2]
+	}
 	return w
+}
+
+// categoriasConocidas maps the written name of a category (singular or plural) to its canonical
+// name: "Nacionalidades" → "Nacionalidad", "colores" → "Color".
+var categoriasConocidas = map[string]string{
+	"nacionalidad": "Nacionalidad", "nacionalidades": "Nacionalidad", "pais": "Nacionalidad", "paises": "Nacionalidad",
+	"color": "Color", "colores": "Color", "mascota": "Mascota", "mascotas": "Mascota", "animal": "Mascota",
+	"animales": "Mascota", "bebida": "Bebida", "bebidas": "Bebida", "tabaco": "Tabaco", "tabacos": "Tabaco",
+	"cigarrillos": "Tabaco", "marca": "Tabaco", "marcas": "Tabaco", "profesion": "Profesión", "profesiones": "Profesión",
+	"trabajo": "Profesión", "trabajos": "Profesión", "deporte": "Deporte", "deportes": "Deporte",
+	"nombre": "Nombre", "nombres": "Nombre", "persona": "Nombre", "personas": "Nombre",
+}
+
+// categoriasFemeninas take "desconocida".
+var categoriasFemeninas = map[string]bool{"Nacionalidad": true, "Mascota": true, "Bebida": true, "Profesión": true, "Marca": true}
+
+// esCategoriaPersona: the values of this category name people (the answer to "¿quién…?").
+func esCategoriaPersona(cat string) bool { return cat == "Nacionalidad" || cat == "Nombre" }
+
+func nombreCategoria(escrito string) string {
+	if c, ok := categoriasConocidas[nucleo.Normalizar(strings.TrimSpace(escrito))]; ok {
+		return c
+	}
+	return mayusculaInicial(strings.TrimSpace(escrito))
+}
+
+// desconocido names a value the clues never mention: "(nacionalidad desconocida)", "(color
+// desconocido)"; for a category of its own, "(coches: sin dato)".
+func desconocido(cat string) string {
+	if _, conocida := categoriasFemeninas[cat]; conocida {
+		return "(" + strings.ToLower(cat) + " desconocida)"
+	}
+	for _, c := range categoriasConocidas {
+		if c == cat {
+			return "(" + strings.ToLower(cat) + " desconocido)"
+		}
+	}
+	return "(" + strings.ToLower(cat) + ": sin dato)"
 }
 
 func clavesFrase(frase string) []string {
@@ -100,7 +143,7 @@ func (l *lectorCebra) valor(cat int, nombre string) int {
 			return i
 		}
 	}
-	l.valores = append(l.valores, valorCebra{cat: cat, nombre: nombre, claves: cl, persona: l.cats[cat] == "Nacionalidad"})
+	l.valores = append(l.valores, valorCebra{cat: cat, nombre: nombre, claves: cl, persona: esCategoriaPersona(l.cats[cat])})
 	return len(l.valores) - 1
 }
 
@@ -175,7 +218,7 @@ func ResolverCebra(ctx context.Context, pistas []string) (ResultadoCebra, error)
 		}
 		if i := strings.Index(p, ":"); i > 0 && strings.Count(p[i:], ",") >= 1 && !strings.Contains(p[:i], " ") {
 			cat := strings.TrimSpace(p[:i])
-			c := l.categoria(mayusculaInicial(cat))
+			c := l.categoria(nombreCategoria(cat))
 			for _, v := range strings.Split(p[i+1:], ",") {
 				v = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(v), "."))
 				v = strings.TrimPrefix(strings.TrimPrefix(v, "y "), "e ")
@@ -250,7 +293,7 @@ func ResolverCebra(ctx context.Context, pistas []string) (ResultadoCebra, error)
 			}
 		}
 		for k := cuenta; k < n; k++ {
-			l.valores = append(l.valores, valorCebra{cat: c, nombre: fmt.Sprintf("(%s desconocido)", strings.ToLower(l.cats[c])), claves: []string{fmt.Sprintf("#%d-%d", c, k)}})
+			l.valores = append(l.valores, valorCebra{cat: c, nombre: desconocido(l.cats[c]), claves: []string{fmt.Sprintf("#%d-%d", c, k)}})
 		}
 	}
 	p := &Problema{}
@@ -284,7 +327,7 @@ func ResolverCebra(ctx context.Context, pistas []string) (ResultadoCebra, error)
 		return res, err
 	}
 	if len(sols) == 0 {
-		return res, fmt.Errorf("puzles: con estas pistas no hay solución: %w", nucleo.ErrNoEntiendo)
+		return res, &SinSolucion{Que: "el acertijo", Motivo: "ninguna colocación cumple todas las pistas"}
 	}
 	sol := sols[0]
 	res.Unica = len(sols) == 1
@@ -373,7 +416,7 @@ func restriccionesPista(texto string, mens []mencion, n int) ([]Restriccion, boo
 		if (w == "medio" || w == "central") && n%2 == 1 {
 			pos = n / 2
 		}
-		if w == "numero" && i+1 < len(ws) {
+		if (w == "numero" || w == "casa") && i+1 < len(ws) {
 			var x int
 			if _, err := fmt.Sscanf(ws[i+1], "%d", &x); err == nil && x >= 1 && x <= n {
 				pos = x - 1

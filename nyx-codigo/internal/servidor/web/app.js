@@ -554,8 +554,11 @@
     $('b-mas').disabled = si || !tareaChat;
   }
 
-  function enviarTexto(texto, codigo) {
-    if (preguntaAbierta && !codigo) {
+  // enviarTexto manda un mensaje nuevo. Solo lo que el usuario escribe en el cuadro principal
+  // (opciones.responde) contesta una pregunta abierta; los chips de ideas y sugerencias, «No es eso» y
+  // «Reintentar» son siempre mensajes nuevos, aunque haya una pregunta esperando.
+  function enviarTexto(texto, codigo, opciones) {
+    if (preguntaAbierta && !codigo && opciones && opciones.responde) {
       // una pregunta pendiente: lo escrito es la respuesta
       preguntaAbierta.contestar(texto);
       return Promise.resolve();
@@ -870,7 +873,7 @@
     }
     burbuja('nyx', partes, fin.estado === 'error' ? 'error' : null);
     actualizarPruebas(r);
-    if (ctx.accion === 'explicar' || r.metodo === 'explicar') actualizarExplicacion(r);
+    actualizarExplicacion(r);
     if (r.codigo && !$('editor').value.trim()) ponerEnEditor(r.codigo);
     if (r.riesgos && r.riesgos.length) {
       var codigo = (ctx.peticion && ctx.peticion.codigo) || r.codigo || '';
@@ -886,27 +889,58 @@
     e.focus();
   }
 
+  // filaOpinion: «¿Está bien? [Sí] [No]». Los dos botones mandan /api/opinion en el acto (§6.2). «No»
+  // abre además el campo opcional «¿Qué debería dar?»; si el usuario lo rellena se manda una segunda
+  // opinión de la misma tarea con «ejemplo» (el Motor la toma como complemento de la primera, no como
+  // otro voto: ver el contrato en servidor/contrato.go).
   function filaOpinion(ctx, r) {
+    var tarea = r.tarea || ctx.id;
     var fila = el('div', { class: 'opinion' }, el('span', null, TEXTOS.estaBien));
-    var bSi = boton(TEXTOS.si, function () { opinar(true, '', ''); }, 'secundario pequeno');
+    var bSi = boton(TEXTOS.si, function () {
+      bSi.disabled = true; bNo.disabled = true;
+      opinar(true, '').then(function (ok) {
+        if (!ok) { bSi.disabled = false; bNo.disabled = false; return; }
+        darGracias();
+      });
+    }, 'secundario pequeno');
     var bNo = boton(TEXTOS.no, function () {
       bSi.disabled = true; bNo.disabled = true;
-      var campo = el('input', { type: 'text', class: 'campo', placeholder: TEXTOS.queDeberiaDar, 'aria-label': TEXTOS.queDeberiaDar });
-      var enviar = boton(TEXTOS.enviar, function () { opinar(false, '', campo.value.trim()); }, 'principal pequeno');
-      campo.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); enviar.click(); } });
-      fila.appendChild(campo);
-      fila.appendChild(enviar);
-      campo.focus();
+      opinar(false, '').then(function (ok) {
+        if (!ok) { bSi.disabled = false; bNo.disabled = false; return; }
+        var gracias = el('span', { class: 'gracias' }, TEXTOS.gracias);
+        var campo = el('input', { type: 'text', class: 'campo', placeholder: TEXTOS.queDeberiaDar, 'aria-label': TEXTOS.queDeberiaDar });
+        var enviar = boton(TEXTOS.enviar, function () {
+          var ejemplo = campo.value.trim();
+          if (!ejemplo) { campo.focus(); return; }
+          campo.disabled = true; enviar.disabled = true;
+          opinar(false, ejemplo).then(function (ok2) {
+            if (!ok2) { campo.disabled = false; enviar.disabled = false; return; }
+            darGracias();
+          });
+        }, 'principal pequeno');
+        campo.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); enviar.click(); } });
+        fila.appendChild(gracias);
+        fila.appendChild(campo);
+        fila.appendChild(enviar);
+        anunciar(TEXTOS.gracias);
+        campo.focus();
+      });
     }, 'secundario pequeno');
     fila.appendChild(bSi);
     fila.appendChild(bNo);
-    function opinar(correcto, comentario, ejemplo) {
-      api('POST', '/api/opinion', { sesion: sesion, tarea: r.tarea || ctx.id, correcto: correcto, comentario: comentario, ejemplo: ejemplo })
-        .then(function () {
-          vaciar(fila);
-          fila.appendChild(el('span', { class: 'gracias' }, TEXTOS.gracias));
-          anunciar(TEXTOS.gracias);
-        }).catch(function () { /* aviso */ });
+    function opinar(correcto, ejemplo) {
+      return api('POST', '/api/opinion', { sesion: sesion, tarea: tarea, correcto: correcto, comentario: '', ejemplo: ejemplo })
+        .then(function (res) {
+          var ok = res.status === 204 || res.status === 200;
+          if (!ok) anunciar((res.datos && res.datos.error) || TEXTOS.noPudeEnviar);
+          return ok;
+        })
+        .catch(function () { return false; });
+    }
+    function darGracias() {
+      vaciar(fila);
+      fila.appendChild(el('span', { class: 'gracias' }, TEXTOS.gracias));
+      anunciar(TEXTOS.gracias);
     }
     return fila;
   }
@@ -1085,8 +1119,15 @@
     return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   }
 
+  // esTablaFrases: las frases de una explicación llegan como una Tabla cuya primera cabecera es «Línea»
+  // (sin mayúsculas ni tildes empieza por «linea») y cuyas filas son [número de línea, frase, …]. Es el
+  // contrato con el Motor descrito en servidor/contrato.go (nucleo.Respuesta no tiene un campo propio).
+  function esTablaFrases(x) {
+    return !!(x && x.cabecera && x.cabecera.length >= 2 && normal(x.cabecera[0]).indexOf('linea') === 0);
+  }
+
   function actualizarExplicacion(r) {
-    var t = (r.tablas || []).filter(function (x) { return x.cabecera && x.cabecera.length >= 2 && normal(x.cabecera[0]).indexOf('linea') === 0; })[0];
+    var t = (r.tablas || []).filter(esTablaFrases)[0];
     if (!t) return;
     frasesPorLinea = {};
     var lista = $('lista-frases');
@@ -1370,7 +1411,7 @@
       e.preventDefault();
       var texto = entrada.value;
       var codigo = $('zona-codigo').hidden ? '' : $('codigo-adjunto').value;
-      enviarTexto(texto, codigo).then(function () {
+      enviarTexto(texto, codigo, { responde: true }).then(function () {
         entrada.value = '';
         entrada.placeholder = TEXTOS.escribe;
         if (codigo) { $('codigo-adjunto').value = ''; abrirZonaCodigo(false); }

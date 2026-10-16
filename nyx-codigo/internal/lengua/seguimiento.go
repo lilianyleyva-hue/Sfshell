@@ -3,6 +3,7 @@ package lengua
 import (
 	"regexp"
 	"strings"
+	"unicode"
 
 	"nyxcodigo/internal/nucleo"
 )
@@ -36,10 +37,13 @@ var (
 	reEjemploEnMal = regexp.MustCompile(`(?i)\bcon\s+(.+?)\s+(debe dar|deberia dar|debería dar|tiene que dar|da|devuelve|sale)\s+(.+)$`)
 )
 
+// maxSeguimiento: a follow-up is a short message; longer texts are new requests.
+const maxSeguimiento = 600
+
 // DetectarSeguimiento recognizes a follow-up to the previous turn (§4.8, algorithm 5). It needs the
 // session context; without it, nothing is a follow-up.
 func DetectarSeguimiento(texto string, ctx *nucleo.Contexto) (Seguimiento, bool) {
-	if ctx == nil {
+	if ctx == nil || len(texto) > maxSeguimiento {
 		return Seguimiento{}, false
 	}
 	t := strings.TrimSpace(texto)
@@ -70,18 +74,7 @@ func DetectarSeguimiento(texto string, ctx *nucleo.Contexto) (Seguimiento, bool)
 		s.Tipo = "mas_simple"
 	case reSegDetalle.MatchString(n) && pals <= 7:
 		s.Tipo = "mas_detalle"
-	case reSegCambio.MatchString(n):
-		m := reSegCambio.FindStringSubmatch(n)
-		cola := m[len(m)-1]
-		if nums := Numeros(cola); len(nums) > 0 {
-			s.Tipo = "cambiar_numero"
-			s.Numero = &nums[len(nums)-1]
-		} else if v, ok := valorLiteral(t); ok {
-			s.Tipo, s.Entrada = "probar_con", v
-		} else {
-			s.Tipo = "modificar"
-			s.Texto = cola
-		}
+	case reSegCambio.MatchString(n) && cambioValido(n, t, reSegCambio.FindStringSubmatch(n), &s):
 	case reSegProbar.MatchString(n):
 		m := reSegProbar.FindStringSubmatch(n)
 		ent := m[len(m)-1]
@@ -102,14 +95,14 @@ func DetectarSeguimiento(texto string, ctx *nucleo.Contexto) (Seguimiento, bool)
 		} else {
 			s.Tipo, s.Texto = "modificar", m[1]+" "+m[2]
 		}
-	case reSegMal.MatchString(n) && (pals <= 3 || strings.Contains(n, "con ") || reSegMal.FindStringSubmatch(n)[1] != "no" || strings.HasPrefix(n, "no,") || strings.HasPrefix(n, "no:")):
+	case reSegMal.MatchString(n) && esQueja(n, t, pals):
 		s.Tipo = "esta_mal"
 		if m := reEjemploEnMal.FindStringSubmatch(t); m != nil {
 			s.Ejemplo = "con " + strings.TrimSpace(m[1]) + " " + strings.ToLower(m[2]) + " " + strings.TrimRight(strings.TrimSpace(m[3]), ".!")
 		}
-	case reSegBien.MatchString(n) && pals <= 4:
+	case reSegBien.MatchString(n) && pals <= 4 && afirmacion(n):
 		s.Tipo = "esta_bien"
-	case reSegModificar.MatchString(n):
+	case reSegModificar.MatchString(n) && modificacionCorta(n, pals):
 		m := reSegModificar.FindStringSubmatch(n)
 		s.Tipo = "modificar"
 		s.Texto = m[2] + " " + m[3]
@@ -117,6 +110,113 @@ func DetectarSeguimiento(texto string, ctx *nucleo.Contexto) (Seguimiento, bool)
 		return Seguimiento{}, false
 	}
 	return s, true
+}
+
+// reCorteFrase finds a sentence break inside a message ("…; es de noche. ¿hace frío?").
+var reCorteFrase = regexp.MustCompile(`[;]|[.?!]\s+\S`)
+
+// articulosCola are the words that may surround the new value: "si fueran las 5", "y si es de 3".
+var articulosCola = conjunto(`el la los las lo un una unos unas de del a al en`)
+
+// cambioValido decides a "¿y si fuera N?" message. The part after the verb must be just a value: a
+// number with at most one more word ("13", "20 personas"; two after "y si") or a literal, in a single
+// short clause. "si es de noche hace frío; es de noche. ¿hace frío?", "si son las 5 Ana sale; …" and
+// "si fuera rico compraría una casa" are new requests (logic, a statement), not follow-ups. Without a
+// value, only "y si …"/"qué pasa si …" asks to modify the previous request.
+func cambioValido(n, t string, m []string, s *Seguimiento) bool {
+	cola := strings.TrimSpace(m[len(m)-1])
+	if reCorteFrase.MatchString(cola) || len(strings.Fields(n)) > 9 {
+		return false
+	}
+	conY := strings.HasPrefix(n, "y ") || strings.HasPrefix(n, "que pasa") || strings.HasPrefix(n, "y que pasa")
+	extra := 1
+	if conY {
+		extra = 2
+	}
+	sobran := func(fuera string) int {
+		k := 0
+		for _, w := range strings.Fields(fuera) {
+			if !articulosCola[w] {
+				k++
+			}
+		}
+		return k
+	}
+	if nums := Numeros(cola); len(nums) == 1 {
+		if sobran(cola[:nums[0].Desde]+" "+cola[nums[0].Hasta:]) <= extra {
+			s.Tipo, s.Numero = "cambiar_numero", &nums[0]
+			return true
+		}
+		return false
+	}
+	if v, ok := valorLiteral(t); ok {
+		if k := strings.Index(cola, nucleo.Normalizar(v)); k >= 0 && sobran(cola[:k]+" "+cola[k+len(nucleo.Normalizar(v)):]) <= extra {
+			s.Tipo, s.Entrada = "probar_con", v
+			return true
+		}
+		return false
+	}
+	if conY && len(strings.Fields(cola)) <= 5 {
+		s.Tipo, s.Texto = "modificar", cola
+		return true
+	}
+	return false
+}
+
+// noQueja are words after a leading "no" that make a new statement, not a complaint about the
+// answer: "no entiendo los punteros…", "no sé cómo…", "no puedo…".
+var noQueja = conjunto(`entiendo entendi se sabia puedo quiero tengo me te hay conozco recuerdo veo encuentro estoy soy`)
+
+// esQueja decides whether a message that starts like a complaint is about the previous answer:
+// it carries a counterexample ("con [2] debe dar 0"), or it is short ("no", "está mal", "no funciona",
+// "no, no es eso"). A leading "no" followed by a verb of a new statement is not a complaint.
+func esQueja(n, t string, pals int) bool {
+	m := reSegMal.FindStringSubmatch(n)
+	if m == nil {
+		return false
+	}
+	if e := reEjemploEnMal.FindStringSubmatch(t); e != nil {
+		x := strings.TrimSpace(e[1])
+		if literalClaro(x) || len(Numeros(x)) == 1 && len(strings.Fields(x)) == 1 || strings.HasPrefix(x, "«") {
+			return true
+		}
+	}
+	campos := strings.Fields(n)
+	if m[1] != "no" {
+		return pals <= 6
+	}
+	if len(campos) > 1 && noQueja[strings.Trim(campos[1], ",:;.")] {
+		return false
+	}
+	if pals <= 3 {
+		return true
+	}
+	// "no, …" / "no: …" with a short reason
+	return (strings.HasPrefix(n, "no,") || strings.HasPrefix(n, "no:")) && pals <= 6
+}
+
+// siAfirma are the words that may follow a leading "sí" in an approval ("sí, gracias", "sí, está bien");
+// otherwise "si" starts a condition ("si es de noche"), not an answer.
+var siAfirma = conjunto(`señor gracias perfecto vale claro eso esta exacto correcto genial bien funciona`)
+
+func afirmacion(n string) bool {
+	campos := strings.Fields(n)
+	if len(campos) < 2 || strings.Trim(campos[0], ",.!") != "si" {
+		return true
+	}
+	return strings.HasSuffix(campos[0], ",") || siAfirma[strings.Trim(campos[1], ",.!")]
+}
+
+// modificacionCorta: "ahora con impares", "y para palabras" are short; a long message or one with
+// several sentences is a new request even if it starts with "y …" or "pero …".
+func modificacionCorta(n string, pals int) bool {
+	if reCorteFrase.MatchString(n) {
+		return false
+	}
+	if strings.HasPrefix(n, "ahora ") || strings.HasPrefix(n, "y ahora ") || strings.HasPrefix(n, "cambial") {
+		return pals <= 14
+	}
+	return pals <= 8
 }
 
 func esCodigoCtx(ctx *nucleo.Contexto) bool {
@@ -149,17 +249,37 @@ func Fusionar(anterior *nucleo.Pregunta, nueva *nucleo.Pregunta) *nucleo.Pregunt
 		return anterior
 	}
 	r := *anterior
-	r.Texto = strings.TrimSpace(anterior.Texto + "; " + nueva.Texto)
-	r.Normal = nucleo.Normalizar(r.Texto)
-	r.Tokens = append(append([]nucleo.Token(nil), anterior.Tokens...), nueva.Tokens...)
+	// Texto is "anterior; nueva" and every token and number offset indexes it (nucleo contract):
+	// the new request's offsets move by where it starts, the old ones by the trimmed leading space.
+	pegado := anterior.Texto + "; " + nueva.Texto
+	izq := len(pegado) - len(strings.TrimLeftFunc(pegado, unicode.IsSpace))
+	r.Texto = strings.TrimSpace(pegado)
+	desplA, desplN := -izq, len(anterior.Texto)+2-izq
+	if strings.TrimSpace(anterior.Texto) == "" {
+		r.Texto = strings.TrimSpace(nueva.Texto)
+		desplN = -(len(nueva.Texto) - len(strings.TrimLeftFunc(nueva.Texto, unicode.IsSpace)))
+	}
+	r.Tokens = make([]nucleo.Token, 0, len(anterior.Tokens)+len(nueva.Tokens))
+	r.Tokens = append(r.Tokens, moverTokens(anterior.Tokens, desplA, len(r.Texto))...)
+	r.Tokens = append(r.Tokens, moverTokens(nueva.Tokens, desplN, len(r.Texto))...)
+	switch {
+	case strings.TrimSpace(anterior.Resto) == "":
+		r.Resto = nueva.Resto
+	case strings.TrimSpace(nueva.Resto) == "":
+		r.Resto = anterior.Resto
+	default:
+		r.Resto = strings.TrimSpace(anterior.Resto) + "; " + strings.TrimSpace(nueva.Resto)
+	}
+	r.Normal = nucleo.Normalizar(r.Resto)
 	if nueva.Codigo != "" {
 		r.Codigo = nueva.Codigo
 	}
 	if nueva.Modo != "" {
 		r.Modo = nueva.Modo
 	}
+	r.Numeros = moverNumeros(anterior.Numeros, desplA, len(r.Texto))
 	if len(nueva.Numeros) > 0 {
-		r.Numeros = nueva.Numeros
+		r.Numeros = moverNumeros(nueva.Numeros, desplN, len(r.Texto))
 	}
 	cambio := false
 	if anterior.Marco != nil || nueva.Marco != nil {
@@ -178,6 +298,9 @@ func Fusionar(anterior *nucleo.Pregunta, nueva *nucleo.Pregunta) *nucleo.Pregunt
 			}
 			// an action that only came from the modifiers ("ahora con impares" → filtrar) does not replace
 			if n.Accion != "" && !(n.Accion == "filtrar" && len(n.Mods) > 0 && !tieneVerbo(nueva)) {
+				if n.Accion != m.Accion {
+					m.Salida = n.Salida // the new action's own output (salida recomputes the rest)
+				}
 				sustituye(&m.Accion, n.Accion)
 			}
 			if n.Entrada != "" {
@@ -209,7 +332,8 @@ func Fusionar(anterior *nucleo.Pregunta, nueva *nucleo.Pregunta) *nucleo.Pregunt
 				cambio = true
 			}
 		}
-		v := &vista{}
+		// "la letra más repetida" keeps its one-element output (see salida)
+		v := &vista{masFrec: m.Accion == "frecuencia" && m.Salida != "" && m.Salida != "mapa"}
 		v.salida(&m)
 		r.Marco = &m
 	}
@@ -242,6 +366,32 @@ func Fusionar(anterior *nucleo.Pregunta, nueva *nucleo.Pregunta) *nucleo.Pregunt
 	r.Intenciones = anterior.Intenciones
 	r.ConsultaWeb = ConsultaIngles(&r, nil)
 	return &r
+}
+
+// moverTokens copies tokens with their offsets moved by d; tokens that would fall outside a text of
+// length n (they cannot, for offsets that indexed the original texts) are dropped.
+func moverTokens(ts []nucleo.Token, d, n int) []nucleo.Token {
+	out := make([]nucleo.Token, 0, len(ts))
+	for _, t := range ts {
+		t.Desde += d
+		t.Hasta += d
+		if t.Desde >= 0 && t.Hasta <= n && t.Desde <= t.Hasta {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+func moverNumeros(ns []nucleo.Numero, d, n int) []nucleo.Numero {
+	out := make([]nucleo.Numero, 0, len(ns))
+	for _, x := range ns {
+		x.Desde += d
+		x.Hasta += d
+		if x.Desde >= 0 && x.Hasta <= n && x.Desde <= x.Hasta {
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 // familiaMod groups modifiers that exclude each other.

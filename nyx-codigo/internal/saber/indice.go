@@ -44,6 +44,7 @@ type IndiceStd struct {
 	Ejemplos  []EjemploStd `json:"ejemplos"`
 
 	porSimbolo map[string][]int // "strings.split" → indices
+	porNombre  map[string][]int // symbol without package, "buffer.grow" or "split" → indices
 	porToken   map[string][]int // token → indices
 }
 
@@ -176,8 +177,13 @@ func simboloDeEjemplo(nombre string) string {
 
 func (ix *IndiceStd) preparar() {
 	ix.porSimbolo = map[string][]int{}
+	ix.porNombre = map[string][]int{}
 	ix.porToken = map[string][]int{}
 	for i, e := range ix.Ejemplos {
+		if e.Simbolo != "" {
+			k := strings.ToLower(e.Simbolo)
+			ix.porNombre[k] = append(ix.porNombre[k], i)
+		}
 		ult := e.Paquete[strings.LastIndexByte(e.Paquete, '/')+1:]
 		claves := []string{strings.ToLower(e.Paquete + "." + e.Simbolo), strings.ToLower(ult + "." + e.Simbolo)}
 		if e.Simbolo == "" {
@@ -277,17 +283,9 @@ func (ix *IndiceStd) Buscar(palabras []string, simbolo string, max int) []Ejempl
 		for _, i := range ix.porSimbolo[simbolo] {
 			tomar(i)
 		}
-		if !strings.Contains(simbolo, ".") {
-			// a bare symbol: "Split" in any package
-			var cand []int
-			for i, e := range ix.Ejemplos {
-				if strings.ToLower(e.Simbolo) == simbolo {
-					cand = append(cand, i)
-				}
-			}
-			for _, i := range cand {
-				tomar(i)
-			}
+		// a symbol without its package: "Split" or "Buffer.Grow" in any package
+		for _, i := range ix.porNombre[simbolo] {
+			tomar(i)
 		}
 	}
 	if len(out) >= max || len(palabras) == 0 {

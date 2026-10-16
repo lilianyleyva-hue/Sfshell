@@ -192,15 +192,31 @@ func Formula(m Modelo) (*big.Int, string, bool) {
 		if len(m.Filtros) > 0 || len(m.Contiene) > 0 {
 			return nil, "", false
 		}
-		total := 0
+		total, unos := 0, 0
 		div := big.NewInt(1)
 		var partes []string
 		for _, c := range m.Multiconj {
 			total += c
 			div.Mul(div, factorial(c))
 			partes = append(partes, fmt.Sprintf("%d!", c))
+			if c == 1 {
+				unos++
+			}
 		}
 		v := new(big.Int).Div(factorial(total), div)
+		if m.Circular {
+			// a symbol that appears once means no turn leaves an arrangement as it was, so every
+			// arrangement has exactly total turns: divide by total
+			if unos == 0 || total == 0 {
+				return nil, "", false
+			}
+			c := new(big.Int).Div(v, big.NewInt(int64(total)))
+			if unos == len(m.Multiconj)-1 && len(m.Multiconj) >= 2 {
+				p := unos
+				return c, fmt.Sprintf("P(%d,%d)/%d = %s/%d = %s (en círculo, los giros no cuentan)", total, p, total, v, total, c), true
+			}
+			return c, fmt.Sprintf("%d!/(%s)/%d = %s (en círculo, los giros no cuentan)", total, strings.Join(partes, "·"), total, c), true
+		}
 		return v, fmt.Sprintf("%d!/(%s) = %s", total, strings.Join(partes, "·"), v), true
 	}
 	if len(m.Filtros) > 0 || (m.Circular && m.Repeticion) {
@@ -275,7 +291,7 @@ func Espacio(m Modelo) *big.Int {
 		return big.NewInt(m.Rango[1] - m.Rango[0] + 1)
 	case len(m.Multiconj) > 0:
 		mm := m
-		mm.Filtros, mm.Contiene = nil, nil
+		mm.Filtros, mm.Contiene, mm.Circular = nil, nil, false
 		v, _, _ := Formula(mm)
 		return v
 	}
@@ -379,7 +395,7 @@ func ContarFuerza(ctx context.Context, m Modelo, limite int64) (*big.Int, error)
 				return
 			}
 			if len(sec) == total {
-				if errR = cortar(); errR == nil && contieneTodos(sec, m.Contiene) && pasa(sec) {
+				if errR = cortar(); errR == nil && (!m.Circular || rotacionMinima(sec)) && contieneTodos(sec, m.Contiene) && pasa(sec) {
 					cuenta++
 				}
 				return

@@ -2,6 +2,7 @@ package puzles
 
 import (
 	"fmt"
+	"math"
 	"math/big"
 	"sort"
 	"strconv"
@@ -218,6 +219,9 @@ func LeerConteo(p *nucleo.Pregunta) (Modelo, string, error) {
 			m.Multiconj = append(m.Multiconj, 1)
 		}
 		m.Longitud = utf8.RuneCountInString(w)
+		if m.Longitud > maxElementosConteo {
+			return Modelo{}, "", errDemasiadosElementos(int64(m.Longitud))
+		}
 		var reps []string
 		for i, c := range m.Multiconj {
 			if c > 1 {
@@ -327,16 +331,7 @@ func LeerConteo(p *nucleo.Pregunta) (Modelo, string, error) {
 	}
 	// round table
 	if l.tiene("mesa redonda", "en circulo", "en un circulo", "en corro", "alrededor de una mesa", "en una rueda") {
-		if len(nums) == 0 {
-			return Modelo{}, "", noEntiendo
-		}
-		n := int(maxNum(nums))
-		k := n
-		if len(nums) >= 2 {
-			k = int(minNum(nums))
-		}
-		m := Modelo{Alfabeto: simbolos("persona", n), Longitud: k, Ordenado: true, Circular: true}
-		return m, fmt.Sprintf("sentar %d personas alrededor de una mesa redonda (los giros dan lo mismo)", n), nil
+		return leerMesaRedonda(l, nums)
 	}
 	// share n identical things among k
 	if l.tieneRaiz("repart", "distribu") && l.tiene("entre") {
@@ -402,8 +397,11 @@ func LeerConteo(p *nucleo.Pregunta) (Modelo, string, error) {
 	if len(nums) >= 2 {
 		k = int(minNum(nums))
 	}
-	if n <= 0 || n > 1000 || k < 0 {
+	if n <= 0 || k < 0 {
 		return Modelo{}, "", noEntiendo
+	}
+	if n > maxElementosConteo {
+		return Modelo{}, "", errDemasiadosElementos(int64(n))
 	}
 	cosa := "elementos"
 	m := Modelo{Alfabeto: simbolos("elemento", n), Longitud: k, Ordenado: ordenado, Repeticion: repite}
@@ -422,6 +420,88 @@ func LeerConteo(p *nucleo.Pregunta) (Modelo, string, error) {
 		lect += ", pudiendo repetir"
 	}
 	return m, lect, nil
+}
+
+// maxElementosConteo bounds the people, letters or elements of a counting question: the formulas
+// use factorials and the reading lists every symbol, so larger inputs would only produce huge
+// numbers and long waits.
+const maxElementosConteo = 1000
+
+func errDemasiadosElementos(n int64) error {
+	return fmt.Errorf("puzles: %d elementos son demasiados; cuento hasta %d: %w", n, maxElementosConteo, nucleo.ErrNoSoportado)
+}
+
+var (
+	palabrasGente  = []string{"personas", "persona", "amigos", "amigas", "invitados", "invitadas", "comensales", "niños", "niñas", "alumnos", "alumnas", "chicos", "chicas", "jugadores", "hermanos", "estudiantes", "caballeros", "damas", "parejas", "familiares", "profesores", "socios"}
+	palabrasSillas = []string{"sillas", "silla", "asientos", "asiento", "sitios", "plazas", "puestos", "lugares", "sillones", "taburetes"}
+)
+
+// leerMesaRedonda reads "n personas en una mesa redonda" ((n−1)!), "k personas en una mesa redonda
+// de n sillas" (P(n,k)/n when k < n: the empty seats count, the turns do not) and "una mesa redonda
+// de k sillas para n personas" (choose who sits: P(n,k)/k when n > k).
+func leerMesaRedonda(l lectura, nums []int64) (Modelo, string, error) {
+	if len(nums) == 0 {
+		return Modelo{}, "", fmt.Errorf("puzles: ¿cuántas personas se sientan?: %w", nucleo.ErrNoEntiendo)
+	}
+	gente, okG := numeroAntes(l, palabrasGente...)
+	sillas, okS := numeroAntes(l, palabrasSillas...)
+	resto := func(usado int64) (int64, bool) {
+		quitado := false
+		for _, x := range nums {
+			if x == usado && !quitado {
+				quitado = true
+				continue
+			}
+			return x, true
+		}
+		return 0, false
+	}
+	switch {
+	case okG && !okS:
+		if x, ok := resto(gente); ok {
+			sillas = x
+		} else {
+			sillas = gente
+		}
+	case okS && !okG:
+		if x, ok := resto(sillas); ok {
+			gente = x
+		} else {
+			gente = sillas
+		}
+	case !okG && !okS:
+		gente = nums[0]
+		sillas = gente
+		if len(nums) >= 2 {
+			sillas = nums[1]
+		}
+	}
+	if gente <= 0 || sillas <= 0 {
+		return Modelo{}, "", fmt.Errorf("puzles: hace falta al menos una persona y una silla: %w", nucleo.ErrNoEntiendo)
+	}
+	if gente > maxElementosConteo || sillas > maxElementosConteo {
+		return Modelo{}, "", errDemasiadosElementos(max(gente, sillas))
+	}
+	p, s := int(gente), int(sillas)
+	switch {
+	case p == s:
+		m := Modelo{Alfabeto: simbolos("persona", p), Longitud: p, Ordenado: true, Circular: true}
+		return m, fmt.Sprintf("sentar %d personas alrededor de una mesa redonda (los giros dan lo mismo)", p), nil
+	case p > s:
+		m := Modelo{Alfabeto: simbolos("persona", p), Longitud: s, Ordenado: true, Circular: true}
+		return m, fmt.Sprintf("elegir a %d de las %d personas y sentarlas alrededor de una mesa redonda de %d sillas (los giros dan lo mismo)", s, p, s), nil
+	}
+	// fewer people than seats: the empty seats are identical symbols around the circle
+	m := Modelo{Alfabeto: append(simbolos("persona", p), "silla vacía"), Longitud: s, Ordenado: true, Circular: true}
+	for i := 0; i < p; i++ {
+		m.Multiconj = append(m.Multiconj, 1)
+	}
+	m.Multiconj = append(m.Multiconj, s-p)
+	vacias := "quedan %d sillas vacías"
+	if s-p == 1 {
+		vacias = "queda %d silla vacía"
+	}
+	return m, fmt.Sprintf("sentar %d personas en una mesa redonda de %d sillas ("+vacias+"; los giros dan lo mismo)", p, s, s-p), nil
 }
 
 func maxNum(xs []int64) int64 {
@@ -602,8 +682,13 @@ func esCuadrado(n int64) bool {
 	if n < 0 {
 		return false
 	}
-	r := int64(0)
-	for r*r < n {
+	// float sqrt, then exact correction; r never passes ⌊√MaxInt64⌋ so r*r cannot overflow
+	const raizMax = 3_037_000_499
+	r := min(int64(math.Sqrt(float64(n))), raizMax)
+	for r > 0 && r*r > n {
+		r--
+	}
+	for r < raizMax && (r+1)*(r+1) <= n {
 		r++
 	}
 	return r*r == n

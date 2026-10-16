@@ -276,6 +276,7 @@ type venn struct {
 	claves     []string
 	lemas      []string
 	nombres    []string
+	singulares []string // the names in the singular, for "algo que es animal sin ser perro"
 	individuos map[int]bool
 	k          int
 	nRegiones  int
@@ -299,6 +300,7 @@ func nuevoVenn(cs []Categorica) (*venn, error) {
 			nombre = lema
 		}
 		v.nombres = append(v.nombres, nombre)
+		v.singulares = append(v.singulares, singularDe(nombre, lema))
 		return len(v.claves) - 1
 	}
 	for _, c := range cs {
@@ -463,9 +465,9 @@ func (v *venn) describirModelo(m []bool) string {
 					ind = t
 					continue
 				}
-				dentro = append(dentro, v.nombres[t])
+				dentro = append(dentro, v.singulares[t])
 			} else if !v.individuos[t] {
-				fuera = append(fuera, v.nombres[t])
+				fuera = append(fuera, v.singulares[t])
 			}
 		}
 		var s string
@@ -494,6 +496,32 @@ func (v *venn) describirModelo(m []bool) string {
 		return "un mundo donde no hay nada"
 	}
 	return "puede haber " + unirY(partes)
+}
+
+// singularDe writes a term as written but in the singular, word by word, using its lemma: a
+// written word that is its lemma plus "s"/"es" loses the ending ("animales" → "animal",
+// "mamíferos" → "mamífero"); a word that does not fit its lemma is replaced by the lemma.
+func singularDe(escrito, lema string) string {
+	ws, ls := strings.Fields(escrito), strings.Fields(lema)
+	if len(ws) != len(ls) {
+		return escrito
+	}
+	out := make([]string, len(ws))
+	for i, w := range ws {
+		n, l := nucleo.Normalizar(w), nucleo.Normalizar(ls[i])
+		switch {
+		case n == l:
+			out[i] = w
+		case strings.HasPrefix(n, l) && (n == l+"s" || n == l+"es"):
+			// Normalizar keeps one rune per letter, so the lemma's rune count cuts the written word
+			out[i] = string([]rune(w)[:utf8.RuneCountInString(l)])
+		case strings.HasSuffix(n, "ces") && n[:len(n)-3]+"z" == l:
+			out[i] = string([]rune(w)[:utf8.RuneCountInString(n)-3]) + "z"
+		default:
+			out[i] = ls[i]
+		}
+	}
+	return strings.Join(out, " ")
 }
 
 func describirClausulasVenn(c Categorica) string {

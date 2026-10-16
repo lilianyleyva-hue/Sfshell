@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"math/rand"
 	"sort"
 	"time"
 
@@ -60,14 +61,18 @@ func MCM(a, b *big.Int) *big.Int {
 
 // Factorizar returns the prime factorization of |x| (x ≠ 0): trial division up to 10⁶, then
 // Pollard-Brent for what is left, with a 3 s limit (or ctx, whichever ends first). The deadline is
-// checked throughout; Miller-Rabin only runs on cofactors of at most maxBitsPrimalidad bits, so a
-// huge number that trial division does not finish gives an honest error instead of a long wait.
+// checked throughout, including between the Miller-Rabin rounds; Miller-Rabin only runs on cofactors
+// of at most maxBitsPrimalidad bits, so a huge number that trial division does not finish gives an
+// honest error instead of a long wait.
 func Factorizar(ctx context.Context, x *big.Int) ([]Factor, error) {
 	if x == nil || x.Sign() == 0 {
 		return nil, errors.New("el 0 no se puede descomponer en factores primos")
 	}
 	ctx, cancel := context.WithTimeout(ctx, tiempoFactorizar)
 	defer cancel()
+	sinTiempo := func() error {
+		return fmt.Errorf("%w: no he terminado de descomponer %s", nucleo.ErrSinTiempo, recortar(x.String()))
+	}
 	n := new(big.Int).Abs(x)
 	cuenta := map[string]int{}
 	primos := map[string]*big.Int{}
@@ -78,13 +83,23 @@ func Factorizar(ctx context.Context, x *big.Int) ([]Factor, error) {
 		}
 		cuenta[s] += k
 	}
-	if cabeEnPrimalidad(n) && EsPrimo(n) {
-		return []Factor{{Primo: n, Exp: 1}}, nil
+	if cabeEnPrimalidad(n) {
+		primo, err := esPrimoCtx(ctx, n)
+		if err != nil {
+			return nil, sinTiempo()
+		}
+		if primo {
+			return []Factor{{Primo: n, Exp: 1}}, nil
+		}
 	}
 	// trial division
 	var q, r big.Int
 	d := new(big.Int)
 	vueltas := 0
+	// The cofactor is tested for primality (to stop early, as in 2·p) only at doubling intervals:
+	// testing after every factor found costs one Miller-Rabin per prime, which on a number such as
+	// 3000! (thousands of bits, hundreds of small primes) takes seconds.
+	proximaPrueba, cambiado := 0, false
 	for i := int64(2); i <= limiteTanteo; {
 		if n.Cmp(big.NewInt(1)) == 0 {
 			break
@@ -104,14 +119,24 @@ func Factorizar(ctx context.Context, x *big.Int) ([]Factor, error) {
 		}
 		if k > 0 {
 			añadir(d, k)
-			// a prime cofactor ends the search early (only when the test is cheap)
-			if cabeEnPrimalidad(n) && EsPrimo(n) {
-				break
+			cambiado = true
+			if ctx.Err() != nil {
+				return nil, sinTiempo()
+			}
+		}
+		if cambiado && vueltas >= proximaPrueba && n.Cmp(big.NewInt(1)) > 0 && cabeEnPrimalidad(n) {
+			cambiado, proximaPrueba = false, 2*vueltas+64
+			primo, err := esPrimoCtx(ctx, n)
+			if err != nil {
+				return nil, sinTiempo()
+			}
+			if primo {
+				break // a prime cofactor ends the search early
 			}
 		}
 		vueltas++
 		if vueltas%pasoCtx == 0 && ctx.Err() != nil {
-			return nil, fmt.Errorf("%w: no he terminado de descomponer %s", nucleo.ErrSinTiempo, recortar(x.String()))
+			return nil, sinTiempo()
 		}
 		if i == 2 {
 			i = 3
@@ -123,17 +148,26 @@ func Factorizar(ctx context.Context, x *big.Int) ([]Factor, error) {
 		pila := []*big.Int{n}
 		for len(pila) > 0 {
 			if ctx.Err() != nil {
-				return nil, fmt.Errorf("%w: no he terminado de descomponer %s", nucleo.ErrSinTiempo, recortar(x.String()))
+				return nil, sinTiempo()
 			}
 			m := pila[len(pila)-1]
 			pila = pila[:len(pila)-1]
 			if m.Cmp(big.NewInt(1)) == 0 {
 				continue
 			}
+			// below 10¹² every number left after trial division up to 10⁶ is prime
+			if m.Cmp(big.NewInt(limiteTanteo*limiteTanteo)) < 0 {
+				añadir(m, 1)
+				continue
+			}
 			if !cabeEnPrimalidad(m) {
 				return nil, fmt.Errorf("%w: queda un factor de %d cifras y no sé si es primo", nucleo.ErrNoSoportado, len(m.String()))
 			}
-			if EsPrimo(m) {
+			primo, err := esPrimoCtx(ctx, m)
+			if err != nil {
+				return nil, sinTiempo()
+			}
+			if primo {
 				añadir(m, 1)
 				continue
 			}
@@ -157,6 +191,56 @@ func Factorizar(ctx context.Context, x *big.Int) ([]Factor, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Primo.Cmp(out[j].Primo) < 0 })
 	return out, nil
+}
+
+// esPrimoCtx is EsPrimo with the deadline checked between rounds: Baillie-PSW first (one strong
+// base-2 test plus a Lucas test), then 20 Miller-Rabin rounds with pseudo-random bases. A 4096-bit
+// number takes about 50 ms per round, so ctx is honoured within one round.
+func esPrimoCtx(ctx context.Context, x *big.Int) (bool, error) {
+	if x == nil || x.Sign() <= 0 {
+		return false, nil
+	}
+	if ctx.Err() != nil {
+		return false, nucleo.ErrSinTiempo
+	}
+	if x.BitLen() <= 64 {
+		return x.ProbablyPrime(rondasMillerRabin), nil // cheap for small numbers
+	}
+	if !x.ProbablyPrime(0) { // Baillie-PSW: also rejects even numbers and small factors
+		return false, nil
+	}
+	uno := big.NewInt(1)
+	nm1 := new(big.Int).Sub(x, uno)
+	s := nm1.TrailingZeroBits()
+	dd := new(big.Int).Rsh(nm1, s)
+	nm3 := new(big.Int).Sub(nm1, big.NewInt(2)) // bases in [2, n-2]
+	azar := rand.New(rand.NewSource(int64(x.Uint64())))
+	for ronda := 0; ronda < rondasMillerRabin; ronda++ {
+		if ctx.Err() != nil {
+			return false, nucleo.ErrSinTiempo
+		}
+		a := new(big.Int).Rand(azar, nm3)
+		a.Add(a, big.NewInt(2))
+		y := new(big.Int).Exp(a, dd, x)
+		if y.Cmp(uno) == 0 || y.Cmp(nm1) == 0 {
+			continue
+		}
+		testigo := true
+		for j := uint(1); j < s; j++ {
+			y.Mul(y, y).Mod(y, x)
+			if y.Cmp(nm1) == 0 {
+				testigo = false
+				break
+			}
+			if y.Cmp(uno) == 0 {
+				break
+			}
+		}
+		if testigo {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // potenciaPerfecta finds m = b^k with k ≥ 2. m has no prime factor below 10⁶ (trial division ran

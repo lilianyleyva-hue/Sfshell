@@ -328,8 +328,13 @@ func Sudoku(ctx context.Context, t [9][9]int, n *nucleo.Nodo) (sol [9][9]int, un
 // SudokuDetallado is Sudoku plus the human steps.
 func SudokuDetallado(ctx context.Context, t [9][9]int, n *nucleo.Nodo) ([9][9]int, bool, Estadisticas, ResultadoSudoku, error) {
 	var res ResultadoSudoku
+	for c := 0; c < 81; c++ {
+		if v := t[c/9][c%9]; v < 0 || v > 9 {
+			return t, false, Estadisticas{}, res, fmt.Errorf("puzles: la casilla (%d,%d) tiene %d: %w", c/9+1, c%9+1, v, nucleo.ErrNoEntiendo)
+		}
+	}
 	if err := ValidarSudoku(t, false); err != nil {
-		return t, false, Estadisticas{}, res, fmt.Errorf("puzles: el sudoku no es válido: %v: %w", err, nucleo.ErrNoEntiendo)
+		return t, false, Estadisticas{}, res, &SinSolucion{Que: "el sudoku", Motivo: err.Error()}
 	}
 	dados := 0
 	for c := 0; c < 81; c++ {
@@ -358,7 +363,7 @@ func SudokuDetallado(ctx context.Context, t [9][9]int, n *nucleo.Nodo) ([9][9]in
 	res.SoloTecnicas = llenas == 81 && errH == nil
 	if errH != nil {
 		h.Mal("Las técnicas llegan a una contradicción: el sudoku no tiene solución")
-		return t, false, Estadisticas{}, res, fmt.Errorf("puzles: el sudoku no tiene solución: %w", nucleo.ErrNoEntiendo)
+		return t, false, Estadisticas{}, res, &SinSolucion{Que: "el sudoku", Motivo: "con las técnicas llego a una casilla sin ningún número posible"}
 	}
 	if res.SoloTecnicas {
 		h.Bien("Resuelto solo con técnicas humanas (%d casillas)", res.PorTecnicas)
@@ -384,7 +389,7 @@ func SudokuDetallado(ctx context.Context, t [9][9]int, n *nucleo.Nodo) ([9][9]in
 	}
 	if len(sols) == 0 {
 		b.Mal("No tiene solución")
-		return t, false, est, res, fmt.Errorf("puzles: el sudoku no tiene solución: %w", nucleo.ErrNoEntiendo)
+		return t, false, est, res, &SinSolucion{Que: "el sudoku", Motivo: fmt.Sprintf("probé todas las posibilidades (%d caminos) y ninguna funciona", est.Nodos)}
 	}
 	var sol [9][9]int
 	for c := 0; c < 81; c++ {

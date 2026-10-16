@@ -227,6 +227,8 @@ func instanciar(h nucleo.Hecho, vars map[string]string) (nucleo.Hecho, bool) {
 }
 
 // reglasEfectivas adds the symmetric reading of "ningún A es B" rules (then "ningún B es A").
+// The symmetric rule keeps the id of the stored rule (so provenance names real ids): several
+// effective rules may share one id, and comprobarCadena tries each of them.
 func reglasEfectivas(rs []nucleo.Regla) []nucleo.Regla {
 	out := make([]nucleo.Regla, 0, len(rs))
 	for i, r := range rs {
@@ -268,6 +270,24 @@ func Encadenar(ctx context.Context, b BaseHechos, maxIter int) []Derivacion {
 		conocidos[claveHecho(h)] = true
 	}
 	reglas := reglasEfectivas(b.Reglas())
+	usados := map[string]bool{}
+	for _, h := range hechos {
+		usados[h.ID] = true
+	}
+	for _, r := range reglas {
+		usados[r.ID] = true
+	}
+	siguiente := 0
+	nuevoID := func() string {
+		for {
+			siguiente++
+			id := fmt.Sprintf("d%d", siguiente)
+			if !usados[id] {
+				usados[id] = true
+				return id
+			}
+		}
+	}
 	var ders []Derivacion
 	for it := 0; it < maxIter && ctx.Err() == nil; it++ {
 		nuevos := 0
@@ -285,7 +305,7 @@ func Encadenar(ctx context.Context, b BaseHechos, maxIter int) []Derivacion {
 					continue
 				}
 				conocidos[k] = true
-				h.ID = fmt.Sprintf("d%d", len(ders)+1)
+				h.ID = nuevoID()
 				h.Fuente = "deducido"
 				h.Texto = DescribirHecho(h)
 				h.Confianza = 1
@@ -311,75 +331,97 @@ func Consultar(ctx context.Context, b BaseHechos, q nucleo.Hecho) (respuesta str
 	if b == nil {
 		return "no_se", nil
 	}
-	ders := Encadenar(ctx, b, maxIterEncadenar)
-	hechoPorID := map[string]nucleo.Hecho{}
-	var todos []nucleo.Hecho
+	return nuevoConsultor(ctx, b).consultar(q)
+}
+
+// consultor holds one forward-chaining run and answers several questions over it.
+type consultor struct {
+	todos      []nucleo.Hecho
+	hechoPorID map[string]nucleo.Hecho
+	derPorID   map[string]Derivacion
+	reglaPorID map[string]nucleo.Regla
+	formas     map[string]string
+	ders       []Derivacion
+}
+
+func nuevoConsultor(ctx context.Context, b BaseHechos) *consultor {
+	c := &consultor{
+		hechoPorID: map[string]nucleo.Hecho{},
+		derPorID:   map[string]Derivacion{},
+		reglaPorID: map[string]nucleo.Regla{},
+		formas:     FormasEscritas(b),
+	}
+	c.ders = Encadenar(ctx, b, maxIterEncadenar)
 	for i, h := range b.Todos() {
 		if h.ID == "" {
 			h.ID = fmt.Sprintf("h?%d", i+1)
 		}
-		hechoPorID[h.ID] = h
-		todos = append(todos, h)
+		c.hechoPorID[h.ID] = h
+		c.todos = append(c.todos, h)
 	}
-	derPorID := map[string]Derivacion{}
-	for _, d := range ders {
-		derPorID[d.Hecho.ID] = d
-		todos = append(todos, d.Hecho)
+	for _, d := range c.ders {
+		c.derPorID[d.Hecho.ID] = d
+		c.todos = append(c.todos, d.Hecho)
 	}
-	reglaPorID := map[string]nucleo.Regla{}
 	for _, r := range reglasEfectivas(b.Reglas()) {
-		if _, ya := reglaPorID[r.ID]; !ya {
-			reglaPorID[r.ID] = r
+		if _, ya := c.reglaPorID[r.ID]; !ya {
+			c.reglaPorID[r.ID] = r
 		}
 	}
-	buscar := func(neg bool) (nucleo.Hecho, bool) {
-		x := q
-		x.Negado = neg
-		k := claveHecho(x)
-		for _, h := range todos {
-			if claveHecho(h) == k {
-				return h, true
-			}
+	return c
+}
+
+func (c *consultor) buscar(q nucleo.Hecho, neg bool) (nucleo.Hecho, bool) {
+	x := q
+	x.Negado = neg
+	k := claveHecho(x)
+	for _, h := range c.todos {
+		if claveHecho(h) == k {
+			return h, true
 		}
-		return nucleo.Hecho{}, false
 	}
-	explicar := func(h nucleo.Hecho) []string {
-		var lineas []string
-		visto := map[string]bool{}
-		var rec func(id string, final bool)
-		rec = func(id string, final bool) {
-			if visto[id] {
-				return
-			}
-			visto[id] = true
-			if d, ok := derPorID[id]; ok {
-				for _, s := range d.Desde {
-					rec(s, false)
-				}
-				if !final {
-					lineas = append(lineas, "así que "+DescribirHecho(d.Hecho))
-				}
-				return
-			}
-			if h, ok := hechoPorID[id]; ok {
-				lineas = append(lineas, textoHechoBase(h))
-				return
-			}
-			if r, ok := reglaPorID[id]; ok {
-				lineas = append(lineas, DescribirRegla(r))
-			}
+	return nucleo.Hecho{}, false
+}
+
+func (c *consultor) explicar(h nucleo.Hecho) []string {
+	var lineas []string
+	visto := map[string]bool{}
+	var rec func(id string, final bool)
+	rec = func(id string, final bool) {
+		if visto[id] {
+			return
 		}
-		rec(h.ID, true)
-		if len(lineas) == 0 {
+		visto[id] = true
+		if d, ok := c.derPorID[id]; ok {
+			for _, s := range d.Desde {
+				rec(s, false)
+			}
+			if !final {
+				lineas = append(lineas, "así que "+DescribirHechoCon(d.Hecho, c.formas))
+			}
+			return
+		}
+		if h, ok := c.hechoPorID[id]; ok {
 			lineas = append(lineas, textoHechoBase(h))
+			return
 		}
-		return lineas
+		if r, ok := c.reglaPorID[id]; ok {
+			lineas = append(lineas, DescribirRegla(r))
+		}
 	}
-	if h, ok := buscar(q.Negado); ok {
-		return "si", explicar(h)
+	rec(h.ID, true)
+	if len(lineas) == 0 {
+		lineas = append(lineas, textoHechoBase(h))
 	}
-	if h, ok := buscar(!q.Negado); ok {
-		return "no", explicar(h)
+	return lineas
+}
+
+func (c *consultor) consultar(q nucleo.Hecho) (string, []string) {
+	if h, ok := c.buscar(q, q.Negado); ok {
+		return "si", c.explicar(h)
+	}
+	if h, ok := c.buscar(q, !q.Negado); ok {
+		return "no", c.explicar(h)
 	}
 	return "no_se", nil
 }
@@ -424,6 +466,9 @@ func LeerHecho(texto string, lem nucleo.Lematizador) (*nucleo.Hecho, *nucleo.Reg
 		if !t.sim {
 			ws = append(ws, t)
 		}
+	}
+	if len(ws) > 0 && interrogativos[ws[0].norma] {
+		return nil, nil, fmt.Errorf("logica: «%s» es una pregunta abierta, no un hecho: %w", limpio, nucleo.ErrNoEntiendo)
 	}
 	for i, t := range ws {
 		if i > 0 && i < len(ws)-1 && (t.norma == "significa" || (t.norma == "quiere" && i+2 < len(ws) && ws[i+1].norma == "decir")) {
@@ -533,16 +578,13 @@ func comprobarCadena(ctx context.Context, b BaseHechos, ders []Derivacion) bool 
 		}
 		ids[h.ID] = h
 	}
-	reglas := map[string]nucleo.Regla{}
+	// several effective rules may share an id (a "ningún" rule and its symmetric reading)
+	reglas := map[string][]nucleo.Regla{}
 	for _, r := range reglasEfectivas(b.Reglas()) {
-		reglas[r.ID] = r
+		reglas[r.ID] = append(reglas[r.ID], r)
 	}
 	for _, d := range ders {
 		if len(d.Desde) == 0 {
-			return false
-		}
-		r, ok := reglas[d.Desde[len(d.Desde)-1]]
-		if !ok || len(r.Si) != len(d.Desde)-1 {
 			return false
 		}
 		var fuentes []nucleo.Hecho
@@ -554,9 +596,17 @@ func comprobarCadena(ctx context.Context, b BaseHechos, ders []Derivacion) bool 
 			fuentes = append(fuentes, h)
 		}
 		encontrado := false
-		for _, m := range emparejar(r.Si, fuentes) {
-			if h, ok := instanciar(r.Entonces, m.vars); ok && claveHecho(h) == claveHecho(d.Hecho) {
-				encontrado = true
+		for _, r := range reglas[d.Desde[len(d.Desde)-1]] {
+			if len(r.Si) != len(fuentes) {
+				continue
+			}
+			for _, m := range emparejar(r.Si, fuentes) {
+				if h, ok := instanciar(r.Entonces, m.vars); ok && claveHecho(h) == claveHecho(d.Hecho) {
+					encontrado = true
+					break
+				}
+			}
+			if encontrado {
 				break
 			}
 		}
@@ -566,4 +616,70 @@ func comprobarCadena(ctx context.Context, b BaseHechos, ders []Derivacion) bool 
 		ids[d.Hecho.ID] = d.Hecho
 	}
 	return ctx.Err() == nil
+}
+
+// interrogativos start an open question ("¿qué significa capicúa?"), never the subject of a fact.
+var interrogativos = map[string]bool{
+	"que": true, "quien": true, "quienes": true, "cual": true, "cuales": true, "como": true, "donde": true,
+	"cuando": true, "cuanto": true, "cuanta": true, "cuantos": true, "cuantas": true, "por": true, "porque": true,
+}
+
+// PreguntaAbierta is an open question about stored facts: "¿qué significa capicúa?" →
+// {Sujeto: "capicua", Relacion: "significa"}; "¿qué es Toby?" → es_un; "¿qué tiene Toby?" → tiene.
+type PreguntaAbierta struct {
+	Sujeto   string // as stored (normalized)
+	Escrito  string // as written ("capicúa")
+	Relacion string // "significa", "es_un" or "tiene"
+}
+
+// LeerPreguntaAbierta recognizes "qué significa X", "qué quiere decir X", "cuál es el significado
+// de X", "qué es X", "quién es X" and "qué tiene X" (with or without ¿?).
+func LeerPreguntaAbierta(texto string) (PreguntaAbierta, bool) {
+	var ws []tok
+	for _, t := range tokenizar(texto) {
+		if !t.sim {
+			ws = append(ws, t)
+		}
+	}
+	formas := []struct {
+		seq []string
+		rel string
+	}{
+		{[]string{"que", "significa"}, "significa"}, {[]string{"que", "quiere", "decir"}, "significa"},
+		{[]string{"que", "significado", "tiene"}, "significa"}, {[]string{"cual", "es", "el", "significado", "de"}, "significa"},
+		{[]string{"que", "es", "lo", "que", "significa"}, "significa"},
+		{[]string{"que", "cosa", "es"}, "es_un"}, {[]string{"que", "es"}, "es_un"}, {[]string{"quien", "es"}, "es_un"},
+		{[]string{"que", "son"}, "es_un"}, {[]string{"que", "tiene"}, "tiene"}, {[]string{"que", "tienen"}, "tiene"},
+	}
+	for _, f := range formas {
+		if !empiezaPor(ws, f.seq) {
+			continue
+		}
+		suj := sinDeterminantes(ws[len(f.seq):])
+		if len(suj) == 0 || len(suj) > 4 {
+			return PreguntaAbierta{}, false
+		}
+		return PreguntaAbierta{Sujeto: nucleo.Normalizar(textoToks(suj)), Escrito: textoOriginal(suj), Relacion: f.rel}, true
+	}
+	return PreguntaAbierta{}, false
+}
+
+// ResponderAbierta lists what is known (stored or deduced) about q: the matching facts, and for each
+// deduced one the chain that leads to it.
+func ResponderAbierta(ctx context.Context, b BaseHechos, q PreguntaAbierta) (hechos []nucleo.Hecho, cadenas [][]string) {
+	if b == nil {
+		return nil, nil
+	}
+	c := nuevoConsultor(ctx, b)
+	k, rel := claveTermino(q.Sujeto), relacionNormal(q.Relacion)
+	visto := map[string]bool{}
+	for _, h := range c.todos {
+		if h.Negado || relacionNormal(h.Relacion) != rel || claveTermino(h.Sujeto) != k || visto[claveHecho(h)] {
+			continue
+		}
+		visto[claveHecho(h)] = true
+		hechos = append(hechos, h)
+		cadenas = append(cadenas, c.explicar(h))
+	}
+	return hechos, cadenas
 }

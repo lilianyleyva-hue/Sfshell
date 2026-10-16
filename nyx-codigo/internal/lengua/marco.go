@@ -15,6 +15,8 @@ type vista struct {
 	lema  []string
 	usado []bool
 	lex   *Lexico
+	// masFrec: "la letra más repetida", "el número que más se repite" (the most frequent element)
+	masFrec bool
 }
 
 func nuevaVista(tokens []nucleo.Token, l *Lexico) *vista {
@@ -64,13 +66,20 @@ func (v *vista) concepto(i int) string {
 	return ""
 }
 
-// es reports whether the norma at i is one of the "|"-separated alternatives.
+// es reports whether the norma at i is one of the "|"-separated alternatives (no allocation: it is
+// called many times per token).
 func (v *vista) es(i int, alts string) bool {
 	w := v.n(i)
 	if w == "" {
 		return false
 	}
-	for _, a := range strings.Split(alts, "|") {
+	for alts != "" {
+		a := alts
+		if k := strings.IndexByte(alts, '|'); k >= 0 {
+			a, alts = alts[:k], alts[k+1:]
+		} else {
+			alts = ""
+		}
 		if a == w {
 			return true
 		}
@@ -84,7 +93,13 @@ func (v *vista) prefijo(i int, alts string) bool {
 	if w == "" {
 		return false
 	}
-	for _, a := range strings.Split(alts, "|") {
+	for alts != "" {
+		a := alts
+		if k := strings.IndexByte(alts, '|'); k >= 0 {
+			a, alts = alts[:k], alts[k+1:]
+		} else {
+			alts = ""
+		}
 		if strings.HasPrefix(w, a) {
 			return true
 		}
@@ -219,6 +234,8 @@ func (v *vista) programa(m *nucleo.Marco) {
 			m.Programa = true
 		case v.es(i, "pantalla|consola|teclado") && v.es(i-1, "en|por|la|el|del"):
 			m.Programa = true
+		case v.es(i, "fizzbuzz|calculadora") || v.es(i, "adivina|adivinar") && v.es(i+1, "el|un") && v.es(i+2, "numero"):
+			m.Programa = true // shipped program templates
 		}
 		if v.es(i, "pida|pidan|pide|pregunte|pregunten|pregunta|lea|lean") {
 			m.Lee = append(m.Lee, v.leeTras(i)...)
@@ -440,6 +457,20 @@ func (v *vista) accion(m *nucleo.Marco) {
 	if i := v.frase(0, "maximo|mayor", "comun", "divisor"); i >= 0 {
 		fija("mcd", i, i+2)
 	}
+	// the most frequent element: "la letra más repetida", "el número que más se repite"
+	if i := v.frase(0, "mas", "repetido|repetida|repetidos|repetidas|frecuente|frecuentes|comun|comunes|habitual|habituales"); i >= 0 {
+		fija("frecuencia", i, i+1)
+		v.masFrec = m.Accion == "frecuencia"
+	} else if i := v.frase(0, "que", "mas", "se", "repite|repiten"); i >= 0 {
+		fija("frecuencia", i, i+3)
+		v.masFrec = m.Accion == "frecuencia"
+	} else if i := v.frase(0, "que", "mas", "veces", "aparece|aparecen|sale|salen|esta|estan"); i >= 0 {
+		fija("frecuencia", i, i+3)
+		v.masFrec = m.Accion == "frecuencia"
+	} else if i := v.frase(0, "que", "mas", "aparece|aparecen"); i >= 0 {
+		fija("frecuencia", i, i+2)
+		v.masFrec = m.Accion == "frecuencia"
+	}
 	if i := v.frase(0, "minimo|menor", "comun", "multiplo"); i >= 0 {
 		fija("mcm", i, i+2)
 	}
@@ -559,6 +590,9 @@ func (v *vista) ajustarAccion(m *nucleo.Marco) {
 		if m.Entrada == "" || m.Entrada == "lista_numeros" {
 			m.Entrada, m.Objeto = "numero", "numero"
 		}
+	case m.Accion == "sin_repetir":
+		// "quita los repetidos … sin repetir": the action already says it
+		v.quitarMod(m, "sin_repetir")
 	case m.Accion == "eliminar" && v.tieneMod(m, "sin_repetir"):
 		m.Accion = "sin_repetir"
 		v.quitarMod(m, "sin_repetir")
@@ -640,7 +674,36 @@ func (v *vista) objeto(m *nucleo.Marco) {
 		i      int
 	}
 	var ms []mencion
+	// "cuántas veces aparece cada palabra", "la letra más repetida": that noun is the element counted,
+	// not the input
+	elemPos := map[int]bool{}
+	if m.Accion == "frecuencia" {
+		for i := range v.norma {
+			nombraElem := v.es(i-1, "cada") ||
+				v.masFrec && (v.es(i+1, "mas") || v.es(i+1, "que") && v.es(i+2, "mas"))
+			if !nombraElem {
+				continue
+			}
+			c := sustantivo(v.l(i))
+			if e, ok := elementosPredicado[v.l(i)]; ok && c == "" {
+				c = e
+			}
+			switch c {
+			case "palabra", "letra", "numero", "vocal", "consonante", "digito":
+				elemPos[i] = true
+				if m.Elemento == "" {
+					m.Elemento = c
+				}
+				if v.masFrec && strings.HasSuffix(v.n(i), "s") {
+					m.Plural = true
+				}
+			}
+		}
+	}
 	for i := range v.norma {
+		if elemPos[i] {
+			continue
+		}
 		if v.toks[i].Clase != "palabra" || v.usado[i] && !v.es(i, "numero|numeros|palabra|palabras") {
 			continue
 		}
@@ -755,6 +818,9 @@ func (v *vista) objeto(m *nucleo.Marco) {
 	if m.Entrada == "" && m.Elemento != "" && m.Elemento != "numero" {
 		m.Entrada = "texto"
 	}
+	if m.Entrada == "" && m.Elemento == "numero" && len(elemPos) > 0 {
+		m.Objeto, m.Entrada = "numeros", "lista_numeros" // "el número más repetido"
+	}
 	// explicit input: "recibe una lista de enteros"
 	for i := range v.norma {
 		if v.es(i, "recibe|reciba|toma|tome|dada|dado|dadas|dados") {
@@ -791,7 +857,7 @@ func (v *vista) objeto(m *nucleo.Marco) {
 	}
 	// number agreement for superlatives: "la palabra más larga" / "las palabras más largas"
 	for i := range v.norma {
-		if v.es(i, "mas") && v.prefijo(i+1, "larg|cort|grande|pequeñ|alt|baj") {
+		if v.es(i, "mas") && v.prefijo(i+1, "larg|cort|grande|pequeñ|alt|baj|repetid|frecuent|comun") {
 			if strings.HasSuffix(v.n(i+1), "s") || strings.HasSuffix(v.n(i-1), "s") && sustantivo(v.l(i-1)) != "" {
 				m.Plural = true
 			}
@@ -839,7 +905,20 @@ func (v *vista) salida(m *nucleo.Marco) {
 	case "promedio":
 		m.Salida = "decimal"
 	case "frecuencia":
-		m.Salida = "mapa"
+		switch {
+		case !v.masFrec && (m.Salida == "" || m.Salida == "mapa"):
+			m.Salida = "mapa"
+		case m.Plural:
+			m.Salida = "lista"
+		case m.Elemento == "letra" || m.Elemento == "vocal" || m.Elemento == "consonante" || m.Elemento == "digito":
+			m.Salida = "letra" // one rune
+		case m.Elemento == "palabra" || m.Entrada == "lista_palabras":
+			m.Salida = "texto"
+		case m.Entrada == "lista_decimales":
+			m.Salida = "decimal"
+		default:
+			m.Salida = "numero"
+		}
 	case "filtrar", "ordenar", "ordenar_desc", "sin_repetir", "transformar", "eliminar", "agregar", "acumular", "tomar",
 		"quitar_primeros", "intercambiar":
 		m.Salida = cond(texto && m.Elemento != "palabra", "texto", "lista")
@@ -989,6 +1068,8 @@ func firmaDeMarco(m *nucleo.Marco) *nucleo.Firma {
 		res = nucleo.TBool
 	case "texto":
 		res = nucleo.TString
+	case "letra":
+		res = nucleo.TRune
 	case "lista":
 		switch {
 		case strings.HasPrefix(entrada, "lista") || entrada == "matriz" && m.Accion != "aplanar" && m.Accion != "transponer":
@@ -997,6 +1078,8 @@ func firmaDeMarco(m *nucleo.Marco) *nucleo.Firma {
 			res = params[0].Tipo
 		case entrada == "matriz":
 			res = nucleo.ListaDe(nucleo.TInt)
+		case entrada == "texto" && m.Accion == "frecuencia" && m.Elemento != "palabra":
+			res = nucleo.ListaDe(nucleo.TRune) // "las letras más repetidas"
 		case entrada == "texto":
 			res = nucleo.ListaDe(nucleo.TString)
 		default:
@@ -1074,6 +1157,23 @@ func NombreFuncion(m *nucleo.Marco) string {
 			sb.WriteString(base + "Mas" + suf[masc])
 		}
 		return sb.String()
+	case "frecuencia":
+		if m.Salida != "" && m.Salida != "mapa" {
+			// the most frequent element: LetraMasRepetida, NumeroMasRepetido, PalabrasMasRepetidas
+			base := map[string]string{"letra": "Letra", "palabra": "Palabra", "numero": "Numero", "vocal": "Vocal",
+				"consonante": "Consonante", "digito": "Digito"}[m.Elemento]
+			if base == "" {
+				base = "Elemento"
+			}
+			suf := "MasRepetida"
+			if m.Elemento == "numero" || m.Elemento == "digito" || base == "Elemento" {
+				suf = "MasRepetido"
+			}
+			if m.Plural {
+				return base + "sMasRepetid" + suf[len(suf)-1:] + "s"
+			}
+			return base + suf
+		}
 	case "comprobar":
 		sb.WriteString("Es")
 		for _, md := range m.Mods {
@@ -1096,6 +1196,9 @@ func NombreFuncion(m *nucleo.Marco) string {
 	sb.WriteString(base)
 	puesto := false
 	for _, md := range m.Mods {
+		if md.Concepto == m.Accion {
+			continue // "SinRepetir", not "SinRepetirSinRepetir"
+		}
 		if n, ok := nombresMod[md.Concepto]; ok {
 			if md.Negado {
 				sb.WriteString("No")

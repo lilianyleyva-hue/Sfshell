@@ -511,6 +511,9 @@ func TablaVerdad(fs []Formula, a *Atomos, max int) (nucleo.Tabla, error) {
 		max = maxAtomosTablaVerdad
 	}
 	usados := atomosUsados(fs...)
+	if m := maxAtomo(fs...); m >= MaxVariablesSAT {
+		return nucleo.Tabla{}, fmt.Errorf("logica: el átomo %d está fuera de rango: %w", m, nucleo.ErrNoEntiendo)
+	}
 	if len(usados) > max {
 		return nucleo.Tabla{}, fmt.Errorf("logica: %d átomos son demasiados para una tabla de verdad (máximo %d)", len(usados), max)
 	}

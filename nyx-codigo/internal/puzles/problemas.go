@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"nyxcodigo/internal/nucleo"
 )
@@ -395,21 +396,33 @@ type problemaLaberinto struct {
 	ini, meta estadoLaberinto
 }
 
-// Laberinto reads a maze drawn in text: S start, E exit, # wall; anything else is open.
+// maxLadoLaberinto bounds the rows and columns of a maze (the plan lists every step).
+const maxLadoLaberinto = 300
+
+// Laberinto reads a maze drawn in text: S start, E exit, # wall; anything else is open (lowercase
+// s and e too). At most 300 rows and 300 columns.
 func Laberinto(lineas []string) (ProblemaPlan, error) {
+	if len(lineas) > maxLadoLaberinto {
+		return nil, fmt.Errorf("puzles: el laberinto tiene %d filas; resuelvo hasta %d: %w", len(lineas), maxLadoLaberinto, nucleo.ErrNoSoportado)
+	}
+	for _, l := range lineas {
+		if n := utf8.RuneCountInString(l); n > maxLadoLaberinto {
+			return nil, fmt.Errorf("puzles: el laberinto tiene una fila de %d casillas; resuelvo hasta %d: %w", n, maxLadoLaberinto, nucleo.ErrNoSoportado)
+		}
+	}
 	p := problemaLaberinto{ini: estadoLaberinto{-1, -1}, meta: estadoLaberinto{-1, -1}}
 	for f, l := range lineas {
 		fila := []rune(strings.TrimRight(l, "\r"))
 		for c, r := range fila {
 			switch r {
-			case 'S', 's':
+			case 'S':
 				if p.ini.f >= 0 {
-					return nil, fmt.Errorf("puzles: el laberinto tiene dos salidas «S»: %w", nucleo.ErrNoEntiendo)
+					return nil, fmt.Errorf("puzles: el laberinto tiene dos «S» (inicio): %w", nucleo.ErrNoEntiendo)
 				}
 				p.ini = estadoLaberinto{f, c}
-			case 'E', 'e':
+			case 'E':
 				if p.meta.f >= 0 {
-					return nil, fmt.Errorf("puzles: el laberinto tiene dos «E»: %w", nucleo.ErrNoEntiendo)
+					return nil, fmt.Errorf("puzles: el laberinto tiene dos «E» (salida): %w", nucleo.ErrNoEntiendo)
 				}
 				p.meta = estadoLaberinto{f, c}
 			}
@@ -420,6 +433,55 @@ func Laberinto(lineas []string) (ProblemaPlan, error) {
 		return nil, fmt.Errorf("puzles: el laberinto necesita una «S» (inicio) y una «E» (salida): %w", nucleo.ErrNoEntiendo)
 	}
 	return p, nil
+}
+
+// esLineaLaberinto: a line drawn only with maze symbols (# walls; . _ · and spaces open; S, E),
+// with at least one of #, S or E. Prose ("S es la entrada") and code ("#include <stdio.h>") are not.
+func esLineaLaberinto(linea string) bool {
+	linea = strings.TrimRight(linea, "\r")
+	marca := false
+	for _, r := range linea {
+		switch r {
+		case '#', 'S', 'E':
+			marca = true
+		case '.', ' ', '_', '·', '\t':
+		default:
+			return false
+		}
+	}
+	return marca
+}
+
+// LineasLaberinto finds the drawing of a maze in a text: the longest block of consecutive maze lines
+// (see esLineaLaberinto) with at least 2 lines. It returns nil when there is none.
+func LineasLaberinto(texto string) []string {
+	var mejor, actual []string
+	for _, l := range strings.Split(texto, "\n") {
+		if esLineaLaberinto(l) {
+			actual = append(actual, strings.TrimRight(l, "\r"))
+			continue
+		}
+		if len(actual) > len(mejor) {
+			mejor = actual
+		}
+		actual = nil
+	}
+	if len(actual) > len(mejor) {
+		mejor = actual
+	}
+	if len(mejor) < 2 {
+		return nil
+	}
+	return mejor
+}
+
+// pareceLaberinto: a drawn maze with exactly one S, one E and some wall.
+func pareceLaberinto(lineas []string) bool {
+	if len(lineas) < 3 {
+		return false
+	}
+	todo := strings.Join(lineas, "\n")
+	return strings.Count(todo, "S") == 1 && strings.Count(todo, "E") == 1 && strings.Contains(todo, "#")
 }
 
 func (p problemaLaberinto) Inicial() Estado { return p.ini }

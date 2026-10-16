@@ -74,7 +74,10 @@ func numeroEnPalabras(toks []nucleo.Token, i int) (*big.Rat, int) {
 			}
 			continue
 		}
-		if w == "mil" && (hay || j == i) {
+		// "mil" once per group of millions ("mil mil" is not a number); "millón" once, after a group
+		// ("dos millones") or after thousands ("dos mil millones"). Chains such as "millones millones"
+		// stop there, so the value stays below 10¹² and never overflows int64.
+		if w == "mil" && (hay || j == i) && total%1_000_000 == 0 {
 			if grupo == 0 {
 				grupo = 1
 			}
@@ -84,7 +87,7 @@ func numeroEnPalabras(toks []nucleo.Token, i int) (*big.Rat, int) {
 			j++
 			continue
 		}
-		if (w == "millon" || w == "millones") && hay {
+		if (w == "millon" || w == "millones") && hay && (grupo > 0 || total%1_000_000 != 0) && total < 1_000_000 {
 			total = (total + grupo) * 1_000_000
 			grupo = 0
 			j++

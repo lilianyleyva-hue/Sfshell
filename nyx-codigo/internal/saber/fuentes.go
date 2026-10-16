@@ -198,6 +198,14 @@ func (w *Web) Buscar(ctx context.Context, consulta string, max int) ([]Enlace, e
 			return nil, err
 		}
 		enlaces = ExtraerEnlacesDDG(r.cuerpo)
+		if len(enlaces) == 0 {
+			// Nothing is cached: an empty page is usually DuckDuckGo's bot check (HTTP 202) or a
+			// passing failure, and caching it would hide the query for a week.
+			if r.estado == 202 { // 202 Accepted
+				return nil, ErrBuscadorOcupado
+			}
+			return nil, nil
+		}
 		w.cache.escribir(clave, entradaCache{Enlaces: enlaces})
 	}
 	out := append([]Enlace(nil), enlaces...)
@@ -354,7 +362,10 @@ func (w *Web) PkgGoDev(ctx context.Context, simbolo string) (Documento, error) {
 	if err != nil {
 		return Documento{}, err
 	}
-	d := ExtraerSeccion(r.cuerpo, direccion, seccion)
+	d, err := extraer(ctx, r.cuerpo, direccion, seccion)
+	if err != nil {
+		return Documento{}, err
+	}
 	if len(d.Bloques) == 0 {
 		return Documento{}, fmt.Errorf("%w: pkg.go.dev no tiene «%s»", ErrNoEncontrado, simbolo)
 	}

@@ -14,6 +14,8 @@ const (
 	MaxDecisiones  = 1_000_000
 	TiempoSAT      = 2 * time.Second
 	maxAtomosTabla = 12
+	// MaxVariablesSAT bounds the variables DPLL accepts (it allocates per variable).
+	MaxVariablesSAT = 1 << 22
 )
 
 // ErrNoCoinciden is returned when the self-check (truth table vs DPLL) disagrees. It should never
@@ -210,6 +212,12 @@ func DPLL(ctx context.Context, cnf [][]int, nVars, maxDecisiones int) (modelo []
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if nVars < 0 {
+		return nil, false, fmt.Errorf("logica: número de variables negativo (%d): %w", nVars, nucleo.ErrNoEntiendo)
+	}
+	if nVars > MaxVariablesSAT {
+		return nil, false, fmt.Errorf("logica: %d variables son demasiadas; razono con %d como mucho: %w", nVars, MaxVariablesSAT, nucleo.ErrNoSoportado)
+	}
 	limite := time.Now().Add(TiempoSAT)
 	d := &dpll{n: nVars, valor: make([]int8, nVars+1), vigias: make([][]int, 2*nVars+2), actividad: make([]float64, nVars+1), inc: 1}
 	var unidades []int
@@ -218,7 +226,7 @@ func DPLL(ctx context.Context, cnf [][]int, nVars, maxDecisiones int) (modelo []
 		var c []int
 		tauto := false
 		for _, l := range c0 {
-			if l == 0 || l > nVars || -l > nVars {
+			if l == 0 || l > nVars || l < -nVars {
 				return nil, false, fmt.Errorf("logica: literal %d fuera de rango (hay %d variables)", l, nVars)
 			}
 			if vistos[-l] {

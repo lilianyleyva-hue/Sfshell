@@ -182,10 +182,13 @@ func nuevasSenales(p *nucleo.Pregunta) *senales {
 	if resto == "" && p.Codigo == "" {
 		resto = p.Texto
 	}
+	// the cues read at most maxTextoLengua bytes (see Analizar)
+	resto = recortarTexto(resto, maxTextoLengua)
 	n := p.Normal
 	if n == "" {
 		n = nucleo.Normalizar(resto)
 	}
+	n = recortarTexto(n, maxTextoLengua)
 	s := &senales{p: p, n: n, crudo: resto, codigo: strings.TrimSpace(p.Codigo) != "",
 		ejemplos: len(p.ParesTexto) > 0, programa: len(p.EjProgramas) > 0,
 		pregunta: strings.Contains(p.Texto, "?"), marco: p.Marco}

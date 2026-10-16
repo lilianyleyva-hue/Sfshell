@@ -34,6 +34,7 @@ type tarea struct {
 	peticion nucleo.Peticion
 	creada   time.Time
 	cancel   context.CancelFunc
+	limite   time.Duration // hard limit, counted from the moment the task gets a run slot
 
 	mu        sync.Mutex
 	eventos   []eventoSSE
@@ -192,8 +193,10 @@ func (s *Servidor) lanzar(p nucleo.Peticion) string {
 	if p.Accion == "estudiar" {
 		limite = s.c.LimiteEstudio
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), limite)
-	t := &tarea{id: id, peticion: p, creada: s.ahora(), cancel: cancel, cambio: make(chan struct{}),
+	// only a cancel here: the hard limit starts in correr, once the task has a slot, so time spent
+	// queued behind MaxTareas running tasks does not eat into its budget
+	ctx, cancel := context.WithCancel(context.Background())
+	t := &tarea{id: id, peticion: p, creada: s.ahora(), cancel: cancel, limite: limite, cambio: make(chan struct{}),
 		preguntas: map[string]chan string{}, ahora: s.ahora}
 	tr := nucleo.NuevaTraza(t.agregar, func(c context.Context, q nucleo.PreguntaUsuario) (string, error) {
 		return t.esperarRespuesta(c, q, s.c.EsperaPregunta)
@@ -210,20 +213,34 @@ type resultado struct {
 	panico any
 }
 
-func (s *Servidor) correr(ctx context.Context, t *tarea, tr *nucleo.Traza) {
+func (s *Servidor) correr(base context.Context, t *tarea, tr *nucleo.Traza) {
 	defer t.cancel()
-	// wait for a free slot (MaxTareas running at once)
+	// wait for a free slot (MaxTareas running at once). base ends only when the user (or Cerrar)
+	// cancels; a task that waits more than twice its own limit (a running task normally frees its slot
+	// within one limit) gives up with an honest error instead.
 	select {
 	case s.cupos <- struct{}{}:
 	default:
 		tr.Raiz().Nota("Espero mi turno: hay otras tareas en marcha")
+		cola := time.NewTimer(2 * t.limite)
 		select {
 		case s.cupos <- struct{}{}:
-		case <-ctx.Done():
-			s.terminar(ctx, t, tr, nucleo.Respuesta{Texto: "Lo he parado antes de empezar."}, "cancelada")
+			cola.Stop()
+		case <-base.Done():
+			cola.Stop()
+			s.terminar(base, t, tr, nucleo.Respuesta{Texto: "Lo he parado antes de empezar."}, "cancelada")
+			return
+		case <-cola.C:
+			s.terminar(base, t, tr, nucleo.Respuesta{
+				Texto: "Había demasiadas tareas en marcha y no llegué a empezar. Prueba otra vez dentro de un rato.",
+				Nivel: nucleo.NivelFallo, Metodo: "error",
+			}, "error")
 			return
 		}
 	}
+	// the hard limit (§4.15) runs from here, when the task really starts
+	ctx, cancelLimite := context.WithTimeout(base, t.limite)
+	defer cancelLimite()
 	hecho := make(chan resultado, 1)
 	go func() {
 		defer func() { <-s.cupos }() // the slot is freed only when the Motor really returns

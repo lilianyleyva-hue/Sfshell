@@ -220,6 +220,9 @@ func candidataRazon(seq []*big.Rat) (candidata, bool) {
 	}
 	r := new(big.Rat).Quo(seq[1], seq[0])
 	desc := "multiplica por " + TextoRat(r) + " cada vez"
+	if r.Cmp(big.NewRat(-1, 1)) == 0 {
+		desc = "cambia de signo cada vez"
+	}
 	if r.Sign() > 0 && !r.IsInt() && new(big.Rat).Inv(r).IsInt() {
 		desc = "divide entre " + TextoRat(new(big.Rat).Inv(r)) + " cada vez"
 	}
@@ -318,33 +321,57 @@ func describirRecurrencia(coef []*big.Rat, cte *big.Rat) string {
 		return "cada término es la suma de los tres anteriores"
 	}
 	nombres := []string{"el anterior", "el de dos antes", "el de tres antes"}
-	var partes []string
-	for j, c := range coef {
-		if c.Sign() == 0 {
-			continue
-		}
+	// each term by its size; the sign decides "más" or "menos"
+	termino := func(c *big.Rat, nombre string) string {
 		switch {
 		case c.Cmp(uno) == 0:
-			partes = append(partes, nombres[j])
+			return nombre
 		case c.Cmp(rat(2)) == 0:
-			partes = append(partes, "el doble de "+nombres[j])
+			return "el doble de " + nombre
 		case c.Cmp(rat(3)) == 0:
-			partes = append(partes, "el triple de "+nombres[j])
-		default:
-			partes = append(partes, TextoRat(c)+" veces "+nombres[j])
+			return "el triple de " + nombre
+		case c.Cmp(big.NewRat(1, 2)) == 0:
+			return "la mitad de " + nombre
+		}
+		return TextoRat(c) + " veces " + nombre
+	}
+	var pos, neg []string
+	for j, c := range coef {
+		switch c.Sign() {
+		case 1:
+			pos = append(pos, termino(c, nombres[j]))
+		case -1:
+			neg = append(neg, termino(new(big.Rat).Neg(c), nombres[j]))
 		}
 	}
-	texto := "cada término es " + strings.Join(partes, " más ")
-	if len(partes) == 0 {
-		texto = "cada término es"
+	var texto string
+	switch {
+	case len(pos) > 0:
+		texto = strings.Join(pos, " más ")
+		for _, x := range neg {
+			texto += " menos " + x
+		}
+		switch cte.Sign() {
+		case 1:
+			texto += " más " + TextoRat(cte)
+		case -1:
+			texto += " menos " + TextoRat(new(big.Rat).Neg(cte))
+		}
+	case len(neg) > 0 && cte.Sign() != 0:
+		// "1 menos el anterior"
+		texto = TextoRat(cte)
+		for _, x := range neg {
+			texto += " menos " + x
+		}
+	case len(neg) > 0:
+		texto = neg[0] + " cambiado de signo"
+		for _, x := range neg[1:] {
+			texto += " menos " + x
+		}
+	default:
+		texto = TextoRat(cte)
 	}
-	switch cte.Sign() {
-	case 1:
-		texto += " más " + TextoRat(cte)
-	case -1:
-		texto += " menos " + TextoRat(new(big.Rat).Neg(cte))
-	}
-	return strings.ReplaceAll(texto, " de el ", " del ")
+	return strings.ReplaceAll("cada término es "+texto, " de el ", " del ")
 }
 
 // reglasBasicas are the steps 1–4 in MDL order.

@@ -31,10 +31,11 @@ type ecuacion struct {
 	texto  string
 	l, r   Expr
 	fl, fr fraccion
+	dif    fraccion // l - r, computed once with the size limits of poli.go
 }
 
 // diferencia is l - r as a rational function.
-func (e ecuacion) diferencia() fraccion { return e.fl.sumar(e.fr, -1) }
+func (e ecuacion) diferencia() fraccion { return e.dif }
 
 func (e ecuacion) String() string { return e.l.String() + " = " + e.r.String() }
 
@@ -110,7 +111,11 @@ func analizarEcuacion(ctx context.Context, s string) (ecuacion, error) {
 	if err != nil {
 		return ecuacion{}, err
 	}
-	return ecuacion{texto: s, l: l, r: r, fl: fl, fr: fr}, nil
+	dif, err := fl.sumar(ctx, fr, -1)
+	if err != nil {
+		return ecuacion{}, err
+	}
+	return ecuacion{texto: s, l: l, r: r, fl: fl, fr: fr, dif: dif}, nil
 }
 
 // Ecuaciones solves one equation or a system. One unknown: named moves (degree 1), the discriminant
@@ -474,7 +479,10 @@ func (r *resolucion) polinomio(cs []*big.Rat, x string) ([]valor, string, error)
 		if r.ctx.Err() != nil {
 			return nil, "", nucleo.ErrSinTiempo
 		}
-		ap := durandKerner(resto)
+		ap, err := durandKerner(r.ctx, resto)
+		if err != nil {
+			return nil, "", err
+		}
 		r.paso("No quedan raíces exactas: aproximo las de %s (Durand-Kerner)", textoPoli(polDesdeCoefs(resto, x)))
 		for _, f := range ap {
 			out = append(out, vAprox(f))
@@ -605,17 +613,27 @@ func raicesRacionales(ctx context.Context, cs []*big.Rat) ([]*big.Rat, []*big.Ra
 	return out, cs
 }
 
-// durandKerner approximates the real roots of a polynomial (coefficients by degree).
-func durandKerner(cs []*big.Rat) []float64 {
+// maxGradoDurand bounds Durand-Kerner (n² work per iteration).
+const maxGradoDurand = maxGradoTotal
+
+// durandKerner approximates the real roots of a polynomial (coefficients by degree). The deadline is
+// checked on every iteration.
+func durandKerner(ctx context.Context, cs []*big.Rat) ([]float64, error) {
 	n := grado(cs)
 	if n < 1 {
-		return nil
+		return nil, nil
+	}
+	if n > maxGradoDurand {
+		return nil, errGradoAlto(n)
 	}
 	lead, _ := cs[n].Float64()
 	a := make([]float64, n+1)
 	for i := 0; i <= n; i++ {
 		f, _ := cs[i].Float64()
 		a[i] = f / lead
+		if math.IsNaN(a[i]) || math.IsInf(a[i], 0) {
+			return nil, fmt.Errorf("%w: los coeficientes no caben en decimales para aproximar las raíces", nucleo.ErrNoSoportado)
+		}
 	}
 	p := func(z complex128) complex128 {
 		r := complex(0, 0)
@@ -631,6 +649,9 @@ func durandKerner(cs []*big.Rat) []float64 {
 		zs[i] = cmplx.Pow(semilla, complex(float64(i), 0))
 	}
 	for it := 0; it < 2000; it++ {
+		if ctx.Err() != nil {
+			return nil, nucleo.ErrSinTiempo
+		}
 		cambio := 0.0
 		for i := range zs {
 			den := complex(1, 0)
@@ -683,7 +704,7 @@ func durandKerner(cs []*big.Rat) []float64 {
 		}
 	}
 	sort.Float64s(out)
-	return out
+	return out, nil
 }
 
 // cerrar substitutes the roots back into the original equations and fills Valores/Tipo/Comprobado.
@@ -953,19 +974,38 @@ func (r *resolucion) infinitasLineal(lista []ecuacion, A [][]*big.Rat, pivotes [
 
 // ---- substitution (two equations, one of them linear) ----
 
-func sustituirPoli(p poli, x string, q poli) poli {
+// sustituirPoli replaces x by q in p. The powers of q are computed once (with the size limits of
+// poli.go) and each monomial adds coef·rest·q^k term by term; the deadline is checked as it goes.
+func sustituirPoli(ctx context.Context, p poli, x string, q poli) (poli, error) {
+	kmax := 0
+	for m := range p {
+		kmax = max(kmax, decodificar(m)[x])
+	}
+	pot := []poli{polConst(big.NewRat(1, 1))}
+	for k := 1; k <= kmax; k++ {
+		sig, err := pot[k-1].mulCtx(ctx, q)
+		if err != nil {
+			return nil, err
+		}
+		pot = append(pot, sig)
+	}
 	out := poli{}
 	for m, c := range p {
+		if ctx.Err() != nil {
+			return nil, nucleo.ErrSinTiempo
+		}
 		d := decodificar(m)
 		k := d[x]
 		delete(d, x)
-		t := poli{codificar(d): new(big.Rat).Set(c)}
-		for i := 0; i < k; i++ {
-			t = t.mul(q)
+		resto := codificar(d)
+		for mq, cq := range pot[k] {
+			acumular(out, mulMonomios(resto, mq), new(big.Rat).Mul(c, cq))
 		}
-		out = out.sumar(t, 1)
+		if len(out) > 2*maxMonomios {
+			return nil, errPoliGrande
+		}
 	}
-	return out
+	return out, nil
 }
 
 func (r *resolucion) sustitucion(lista []ecuacion, vars []string) error {
@@ -1002,7 +1042,10 @@ func (r *resolucion) sustitucion(lista []ecuacion, vars []string) error {
 	if c2, ok := d2.den.constante(); !ok || c2.Sign() == 0 {
 		return fmt.Errorf("%w: hay incógnitas en un denominador", nucleo.ErrNoSoportado)
 	}
-	sub := sustituirPoli(d2.num, x, expr)
+	sub, err := sustituirPoli(r.ctx, d2.num, x, expr)
+	if err != nil {
+		return err
+	}
 	cs, err := sub.coeficientes(y)
 	if err != nil {
 		return err

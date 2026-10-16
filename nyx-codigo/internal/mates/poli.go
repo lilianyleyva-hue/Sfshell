@@ -111,19 +111,86 @@ func (p poli) mul(q poli) poli {
 	r := poli{}
 	for m1, c1 := range p {
 		for m2, c2 := range q {
-			m := mulMonomios(m1, m2)
-			x, ok := r[m]
-			if !ok {
-				x = new(big.Rat)
-				r[m] = x
-			}
-			x.Add(x, new(big.Rat).Mul(c1, c2))
-			if x.Sign() == 0 {
-				delete(r, m)
-			}
+			acumular(r, mulMonomios(m1, m2), new(big.Rat).Mul(c1, c2))
 		}
 	}
 	return r
+}
+
+func acumular(r poli, m string, c *big.Rat) {
+	x, ok := r[m]
+	if !ok {
+		x = new(big.Rat)
+		r[m] = x
+	}
+	x.Add(x, c)
+	if x.Sign() == 0 {
+		delete(r, m)
+	}
+}
+
+// Limits for the polynomials built while reading an equation: expanding (a+b+c+d+e)^40 would give
+// 135 751 terms, and the solver could not use them anyway.
+const (
+	maxMonomios      = 2_000  // terms of one polynomial
+	maxProductosMul  = 60_000 // term-by-term products in one multiplication
+	maxGradoTotal    = 128    // total degree
+	maxBitsCoefPoli  = 16_384 // bits of one coefficient
+	pasoCtxProductos = 1_024
+)
+
+var errPoliGrande = fmt.Errorf("%w: al desarrollar la expresión salen demasiados términos", nucleo.ErrNoSoportado)
+
+func errGradoAlto(g int) error {
+	return fmt.Errorf("%w: al desarrollar sale grado %d, y solo trabajo hasta grado %d", nucleo.ErrNoSoportado, g, maxGradoTotal)
+}
+
+// bitsCoef is the size of the largest coefficient.
+func (p poli) bitsCoef() int {
+	b := 0
+	for _, c := range p {
+		b = max(b, bitsRat(c))
+	}
+	return b
+}
+
+// mulCtx multiplies with the limits above and the deadline checked as it goes.
+func (p poli) mulCtx(ctx context.Context, q poli) (poli, error) {
+	if len(p)*len(q) > maxProductosMul {
+		return nil, errPoliGrande
+	}
+	if g := p.gradoTotal() + q.gradoTotal(); g > maxGradoTotal {
+		return nil, errGradoAlto(g)
+	}
+	if p.bitsCoef()+q.bitsCoef() > maxBitsCoefPoli {
+		return nil, fmt.Errorf("%w: los coeficientes salen demasiado grandes", nucleo.ErrNoSoportado)
+	}
+	r := poli{}
+	k := 0
+	for m1, c1 := range p {
+		for m2, c2 := range q {
+			if k++; k%pasoCtxProductos == 0 && ctx.Err() != nil {
+				return nil, nucleo.ErrSinTiempo
+			}
+			acumular(r, mulMonomios(m1, m2), new(big.Rat).Mul(c1, c2))
+		}
+	}
+	if len(r) > maxMonomios {
+		return nil, errPoliGrande
+	}
+	return r, nil
+}
+
+// sumarCtx adds (signo 1) or subtracts (signo -1) with the size limit.
+func (p poli) sumarCtx(q poli, signo int) (poli, error) {
+	if len(p)+len(q) > 2*maxMonomios {
+		return nil, errPoliGrande
+	}
+	r := p.sumar(q, signo)
+	if len(r) > maxMonomios {
+		return nil, errPoliGrande
+	}
+	return r, nil
 }
 
 func (p poli) escalar(c *big.Rat) poli {
@@ -209,45 +276,84 @@ func polDesdeCoefs(cs []*big.Rat, x string) poli {
 
 func fracPol(p poli) fraccion { return fraccion{num: p, den: polConst(big.NewRat(1, 1))} }
 
+// normal divides by a constant denominator. A zero numerator keeps a denominator that has unknowns:
+// x/x − 1 is 0 only where x ≠ 0, and dropping it would lose that condition.
 func (f fraccion) normal() fraccion {
 	if c, ok := f.den.constante(); ok && c.Sign() != 0 && c.Cmp(big.NewRat(1, 1)) != 0 {
 		return fracPol(f.num.escalar(new(big.Rat).Inv(c)))
 	}
 	if f.num.cero() {
-		return fracPol(poli{})
+		if _, ok := f.den.constante(); ok {
+			return fracPol(poli{})
+		}
+		return fraccion{num: poli{}, den: f.den}
 	}
 	return f
 }
 
-func (f fraccion) sumar(g fraccion, signo int) fraccion {
+func (f fraccion) sumar(ctx context.Context, g fraccion, signo int) (fraccion, error) {
 	if f.den.igual(g.den) {
-		return fraccion{num: f.num.sumar(g.num, signo), den: f.den}.normal()
-	}
-	return fraccion{num: f.num.mul(g.den).sumar(g.num.mul(f.den), signo), den: f.den.mul(g.den)}.normal()
-}
-
-func (f fraccion) mul(g fraccion) fraccion {
-	return fraccion{num: f.num.mul(g.num), den: f.den.mul(g.den)}.normal()
-}
-
-func (f fraccion) div(g fraccion) (fraccion, error) {
-	if g.num.cero() {
-		return fraccion{}, ErrDivisionCero
-	}
-	return fraccion{num: f.num.mul(g.den), den: f.den.mul(g.num)}.normal(), nil
-}
-
-func (f fraccion) potencia(k int) (fraccion, error) {
-	if k < 0 {
-		inv, err := fracPol(polConst(big.NewRat(1, 1))).div(f)
+		num, err := f.num.sumarCtx(g.num, signo)
 		if err != nil {
 			return fraccion{}, err
 		}
-		return inv.potencia(-k)
+		return fraccion{num: num, den: f.den}.normal(), nil
+	}
+	a, err := f.num.mulCtx(ctx, g.den)
+	if err != nil {
+		return fraccion{}, err
+	}
+	b, err := g.num.mulCtx(ctx, f.den)
+	if err != nil {
+		return fraccion{}, err
+	}
+	num, err := a.sumarCtx(b, signo)
+	if err != nil {
+		return fraccion{}, err
+	}
+	den, err := f.den.mulCtx(ctx, g.den)
+	if err != nil {
+		return fraccion{}, err
+	}
+	return fraccion{num: num, den: den}.normal(), nil
+}
+
+func (f fraccion) mul(ctx context.Context, g fraccion) (fraccion, error) {
+	num, err := f.num.mulCtx(ctx, g.num)
+	if err != nil {
+		return fraccion{}, err
+	}
+	den, err := f.den.mulCtx(ctx, g.den)
+	if err != nil {
+		return fraccion{}, err
+	}
+	return fraccion{num: num, den: den}.normal(), nil
+}
+
+func (f fraccion) div(ctx context.Context, g fraccion) (fraccion, error) {
+	if g.num.cero() {
+		return fraccion{}, ErrDivisionCero
+	}
+	return f.mul(ctx, fraccion{num: g.den, den: g.num})
+}
+
+func (f fraccion) potencia(ctx context.Context, k int) (fraccion, error) {
+	if k < 0 {
+		inv, err := fracPol(polConst(big.NewRat(1, 1))).div(ctx, f)
+		if err != nil {
+			return fraccion{}, err
+		}
+		return inv.potencia(ctx, -k)
+	}
+	if g := k * max(f.num.gradoTotal(), f.den.gradoTotal()); g > maxGradoTotal {
+		return fraccion{}, errGradoAlto(g)
 	}
 	r := fracPol(polConst(big.NewRat(1, 1)))
 	for i := 0; i < k; i++ {
-		r = r.mul(f)
+		var err error
+		if r, err = r.mul(ctx, f); err != nil {
+			return fraccion{}, err
+		}
 	}
 	return r, nil
 }
@@ -297,7 +403,7 @@ func aFraccion(ctx context.Context, e Expr) (fraccion, error) {
 			if k > maxGradoPotencia || k < -maxGradoPotencia {
 				return fraccion{}, fmt.Errorf("%w: el exponente %d es demasiado alto", nucleo.ErrNoSoportado, k)
 			}
-			return a.potencia(k)
+			return a.potencia(ctx, k)
 		}
 		if x.Op == '%' {
 			return constanteDe(ctx, e)
@@ -310,15 +416,18 @@ func aFraccion(ctx context.Context, e Expr) (fraccion, error) {
 		if err != nil {
 			return fraccion{}, err
 		}
+		if ctx.Err() != nil {
+			return fraccion{}, nucleo.ErrSinTiempo
+		}
 		switch x.Op {
 		case '+':
-			return a.sumar(b, 1), nil
+			return a.sumar(ctx, b, 1)
 		case '-':
-			return a.sumar(b, -1), nil
+			return a.sumar(ctx, b, -1)
 		case '*':
-			return a.mul(b), nil
+			return a.mul(ctx, b)
 		case '/':
-			return a.div(b)
+			return a.div(ctx, b)
 		}
 	case Fact, Func:
 		return constanteDe(ctx, e)

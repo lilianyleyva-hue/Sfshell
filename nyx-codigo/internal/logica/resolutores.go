@@ -148,6 +148,11 @@ func (rp *resProposicional) Resolver(ctx context.Context, p *nucleo.Pregunta, n 
 		paso.Mal("No sé plantearlo como un argumento")
 		return nucleo.Respuesta{}, err
 	}
+	if ctx.Err() != nil {
+		// the parser is bounded (length and nesting), but the deadline is still honoured
+		paso.Mal("Se acabó el tiempo")
+		return nucleo.Respuesta{}, fmt.Errorf("logica: se acabó el tiempo: %w", nucleo.ErrSinTiempo)
+	}
 	nAt := len(arg.Atomos.Frases)
 	nombres := arg.Atomos.Nombres(nAt)
 	var leyenda []string
@@ -638,13 +643,37 @@ func (rh *resHechos) Reconoce(p *nucleo.Pregunta) nucleo.Reconocimiento {
 		}
 		return rec
 	}
+	if len(r.frases) == 1 && !r.palabras["si"] && !r.simbolos {
+		if q, ok := LeerPreguntaAbierta(p.Texto); ok {
+			// "¿qué significa capicúa?": only claimed when something is stored about it ("¿qué es
+			// una goroutine?" belongs to the Go notes)
+			rec.Lectura = "pregunta sobre lo que sé"
+			if rh.b == nil {
+				return rec
+			}
+			for _, h := range rh.b.Hechos(q.Sujeto) {
+				if relacionNormal(h.Relacion) == relacionNormal(q.Relacion) {
+					rec.Puntos = 0.85
+					return rec
+				}
+			}
+			if q.Relacion == "significa" {
+				rec.Puntos = 0.3
+			}
+			return rec
+		}
+	}
 	if r.pregunta && len(r.frases) == 1 && !r.palabras["si"] && !r.palabras["o"] && !r.simbolos && (r.palabras["es"] || r.palabras["tiene"] || r.palabras["significa"]) {
+		h, _, err := LeerHecho(p.Texto, rh.lem)
+		if err != nil {
+			return rec
+		}
 		if rh.b == nil {
 			rec.Puntos = 0.2
 			return rec
 		}
 		rec.Puntos = 0.6
-		if h, _, err := LeerHecho(p.Texto, rh.lem); err == nil && h != nil && len(rh.b.Hechos(h.Sujeto)) > 0 {
+		if h != nil && len(rh.b.Hechos(h.Sujeto)) > 0 {
 			rec.Puntos = 0.85
 		}
 		return rec
@@ -691,7 +720,7 @@ func (rh *resHechos) Resolver(ctx context.Context, p *nucleo.Pregunta, n *nucleo
 		}
 		if h != nil {
 			hechos = append(hechos, *h)
-			paso.Nota("Hecho: %s", DescribirHecho(*h))
+			paso.Nota("Hecho: %s", DescribirHechoCon(*h, FormasEscritas(nil, p.Texto)))
 		}
 		if r != nil {
 			reglas = append(reglas, *r)
@@ -713,6 +742,15 @@ func (rh *resHechos) Resolver(ctx context.Context, p *nucleo.Pregunta, n *nucleo
 		aprendido = g.Aprendido
 		hechos, reglas = nil, nil
 	}
+	base := baseUnida{b: rh.b, h: numerar(hechos, "t"), r: numerarReglas(reglas)}
+	if abierta, ok := LeerPreguntaAbierta(fraseTexto(p.Texto, pregunta.toks)); ok {
+		out, err := rh.abierta(ctx, base, abierta, p.Texto, n)
+		if err != nil {
+			return nucleo.Respuesta{}, err
+		}
+		out.Aprendido = aprendido
+		return out, nil
+	}
 	q, r, err := LeerHecho(fraseTexto(p.Texto, pregunta.toks), rh.lem)
 	if err != nil || q == nil {
 		if err == nil && r != nil {
@@ -720,8 +758,8 @@ func (rh *resHechos) Resolver(ctx context.Context, p *nucleo.Pregunta, n *nucleo
 		}
 		return nucleo.Respuesta{}, err
 	}
-	base := baseUnida{b: rh.b, h: numerar(hechos, "t"), r: numerarReglas(reglas)}
-	consulta := n.Sub(nucleo.PasoIntento, "Encadeno hechos y reglas hasta llegar a «%s»", DescribirHecho(*q))
+	formas := FormasEscritas(base, p.Texto)
+	consulta := n.Sub(nucleo.PasoIntento, "Encadeno hechos y reglas hasta llegar a «%s»", DescribirHechoCon(*q, formas))
 	resp, cadena := Consultar(ctx, base, *q)
 	preguntaTxt := strings.TrimSpace(fraseTexto(p.Texto, pregunta.toks))
 	afirmacion := mayuscula(preguntaTxt)
@@ -730,6 +768,9 @@ func (rh *resHechos) Resolver(ctx context.Context, p *nucleo.Pregunta, n *nucleo
 		ders := Encadenar(ctx, base, maxIterEncadenar)
 		if !comprobarCadena(ctx, base, ders) {
 			consulta.Mal("La cadena no se sostiene")
+			if err := ctx.Err(); err != nil {
+				return nucleo.Respuesta{}, fmt.Errorf("logica: %w", nucleo.ErrSinTiempo)
+			}
 			return nucleo.Respuesta{}, errors.New("logica: la cadena de deducción no se pudo comprobar (error interno)")
 		}
 		consulta.Bien("Llego en %d pasos", len(cadena))
@@ -738,26 +779,94 @@ func (rh *resHechos) Resolver(ctx context.Context, p *nucleo.Pregunta, n *nucleo
 		if resp == "si" {
 			texto = "Sí: " + afirmacion + "."
 		} else {
-			texto = "No: " + DescribirHecho(negado(*q)) + "."
+			texto = "No: " + mayuscula(DescribirHechoCon(negado(*q), formas)) + "."
 		}
 		comp := nucleo.Comprobacion{Texto: fmt.Sprintf("Deducido de lo que sé, comprobando cada paso (%d)", len(cadena)), Comando: "encadenamiento hacia delante"}
 		out := respuestaCalculo(texto, "encadenamiento", comp)
 		out.Parrafos = []string{"Lo sé porque: " + strings.Join(cadena, "; ") + "."}
 		out.Justificacion = cadena
-		out.Entendi = "Así lo entendí: ¿" + DescribirHecho(*q) + "?"
+		out.Entendi = "Así lo entendí: ¿" + DescribirHechoCon(*q, formas) + "?"
 		out.Aprendido = aprendido
 		return out, nil
 	}
 	consulta.Info("No llego a ninguna conclusión")
 	return nucleo.Respuesta{
-		Texto:          "No lo sé: con lo que sé no puedo deducir si " + DescribirHecho(*q) + " ni lo contrario.",
-		Entendi:        "Así lo entendí: ¿" + DescribirHecho(*q) + "?",
+		Texto:          "No lo sé: con lo que sé no puedo deducir si " + DescribirHechoCon(*q, formas) + " ni lo contrario.",
+		Entendi:        "Así lo entendí: ¿" + DescribirHechoCon(*q, formas) + "?",
+		Aprendido:      aprendido,
 		Metodo:         "encadenamiento",
 		Nivel:          nucleo.NivelSinComprobar,
 		Exito:          false,
 		Parrafos:       []string{"Puedes enseñármelo con «recuerda que …»."},
 		Comprobaciones: []nucleo.Comprobacion{{Nivel: nucleo.NivelSinComprobar, Texto: "Sin datos suficientes"}},
 	}, nil
+}
+
+// abierta answers "¿qué significa X?", "¿qué es X?", "¿qué tiene X?" from the stored and deduced facts.
+func (rh *resHechos) abierta(ctx context.Context, base BaseHechos, q PreguntaAbierta, texto string, n *nucleo.Nodo) (nucleo.Respuesta, error) {
+	formas := FormasEscritas(base, texto)
+	sujeto := formaBonita(q.Sujeto, formas)
+	if q.Escrito != "" {
+		sujeto = q.Escrito
+	}
+	var entendi string
+	switch q.Relacion {
+	case "significa":
+		entendi = "Así lo entendí: ¿qué significa «" + sujeto + "»?"
+	case "tiene":
+		entendi = "Así lo entendí: ¿qué tiene " + sujeto + "?"
+	default:
+		entendi = "Así lo entendí: ¿qué es " + sujeto + "?"
+	}
+	consulta := n.Sub(nucleo.PasoIntento, "Busco en lo que sé sobre «%s»", sujeto)
+	hechos, cadenas := ResponderAbierta(ctx, base, q)
+	if len(hechos) == 0 {
+		consulta.Info("No tengo nada guardado")
+		texto := "No lo sé: no tengo nada guardado sobre «" + sujeto + "»."
+		ayuda := "Puedes enseñármelo con «recuerda que " + sujeto + " es …»."
+		switch q.Relacion {
+		case "significa":
+			texto = "No lo sé: no tengo guardado qué significa «" + sujeto + "»."
+			ayuda = "Puedes enseñármelo con «recuerda que " + sujeto + " significa …»."
+		case "tiene":
+			ayuda = "Puedes enseñármelo con «recuerda que " + sujeto + " tiene …»."
+		}
+		return nucleo.Respuesta{
+			Texto: texto, Entendi: entendi, Metodo: "encadenamiento", Nivel: nucleo.NivelSinComprobar,
+			Parrafos:       []string{ayuda},
+			Comprobaciones: []nucleo.Comprobacion{{Nivel: nucleo.NivelSinComprobar, Texto: "Sin datos suficientes"}},
+		}, nil
+	}
+	var dichos, justif []string
+	deducidos := 0
+	for i, h := range hechos {
+		dichos = append(dichos, DescribirHechoCon(h, formas))
+		if len(cadenas[i]) > 1 {
+			deducidos++
+			justif = append(justif, mayuscula(DescribirHechoCon(h, formas))+" porque: "+strings.Join(cadenas[i], "; ")+".")
+		} else if len(cadenas[i]) == 1 {
+			justif = append(justif, "Lo tengo guardado: "+cadenas[i][0]+".")
+		}
+	}
+	if deducidos > 0 && !comprobarCadena(ctx, base, Encadenar(ctx, base, maxIterEncadenar)) {
+		consulta.Mal("La cadena no se sostiene")
+		if err := ctx.Err(); err != nil {
+			return nucleo.Respuesta{}, fmt.Errorf("logica: %w", nucleo.ErrSinTiempo)
+		}
+		return nucleo.Respuesta{}, errors.New("logica: la cadena de deducción no se pudo comprobar (error interno)")
+	}
+	consulta.Bien("Encuentro %d", len(hechos))
+	consulta.Detalle("%s", strings.Join(justif, "\n"))
+	comp := nucleo.Comprobacion{Texto: "Está en mi memoria", Comando: "memoria de hechos"}
+	if deducidos > 0 {
+		comp.Texto = fmt.Sprintf("Deducido de lo que sé, comprobando cada paso (%d deducciones)", deducidos)
+		comp.Comando = "encadenamiento hacia delante"
+	}
+	out := respuestaCalculo(mayuscula(unirY(dichos))+".", "encadenamiento", comp)
+	out.Entendi = entendi
+	out.Justificacion = justif
+	out.Parrafos = justif
+	return out, nil
 }
 
 func negado(h nucleo.Hecho) nucleo.Hecho {
@@ -882,13 +991,13 @@ func (*resCaballeros) Resolver(ctx context.Context, p *nucleo.Pregunta, n *nucle
 		out = respuestaCalculo("Es imposible: ninguna combinación de caballeros y escuderos cumple lo que dicen.", "enumeracion", comp)
 	case 1:
 		busca.Bien("Solo una combinación cumple")
-		out = respuestaCalculo(mayuscula(DescribirCaballeros(nombres, r.Modelos[0]))+".", "enumeracion", comp)
+		out = respuestaCalculo(mayuscula(DescribirCaballerosCon(nombres, r.Modelos[0], r.Femenino))+".", "enumeracion", comp)
 		out.Parrafos = []string{"Es la única combinación en la que cada caballero dice la verdad y cada escudero miente."}
 	default:
 		busca.Info("Hay %d combinaciones posibles", len(r.Modelos))
 		var ops []string
 		for _, m := range r.Modelos {
-			ops = append(ops, DescribirCaballeros(nombres, m))
+			ops = append(ops, DescribirCaballerosCon(nombres, m, r.Femenino))
 		}
 		out = respuestaCalculo(fmt.Sprintf("No se puede saber: hay %d soluciones posibles.", len(r.Modelos)), "enumeracion", comp)
 		out.Parrafos = ops

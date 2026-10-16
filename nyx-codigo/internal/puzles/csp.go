@@ -90,6 +90,27 @@ const (
 // ErrLimite is wrapped (with nucleo.ErrSinTiempo) when the search hits its node or time limit.
 var ErrLimite = errors.New("puzles: límite de búsqueda alcanzado")
 
+// ErrSinSolucion marks a puzzle proven impossible (by exhaustive search or a contradiction). It is
+// a verified result, not a reading problem: the resolvers answer it as such.
+var ErrSinSolucion = errors.New("puzles: no tiene solución")
+
+// SinSolucion is the error returned for a proven impossibility; Motivo says why, in Spanish
+// ("el 1 está repetido en la fila 1"). errors.Is(err, ErrSinSolucion) holds.
+type SinSolucion struct {
+	Que    string // "el sudoku", "«DOS+DOS=CUATRO»"
+	Motivo string
+}
+
+func (e *SinSolucion) Error() string {
+	if e.Motivo == "" {
+		return "puzles: " + e.Que + " no tiene solución"
+	}
+	return "puzles: " + e.Que + " no tiene solución: " + e.Motivo
+}
+
+// Is makes errors.Is(err, ErrSinSolucion) true.
+func (e *SinSolucion) Is(t error) bool { return t == ErrSinSolucion }
+
 type buscador struct {
 	p        *Problema
 	porVar   [][]int
@@ -133,7 +154,12 @@ func resolverCon(ctx context.Context, p *Problema, maxSol int, n *nucleo.Nodo, m
 		}
 	}
 	doms := append([]Dominio(nil), p.Dom...)
-	if b.propagar(doms, nil) {
+	vacio := false
+	for _, d := range doms {
+		vacio = vacio || d == 0
+	}
+	// a variable with an empty domain has no value: there is no solution at all
+	if !vacio && b.propagar(doms, nil) {
 		b.buscar(doms)
 	}
 	b.est.Ms = time.Since(ini).Milliseconds()
@@ -154,6 +180,9 @@ func validarProblema(p *Problema) error {
 			if v < 0 || v >= len(p.Dom) {
 				return fmt.Errorf("puzles: la restricción %d usa la variable %d, que no existe", ci, v)
 			}
+		}
+		if r.Tipo < Distintos || r.Tipo > Func {
+			return fmt.Errorf("puzles: la restricción %d tiene un tipo desconocido (%d)", ci, r.Tipo)
 		}
 		if (r.Tipo == Binaria || r.Tipo == Func) && r.Rel == nil {
 			return fmt.Errorf("puzles: la restricción %d no tiene relación", ci)
@@ -384,7 +413,10 @@ func (b *buscador) buscar(doms []Dominio) bool {
 	elegida := -1
 	for v, d := range doms {
 		c := d.Cuenta()
-		if c <= 1 {
+		if c == 0 {
+			return true // a wiped-out domain: no solution below this node
+		}
+		if c == 1 {
 			continue
 		}
 		if elegida < 0 || c < doms[elegida].Cuenta() || (c == doms[elegida].Cuenta() && b.grado[v] > b.grado[elegida]) {

@@ -55,11 +55,13 @@ type motorFalso struct {
 	soltar       chan struct{}
 	panico       bool
 	sinPreguntar bool
+	ignorarCtx   bool // wait on soltar even when ctx ends (a Motor that does not notice)
 
 	mu         sync.Mutex
 	peticiones []nucleo.Peticion
 	respuestas []string // answers received through Preguntar
 	errCtx     error    // ctx.Err() seen when a wait ended
+	plazos     []time.Duration // time left until ctx's deadline when Responder started
 	opiniones  []nucleo.Opinion
 	olvidos    []string
 	riesgos    []nucleo.Violacion
@@ -77,6 +79,9 @@ type pendienteFalso struct {
 func (m *motorFalso) Responder(ctx context.Context, p nucleo.Peticion, t *nucleo.Traza) nucleo.Respuesta {
 	m.mu.Lock()
 	m.peticiones = append(m.peticiones, p)
+	if d, ok := ctx.Deadline(); ok {
+		m.plazos = append(m.plazos, time.Until(d))
+	}
 	m.mu.Unlock()
 	if m.entrar != nil {
 		m.entrar <- struct{}{}
@@ -84,7 +89,9 @@ func (m *motorFalso) Responder(ctx context.Context, p nucleo.Peticion, t *nucleo
 	if m.panico {
 		panic("se rompió algo")
 	}
-	if m.soltar != nil {
+	if m.soltar != nil && m.ignorarCtx {
+		<-m.soltar
+	} else if m.soltar != nil {
 		select {
 		case <-m.soltar:
 		case <-ctx.Done():

@@ -2,6 +2,7 @@ package saber
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/format"
@@ -76,7 +77,26 @@ func parsearBloque(src string) (bloqueGo, error) {
 	if err != nil {
 		return bloqueGo{}, err
 	}
+	// The block must be a pure statement list: the wrapper's own func _ is
+	// the only declaration. A stray "}" in fetched text can close the wrapper
+	// early and leave other declarations behind (e.g. "x()\n}\ntype T struct {").
+	if funcEnvoltorio(f) == nil {
+		return bloqueGo{}, errors.New("saber: el bloque no es una lista de sentencias")
+	}
 	return bloqueGo{fset, f, 3}, nil
+}
+
+// funcEnvoltorio returns the synthetic "func _" of a statement-mode block, or
+// nil when the file is anything else than exactly that one declaration.
+func funcEnvoltorio(f *ast.File) *ast.FuncDecl {
+	if f == nil || len(f.Decls) != 1 {
+		return nil
+	}
+	fd, ok := f.Decls[0].(*ast.FuncDecl)
+	if !ok || fd.Recv != nil || fd.Name == nil || fd.Name.Name != "_" || fd.Body == nil {
+		return nil
+	}
+	return fd
 }
 
 // importacion is one import spec.
@@ -304,7 +324,10 @@ func candidatasDeBloque(b bloqueGo, texto string) []candidataClave {
 			return nil
 		}
 		// statements only: a program whose main is the block
-		fd := f.Decls[len(f.Decls)-1].(*ast.FuncDecl)
+		fd := funcEnvoltorio(f)
+		if fd == nil {
+			return nil
+		}
 		fd.Name.Name = "main"
 		imps := importsNecesarios(nil, []ast.Decl{fd}, locales)
 		src := archivoGo("main", imps, []ast.Decl{fd}, b)

@@ -15,7 +15,9 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -67,6 +69,8 @@ var (
 	ErrLimiteDiario = errors.New("saber: ya hice demasiadas búsquedas hoy; prueba mañana")
 	// ErrNoEncontrado: the source has no such page or symbol.
 	ErrNoEncontrado = errors.New("saber: no lo encuentro en esa fuente")
+	// ErrBuscadorOcupado: DuckDuckGo answered with its bot check (HTTP 202 and no results); nothing is cached.
+	ErrBuscadorOcupado = errors.New("saber: DuckDuckGo no me deja buscar ahora; prueba dentro de un rato")
 )
 
 // Web is the safe web client. It is safe for concurrent use.
@@ -201,10 +205,54 @@ func (w *Web) comprobarURL(u *url.URL) error {
 	if h == "localhost" || strings.HasSuffix(h, ".localhost") || strings.HasSuffix(h, ".local") || strings.HasSuffix(h, ".internal") {
 		return fmt.Errorf("%w: %s es local", ErrBloqueado, host)
 	}
-	if ip := net.ParseIP(host); ip != nil && IPProhibida(ip) {
-		return fmt.Errorf("%w: %s no es una dirección pública", ErrBloqueado, host)
+	if ip, ok := ipLiteral(h); ok {
+		if IPProhibida(ip) {
+			return fmt.Errorf("%w: %s no es una dirección pública", ErrBloqueado, host)
+		}
+		return nil
+	}
+	if strings.Contains(h, ":") {
+		return fmt.Errorf("%w: %s no es una dirección válida", ErrBloqueado, host)
+	}
+	if hostNumerico(h) {
+		// 127.1, 0x7f000001, 2130706433, 0177.0.0.1…: shorthand IPv4 forms that net.ParseIP refuses but
+		// a proxy (or a browser-like resolver) may still read as an address. No real site needs them.
+		return fmt.Errorf("%w: %s parece una dirección IP escrita de forma rara", ErrBloqueado, host)
 	}
 	return nil
+}
+
+// ipLiteral parses a literal IP host (IPv6 may carry a zone, "fe80::1%eth0").
+func ipLiteral(host string) (net.IP, bool) {
+	if ip := net.ParseIP(host); ip != nil {
+		return ip, true
+	}
+	if a, err := netip.ParseAddr(host); err == nil {
+		return net.IP(a.WithZone("").AsSlice()), true
+	}
+	return nil, false
+}
+
+// hostNumerico reports whether a host name ends in a numeric label (decimal digits or 0x-hex), which the
+// WHATWG URL rules read as an IPv4 address in one of its shorthand forms.
+func hostNumerico(h string) bool {
+	h = strings.TrimSuffix(h, ".")
+	if h == "" {
+		return false
+	}
+	ult := h[strings.LastIndexByte(h, '.')+1:]
+	if ult == "" {
+		return false
+	}
+	if strings.HasPrefix(ult, "0x") {
+		for _, c := range ult[2:] {
+			if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+				return false
+			}
+		}
+		return true
+	}
+	return esNumero(ult)
 }
 
 // comprobarDestino: when the request goes through a proxy the dialer never sees the target, so the host
@@ -218,8 +266,11 @@ func (w *Web) comprobarDestino(ctx context.Context, req *http.Request) error {
 		return nil // the dialer checks every resolved address
 	}
 	host := req.URL.Hostname()
-	if net.ParseIP(host) != nil {
+	if _, ok := ipLiteral(host); ok {
 		return nil // literal, already checked by comprobarURL
+	}
+	if hostNumerico(strings.ToLower(host)) {
+		return fmt.Errorf("%w: %s parece una dirección IP escrita de forma rara", ErrBloqueado, host)
 	}
 	c, cancelar := context.WithTimeout(ctx, time.Second)
 	defer cancelar()
@@ -355,6 +406,7 @@ type respuestaWeb struct {
 	cuerpo []byte
 	tipo   string // media type, lowercase
 	url    string // final URL after redirects
+	estado int    // HTTP status (2xx)
 }
 
 // obtener performs one guarded GET (or HEAD when cabeza) with the rate limit lim (zero = per host).
@@ -417,7 +469,7 @@ func (w *Web) obtener(ctx context.Context, crudo string, lim limite, cabeza bool
 		return respuestaWeb{}, fmt.Errorf("saber: %s respondió %d", u.Host, resp.StatusCode)
 	}
 	if cabeza {
-		return respuestaWeb{url: final}, nil
+		return respuestaWeb{url: final, estado: resp.StatusCode}, nil
 	}
 	tipo, params, _ := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	tipo = strings.ToLower(tipo)
@@ -441,21 +493,72 @@ func (w *Web) obtener(ctx context.Context, crudo string, lim limite, cabeza bool
 	if len(cuerpo) > MaxCuerpo {
 		return respuestaWeb{}, ErrDemasiadoGrande
 	}
-	cuerpo = aUTF8(cuerpo, params["charset"])
-	return respuestaWeb{cuerpo: cuerpo, tipo: tipo, url: final}, nil
+	charset := params["charset"]
+	if charset == "" && (tipo == "text/html" || tipo == "application/xhtml+xml") {
+		charset = charsetMeta(cuerpo)
+	}
+	cuerpo = aUTF8(cuerpo, charset)
+	return respuestaWeb{cuerpo: cuerpo, tipo: tipo, url: final, estado: resp.StatusCode}, nil
 }
 
-// aUTF8 converts Latin-1 / Windows-1252 bodies (the only common non-UTF-8 charsets) to UTF-8.
+// reCharsetMeta finds <meta charset="…"> and <meta http-equiv="Content-Type" content="…; charset=…">.
+var reCharsetMeta = regexp.MustCompile(`(?i)<meta\b[^>]*?\bcharset\s*=\s*["']?\s*([a-z0-9_:.\-]+)`)
+
+// charsetMeta returns the charset a page declares in a <meta> tag within its first 4 KiB ("" if none).
+func charsetMeta(b []byte) string {
+	if len(b) > 4096 {
+		b = b[:4096]
+	}
+	m := reCharsetMeta.FindSubmatch(b)
+	if m == nil {
+		return ""
+	}
+	return string(m[1])
+}
+
+// win1252 maps bytes 0x80-0x9F of Windows-1252 (curly quotes, dashes, €…). The five unassigned bytes stay
+// as the C1 code points, as browsers do.
+var win1252 = [32]rune{
+	'€', 0x81, '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', 0x8D, 'Ž', 0x8F,
+	0x90, '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ', 0x9D, 'ž', 'Ÿ',
+}
+
+// latin9 holds the eight bytes where ISO-8859-15 differs from ISO-8859-1.
+var latin9 = map[byte]rune{0xA4: '€', 0xA6: 'Š', 0xA8: 'š', 0xB4: 'Ž', 0xB8: 'ž', 0xBC: 'Œ', 0xBD: 'œ', 0xBE: 'Ÿ'}
+
+// aUTF8 converts Latin-1 / Windows-1252 / Latin-9 bodies (the only common non-UTF-8 charsets) to UTF-8.
+// As in browsers, "iso-8859-1", "latin1" and "us-ascii" are read as Windows-1252. A body that is already
+// valid UTF-8 is kept as it is (servers often mislabel UTF-8 pages).
 func aUTF8(b []byte, charset string) []byte {
-	cs := strings.ToLower(strings.TrimSpace(charset))
-	latino := cs == "iso-8859-1" || cs == "latin1" || cs == "windows-1252" || cs == "iso-8859-15"
-	if !latino || utf8.Valid(b) {
+	cs := strings.ToLower(strings.Trim(strings.TrimSpace(charset), `"'`))
+	var nueve bool
+	switch cs {
+	case "iso-8859-1", "iso8859-1", "latin1", "l1", "iso_8859-1", "windows-1252", "cp1252", "x-cp1252", "us-ascii", "ascii":
+	case "iso-8859-15", "iso8859-15", "latin9", "l9", "iso_8859-15":
+		nueve = true
+	default:
+		return b
+	}
+	if utf8.Valid(b) {
 		return b
 	}
 	var sb strings.Builder
 	sb.Grow(len(b) + len(b)/8)
 	for _, c := range b {
-		sb.WriteRune(rune(c))
+		switch {
+		case c < 0x80:
+			sb.WriteByte(c)
+		case nueve:
+			if r, ok := latin9[c]; ok {
+				sb.WriteRune(r)
+			} else {
+				sb.WriteRune(rune(c))
+			}
+		case c <= 0x9F:
+			sb.WriteRune(win1252[c-0x80])
+		default:
+			sb.WriteRune(rune(c))
+		}
 	}
 	return []byte(sb.String())
 }
@@ -495,15 +598,19 @@ func (w *Web) Traer(ctx context.Context, direccion string) (Documento, error) {
 	if err != nil {
 		return Documento{}, err
 	}
-	d := documentoDe(r)
+	d, err := documentoDe(ctx, r)
+	if err != nil {
+		return Documento{}, err // cancelled while extracting: nothing is cached
+	}
 	d.URL = direccion
 	d.Fecha = w.ahora()
 	w.cache.escribir(clave, entradaCache{Documento: &d})
 	return d, nil
 }
 
-// documentoDe turns a fetched body into a Documento according to its media type.
-func documentoDe(r respuestaWeb) Documento {
+// documentoDe turns a fetched body into a Documento according to its media type. HTML extraction stops
+// when ctx ends (the error is then ctx.Err()).
+func documentoDe(ctx context.Context, r respuestaWeb) (Documento, error) {
 	switch r.tipo {
 	case "text/plain":
 		d := Documento{URL: r.url}
@@ -521,15 +628,15 @@ func documentoDe(r respuestaWeb) Documento {
 				break
 			}
 		}
-		return d
+		return d, nil
 	case "application/json":
 		texto := string(r.cuerpo)
 		if len(texto) > 20000 {
 			texto = texto[:20000]
 		}
-		return Documento{URL: r.url, Bloques: []Bloque{{Tipo: "codigo", Texto: texto}}}
+		return Documento{URL: r.url, Bloques: []Bloque{{Tipo: "codigo", Texto: texto}}}, nil
 	}
-	return ExtraerDocumento(r.cuerpo, r.url)
+	return extraer(ctx, r.cuerpo, r.url, "")
 }
 
 // pareceCodigo is a cheap guess for plain-text pages.

@@ -77,6 +77,12 @@ func (resSudoku) Resolver(ctx context.Context, p *nucleo.Pregunta, n *nucleo.Nod
 	}
 	leer.Bien("Sudoku con %d casillas dadas", dados)
 	sol, unica, est, det, err := SudokuDetallado(ctx, t, n)
+	var ss *SinSolucion
+	if errors.As(err, &ss) {
+		r := respuestaCalculo("Este sudoku no tiene solución: "+ss.Motivo+".", "csp", "Comprobado sobre las 27 filas, columnas y bloques")
+		r.Entendi = fmt.Sprintf("Así lo entendí: un sudoku con %d casillas dadas", dados)
+		return r, nil
+	}
 	if err != nil && !(errors.Is(err, nucleo.ErrSinTiempo) && det.Soluciones > 0) {
 		return nucleo.Respuesta{}, err
 	}
@@ -179,6 +185,9 @@ func (resReinas) Resolver(ctx context.Context, p *nucleo.Pregunta, n *nucleo.Nod
 	return r, nil
 }
 
+// textoReinas writes the queens in chess notation ("d1, g2, …": column letter, row number) for
+// boards of up to 26 columns, and as "fila 1: columna 4, …" for larger ones (there are no letters
+// left).
 func textoReinas(cols []int) string {
 	var partes []string
 	for f, c := range cols {
@@ -186,7 +195,11 @@ func textoReinas(cols []int) string {
 			partes = append(partes, "…")
 			break
 		}
-		partes = append(partes, fmt.Sprintf("%c%d", 'a'+rune(c%26), f+1))
+		if len(cols) <= 26 {
+			partes = append(partes, fmt.Sprintf("%c%d", 'a'+rune(c), f+1))
+		} else {
+			partes = append(partes, fmt.Sprintf("fila %d: columna %d", f+1, c+1))
+		}
 	}
 	return strings.Join(partes, ", ")
 }
@@ -216,6 +229,14 @@ func (resCripto) Resolver(ctx context.Context, p *nucleo.Pregunta, n *nucleo.Nod
 	}
 	paso := n.Sub(nucleo.PasoIntento, "Busco cifras para %s columna a columna, con las llevadas", strings.ToUpper(expr))
 	sols, nodos, err := CriptoTodas(ctx, expr)
+	var ss *SinSolucion
+	if errors.As(err, &ss) {
+		paso.Mal("Ninguna asignación cuadra")
+		r := respuestaCalculo(fmt.Sprintf("%s no tiene solución: %s.", strings.ToUpper(strings.TrimSpace(expr)), ss.Motivo), "busqueda",
+			"Recorrí todas las asignaciones de cifras distintas, sin ceros al principio de las palabras")
+		r.Entendi = "Así lo entendí: cada letra es una cifra distinta y ninguna palabra empieza por 0"
+		return r, nil
+	}
 	if err != nil {
 		paso.Mal("No lo conseguí")
 		return nucleo.Respuesta{}, err
@@ -287,6 +308,15 @@ func (resCebra) Resolver(ctx context.Context, p *nucleo.Pregunta, n *nucleo.Nodo
 	pistas := partirPistas(p.Texto)
 	paso := n.Sub(nucleo.PasoEntender, "Leo %d pistas", len(pistas))
 	res, err := ResolverCebra(ctx, pistas)
+	var ss *SinSolucion
+	if errors.As(err, &ss) {
+		paso.Mal("Ninguna colocación cumple las pistas")
+		r := respuestaCalculo("Con estas pistas no hay solución: "+ss.Motivo+".", "csp", "Recorrí todas las colocaciones con el resolvedor de restricciones")
+		if len(res.NoEntendidas) > 0 {
+			r.Parrafos = append(r.Parrafos, "No entendí estas pistas, así que no las usé: «"+strings.Join(res.NoEntendidas, "», «")+"».")
+		}
+		return r, nil
+	}
 	if err != nil {
 		paso.Mal("No lo conseguí")
 		return nucleo.Respuesta{}, err
@@ -335,58 +365,23 @@ func (resColorear) Reconoce(p *nucleo.Pregunta) nucleo.Reconocimiento {
 	return rec
 }
 
-// leerAristas reads "A-B, B-C" pairs or "A: B, C" adjacency lines.
-func leerAristas(texto string) [][2]string {
-	var out [][2]string
-	visto := map[[2]string]bool{}
-	agregar := func(a, b string) {
-		a, b = strings.TrimSpace(a), strings.TrimSpace(b)
-		if a == "" || b == "" || a == b {
-			return
-		}
-		k := [2]string{a, b}
-		if b < a {
-			k = [2]string{b, a}
-		}
-		if !visto[k] {
-			visto[k] = true
-			out = append(out, [2]string{a, b})
-		}
-	}
-	for _, m := range reArista.FindAllStringSubmatch(texto, -1) {
-		agregar(m[1], m[2])
-	}
-	if len(out) > 0 {
-		return out
-	}
-	for _, linea := range strings.Split(texto, "\n") {
-		i := strings.Index(linea, ":")
-		if i <= 0 {
-			continue
-		}
-		a := strings.TrimSpace(linea[:i])
-		if strings.Contains(a, " ") {
-			continue
-		}
-		for _, b := range strings.FieldsFunc(linea[i+1:], func(r rune) bool { return r == ',' || r == ';' || r == ' ' }) {
-			if b != "y" && b != "e" {
-				agregar(a, strings.Trim(b, "."))
-			}
-		}
-	}
-	return out
-}
-
 func (resColorear) Resolver(ctx context.Context, p *nucleo.Pregunta, n *nucleo.Nodo) (nucleo.Respuesta, error) {
-	aristas := leerAristas(p.Texto)
+	aristas, err := LeerAristas(p.Texto)
+	if err != nil {
+		return nucleo.Respuesta{}, err
+	}
 	if len(aristas) == 0 {
 		return nucleo.Respuesta{}, fmt.Errorf("puzles: escribe las fronteras como «A-B, B-C»: %w", nucleo.ErrNoEntiendo)
 	}
+	var fronteras []string
+	for _, a := range aristas {
+		fronteras = append(fronteras, a[0]+" – "+a[1])
+	}
+	entendi := "Así lo entendí: fronteras " + strings.Join(fronteras, "; ")
 	l := nuevaLectura(p.Texto)
 	k, conK := numeroAntes(l, "colores", "color")
 	paso := n.Sub(nucleo.PasoIntento, "Coloreo %d fronteras", len(aristas))
 	var colores map[string]int
-	var err error
 	if conK {
 		colores, err = Colorear(ctx, aristas, int(k))
 	} else {
@@ -397,7 +392,9 @@ func (resColorear) Resolver(ctx context.Context, p *nucleo.Pregunta, n *nucleo.N
 	if err != nil {
 		if errors.Is(err, ErrSinColoreo) {
 			paso.Mal("Imposible")
-			return respuestaCalculo(fmt.Sprintf("No se puede colorear con %d colores sin que dos vecinos compartan color.", k), "csp", "Recorrí todas las posibilidades con el resolvedor de restricciones"), nil
+			r := respuestaCalculo(fmt.Sprintf("No se puede colorear con %d colores sin que dos vecinos compartan color.", k), "csp", "Recorrí todas las posibilidades con el resolvedor de restricciones")
+			r.Entendi = entendi
+			return r, nil
 		}
 		paso.Mal("No lo conseguí")
 		return nucleo.Respuesta{}, err
@@ -430,6 +427,7 @@ func (resColorear) Resolver(ctx context.Context, p *nucleo.Pregunta, n *nucleo.N
 	}
 	r := respuestaCalculo(texto, "csp", fmt.Sprintf("Comprobé las %d fronteras: los vecinos tienen colores distintos", len(aristas)))
 	r.Tablas = []nucleo.Tabla{tb}
+	r.Entendi = entendi
 	return r, nil
 }
 
@@ -453,8 +451,13 @@ func (resPlan) Reconoce(p *nucleo.Pregunta) nucleo.Reconocimiento {
 		rec.Puntos, rec.Lectura = 0.9, "torres de Hanói"
 	case contiene(t, " puzzle", " puzle de 8", " 8-puzzle", " ocho piezas", " rompecabezas deslizante"):
 		rec.Puntos, rec.Lectura = 0.85, "el 8-puzzle"
-	case contiene(t, " laberinto") || (strings.Contains(p.Texto, "#") && strings.Contains(p.Texto, "S") && strings.Contains(p.Texto, "E") && strings.Count(p.Texto, "\n") >= 2):
+	case contiene(t, " laberinto"):
 		rec.Puntos, rec.Lectura = 0.85, "laberinto"
+		if LineasLaberinto(p.Texto) == nil {
+			rec.Puntos = 0.5
+		}
+	case pareceLaberinto(LineasLaberinto(p.Texto)):
+		rec.Puntos, rec.Lectura = 0.8, "laberinto"
 	}
 	return rec
 }
@@ -531,12 +534,10 @@ func (rp resPlan) Resolver(ctx context.Context, p *nucleo.Pregunta, n *nucleo.No
 		}
 		lect := fmt.Sprintf("%d misioneros y %d caníbales, barca de %d", m, c, b)
 		return resolverPlan(ctx, Misioneros(m, c, b), lect, "bfs", n)
-	case contiene(t, " laberinto") || strings.Contains(p.Texto, "#"):
-		var lineas []string
-		for _, linea := range strings.Split(p.Texto, "\n") {
-			if strings.ContainsAny(linea, "#SE") && !strings.Contains(strings.ToLower(linea), "laberinto") {
-				lineas = append(lineas, linea)
-			}
+	case contiene(t, " laberinto") || LineasLaberinto(p.Texto) != nil:
+		lineas := LineasLaberinto(p.Texto)
+		if lineas == nil {
+			return nucleo.Respuesta{}, fmt.Errorf("puzles: no encuentro el dibujo del laberinto (usa # para las paredes, . para el camino, S para el inicio y E para la salida): %w", nucleo.ErrNoEntiendo)
 		}
 		lab, err := Laberinto(lineas)
 		if err != nil {
@@ -685,6 +686,23 @@ func modeloReducido(m Modelo) (Modelo, bool) {
 		r.Longitud = min(m.Longitud, 18)
 	case m.esRango():
 		r.Rango = [2]int64{m.Rango[0], m.Rango[0] + 99_999}
+	case len(m.Multiconj) > 0 && m.Circular && len(m.Multiconj) >= 2:
+		// a round table with empty seats: fewer people, and at most 3 empty seats (kept last)
+		ult := min(m.Multiconj[len(m.Multiconj)-1], 3)
+		r.Multiconj, r.Alfabeto = nil, nil
+		total := ult
+		for i, c := range m.Multiconj[:len(m.Multiconj)-1] {
+			c = min(c, 3)
+			if total+c > 10 {
+				break
+			}
+			r.Multiconj = append(r.Multiconj, c)
+			r.Alfabeto = append(r.Alfabeto, m.Alfabeto[i])
+			total += c
+		}
+		r.Multiconj = append(r.Multiconj, ult)
+		r.Alfabeto = append(r.Alfabeto, m.Alfabeto[len(m.Alfabeto)-1])
+		r.Longitud = total
 	case len(m.Multiconj) > 0:
 		r.Multiconj = nil
 		total := 0
@@ -752,7 +770,7 @@ func (resConteo) Resolver(ctx context.Context, p *nucleo.Pregunta, n *nucleo.Nod
 	switch {
 	case cuenta != nil && hayFormula && cuenta.Cmp(valor) == 0:
 		res = cuenta
-		texto = fmt.Sprintf("%s = %s; lo conté uno a uno: coincide.", res, expl)
+		texto = fmt.Sprintf("%s = %s; lo conté uno a uno: coincide.", res, explicacionSinValor(expl, res))
 		comprobado = "La fórmula y el recuento uno a uno coinciden"
 	case cuenta != nil && hayFormula:
 		res = cuenta
@@ -769,12 +787,22 @@ func (resConteo) Resolver(ctx context.Context, p *nucleo.Pregunta, n *nucleo.Nod
 		if !ok {
 			return nucleo.Respuesta{}, errors.New("puzles: no puedo comprobar la fórmula en un caso pequeño")
 		}
+		if err := ctx.Err(); err != nil {
+			return nucleo.Respuesta{}, fmt.Errorf("puzles: se acabó el tiempo antes de comprobar la fórmula: %w", nucleo.ErrSinTiempo)
+		}
 		vr, explR, okR := Formula(red)
 		cr, errR := ContarFuerza(ctx, red, LimiteFuerza)
-		if !okR || errR != nil || vr.Cmp(cr) != 0 {
+		if errR != nil {
+			// running out of time is not a disagreement between the formula and the count
+			if errors.Is(errR, nucleo.ErrSinTiempo) || ctx.Err() != nil {
+				return nucleo.Respuesta{}, fmt.Errorf("puzles: no me dio tiempo a comprobar la fórmula en un caso pequeño: %w", nucleo.ErrSinTiempo)
+			}
+			return nucleo.Respuesta{}, fmt.Errorf("puzles: no pude comprobar la fórmula en un caso pequeño: %w", errR)
+		}
+		if !okR || vr.Cmp(cr) != 0 {
 			return nucleo.Respuesta{}, errors.New("puzles: la fórmula no coincide con el recuento en un caso pequeño; no me fío")
 		}
-		texto = fmt.Sprintf("%s = %s. Son demasiados casos para contarlos uno a uno, pero comprobé la misma fórmula en un caso más pequeño (%s) y coincide con el recuento.", res, expl, explR)
+		texto = fmt.Sprintf("%s = %s. Son demasiados casos para contarlos uno a uno, pero comprobé la misma fórmula en un caso más pequeño (%s) y coincide con el recuento.", res, explicacionSinValor(expl, res), explR)
 		comprobado = "Fórmula comprobada con un recuento en un caso más pequeño"
 	default:
 		return nucleo.Respuesta{}, fmt.Errorf("puzles: no tengo fórmula y son demasiados casos para contar: %w", nucleo.ErrNoSoportado)
@@ -782,6 +810,16 @@ func (resConteo) Resolver(ctx context.Context, p *nucleo.Pregunta, n *nucleo.Nod
 	r := respuestaCalculo(texto, "conteo", comprobado)
 	r.Entendi = "Así lo entendí: " + lect
 	return r, nil
+}
+
+// explicacionSinValor drops the final "= <valor>" from a formula explanation when the value is long,
+// so that a number of thousands of digits is written only once.
+func explicacionSinValor(expl string, v *big.Int) string {
+	txt := v.String()
+	if len(txt) <= 30 {
+		return expl
+	}
+	return strings.ReplaceAll(expl, " = "+txt, "")
 }
 
 // --- probability
