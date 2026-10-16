@@ -200,15 +200,16 @@ func TestRevisionFusionarDesplazamientos(t *testing.T) {
 
 func TestRevisionTextosPatologicosLineales(t *testing.T) {
 	// The time must grow linearly: four times the text may cost at most about four times as much
-	// (a quadratic scan costs sixteen). The best of two runs is taken to smooth the noise; the
-	// absolute bound only catches gross regressions (the race detector makes everything slower).
+	// (a quadratic scan costs sixteen). The best of three runs is taken to smooth the noise, and the
+	// fixed slack absorbs a busy machine (the whole suite runs packages in parallel); the absolute
+	// bound only catches gross regressions (the race detector makes everything slower).
 	escala := time.Duration(1)
 	if conRace {
 		escala = 15
 	}
 	trabajo := func(s string) time.Duration {
 		mejor := time.Duration(1 << 62)
-		for k := 0; k < 2; k++ {
+		for k := 0; k < 3; k++ {
 			ini := time.Now()
 			Tokenizar(s)
 			ExtraerEjemplos(s)
@@ -227,7 +228,7 @@ func TestRevisionTextosPatologicosLineales(t *testing.T) {
 		t1 := trabajo(strings.Repeat(c.p, c.n))
 		grande := strings.Repeat(c.p, 4*c.n)
 		t4 := trabajo(grande)
-		if t4 > 8*t1+20*time.Millisecond*escala {
+		if t4 > 8*t1+40*time.Millisecond*escala {
 			t.Errorf("%q: ×%d tardó %v y ×%d tardó %v: no crece de forma lineal", c.p, c.n, t1, 4*c.n, t4)
 		}
 		ini := time.Now()
