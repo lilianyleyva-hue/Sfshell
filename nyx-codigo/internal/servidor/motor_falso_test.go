@@ -59,8 +59,8 @@ type motorFalso struct {
 
 	mu         sync.Mutex
 	peticiones []nucleo.Peticion
-	respuestas []string // answers received through Preguntar
-	errCtx     error    // ctx.Err() seen when a wait ended
+	respuestas []string        // answers received through Preguntar
+	errCtx     error           // ctx.Err() seen when a wait ended
 	plazos     []time.Duration // time left until ctx's deadline when Responder started
 	opiniones  []nucleo.Opinion
 	olvidos    []string
