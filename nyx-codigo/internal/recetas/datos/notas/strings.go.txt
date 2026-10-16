@@ -22,7 +22,7 @@ func main() {
 
 // nota: strings.Fields
 // titulo: strings.Fields: las palabras de un texto
-// resumen: Parte un texto por los espacios (uno o varios, tabuladores y saltos de línea incluidos) y devuelve las palabras, sin trozos vacíos.
+// resumen: Separa un texto en palabras: lo parte por los espacios (uno o varios, tabuladores y saltos de línea incluidos) y devuelve las palabras, sin trozos vacíos.
 // relacionados: strings.Split, strings.Join
 // palabras: palabra, partir, separar, espacio, texto, contar
 // salida: [uno dos tres]

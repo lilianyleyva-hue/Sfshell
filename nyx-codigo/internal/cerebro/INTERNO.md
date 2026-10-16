@@ -61,6 +61,16 @@ e.g. `crearSintetizar`). Do not edit the core files (`cerebro.go`, `sesion.go`, 
 | `programa *sintesis.Expr` | the DSL program of your answer: set it (or let `guardarFuncion` set it) so learning counts its components |
 | `pendiente string` | non-empty: the question goes to pendientes with this reason (`respuestaFallo` sets it) |
 
+## Per-line explanation table (UI contract)
+
+`servidor/web/app.js` (`actualizarExplicacion`) shows per-line phrases in the editor gutter and in a list
+under it. It reads the **first** `Respuesta.Tablas` entry whose first header normalizes to `linea`, and
+takes each row as `[line number, phrase…]` (extra columns are joined with " — "). `explicar.go` emits
+exactly one such table for the `Narrar` output: `Cabecera: ["Línea", "Frase"]`, one row per sentence
+(`strconv.Itoa(Frase.Linea)`, `Frase.Texto`), line numbers relative to `Respuesta.Codigo` (the explained
+code as given, which the UI loads into an empty editor). `redactar` keeps such tables whole. Any other
+table must not start with a "Línea" header (the variable trace uses `Paso | Línea | Variable | Valor`).
+
 ## Trace (nucleo.Traza / Nodo, as implemented)
 
 `nodo := k.raiz.Sub(nucleo.PasoPlan, "Plan: 1) mirar mi memoria 2) mis recetas 3) construir el programa")`

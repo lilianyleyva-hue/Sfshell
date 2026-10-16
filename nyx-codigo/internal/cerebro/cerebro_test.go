@@ -634,6 +634,8 @@ func TestEstaMalGuardaContraejemploYRepite(t *testing.T) {
 
 func TestEnConstruccionEsHonesto(t *testing.T) {
 	c := nuevoCerebroPrueba(t, nil)
+	// crear_funcion is built now: install a not-yet-built pipeline to check the stub answer
+	c.pipes.crearFuncion = func(c *Cerebro, k *tarea) nucleo.Respuesta { return c.enConstruccion(k, "crear funciones") }
 	r, _ := preguntar(t, c, "s", "haz una función que sume los números pares de una lista", nil)
 	if r.Exito || r.Nivel != nucleo.NivelSinComprobar || !strings.Contains(r.Texto, "Todavía no sé hacer esto") || len(r.Comprobaciones) != 0 {
 		t.Fatalf("un pipeline sin hacer responde con honestidad: %+v", r)

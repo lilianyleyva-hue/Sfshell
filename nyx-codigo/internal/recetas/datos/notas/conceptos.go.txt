@@ -269,7 +269,7 @@ func main() {
 // nota: defer
 // alias: diferir, defers
 // titulo: defer: dejar algo para el final
-// resumen: defer apunta una llamada para que se haga cuando termine la función, pase lo que pase (también si hay un pánico). Se usa para cerrar archivos o liberar cerrojos justo después de abrirlos. Si hay varios, se ejecutan al revés: el último apuntado va primero.
+// resumen: defer apunta una llamada para que se haga al final, cuando termine la función, pase lo que pase (también si hay un pánico). Se usa para cerrar archivos o liberar cerrojos justo después de abrirlos. Si hay varios, se ejecutan al revés: el último apuntado va primero.
 // relacionados: recover, os.Open, sync.Mutex
 // palabras: defer, final, cerrar, liberar, terminar, diferir
 // salida: abro el archivo
