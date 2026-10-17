@@ -145,6 +145,9 @@ func (c *Cerebro) plantillaMemoria(k *tarea) nucleo.Respuesta {
 		n = nucleo.Normalizar(k.p.Texto)
 	}
 	n = strings.Trim(n, " .")
+	if r, ok := c.plantillaHabla(k); ok {
+		return r // what words mean and learning to talk (habla.go)
+	}
 	switch {
 	case reOlvida.MatchString(n):
 		return c.olvidarConfirmando(k, strings.TrimSpace(reOlvida.FindStringSubmatch(n)[1]))
@@ -266,7 +269,7 @@ func (c *Cerebro) olvidarConfirmando(k *tarea, que string) nucleo.Respuesta {
 		}
 	}
 	if tipo == "" {
-		if _, ok := c.mem.Palabras()[que]; ok {
+		if _, ok := c.mem.Palabras()[que]; ok || c.hablaConoce(que) {
 			tipo, id, descripcion = "palabra", que, "la palabra «"+que+"»"
 		}
 	}

@@ -198,6 +198,7 @@ func (c *Cerebro) estudiarWeb(k *tarea) (string, string) {
 	docs, err := c.web.Estudiar(ctx, func(hecho, total int, nota string) {
 		n.Progreso("%d/%d %s", hecho, total, nota)
 	})
+	c.hablaLeerWeb(docs...) // Spanish pages also teach meanings and how to talk (habla.go)
 	if len(docs) == 0 {
 		n.Mal("No pude leer nada: %s", mensajeError(err))
 		return "", ""

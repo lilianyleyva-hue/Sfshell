@@ -15,11 +15,12 @@ import (
 
 // Resolutores returns the puzzle resolvers: "puzles.sudoku", "puzles.reinas", "puzles.cripto",
 // "puzles.cebra", "puzles.colorear", "puzles.plan", "puzles.conteo", "puzles.probabilidad",
-// "puzles.secuencia". lem may be nil (the readers here use their own tokenizer).
+// "puzles.secuencia" and "puzles.tareas" (ordering tasks that depend on each other). lem may be nil
+// (the readers here use their own tokenizer).
 func Resolutores(lem nucleo.Lematizador) []nucleo.Resolutor {
 	return []nucleo.Resolutor{
 		resSudoku{}, resReinas{}, resCripto{}, resCebra{}, resColorear{},
-		resPlan{}, resConteo{}, resProbabilidad{}, resSecuencia{},
+		resPlan{}, resConteo{}, resProbabilidad{}, resSecuencia{}, resTareas{},
 	}
 }
 

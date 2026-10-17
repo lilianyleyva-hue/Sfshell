@@ -74,6 +74,7 @@ func pipeDocGo(c *Cerebro, k *tarea) nucleo.Respuesta {
 		nw := k.raiz.Sub(nucleo.PasoBusqueda, "Leo pkg.go.dev")
 		if d, err := c.web.PkgGoDev(k.ctx, sym); err == nil && docgoTextoDoc(d) != "" {
 			webDoc = d
+			c.hablaLeerWeb(d) // only Spanish pages are read (habla.go)
 			nw.Bien("")
 		} else {
 			nw.Info("No lo encontré")

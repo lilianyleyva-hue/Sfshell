@@ -36,7 +36,7 @@ func nivelAlMenosEntendido(n nucleo.Nivel) bool {
 // metodosSinAprendizaje are answers that teach nothing about strategies (templates, stubs, acks).
 var metodosSinAprendizaje = map[string]bool{
 	"charla": true, "memoria": true, "en_construccion": true, "no_entiendo": true, "respuesta": true,
-	"seguimiento": true, "error": true,
+	"seguimiento": true, "error": true, "habla": true,
 }
 
 // aprender: always register the episode and move the strategy counters; on success propose the

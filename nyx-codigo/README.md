@@ -128,6 +128,34 @@ en el navegador, ciérralo antes, o usa otra carpeta con `-datos`.
 - **Estudiar**: con el botón «Estudiar Go» aprende ejemplos nuevos y vuelve a intentar las preguntas
   que antes no supo resolver.
 
+## Cómo aprende a hablar y qué significa cada palabra
+
+Nyx Código tiene un diccionario de significados y aprende a hablar con lo que lee. No es un modelo de
+lenguaje: son sus propios algoritmos, y todo lo que dice así lleva «Creo que» y «no lo he comprobado».
+
+- **Empieza sabiendo 66 palabras** con su definición en español y su palabra en inglés («variable: una
+  caja con nombre donde guardas un valor»). Vienen del diccionario Resh de Nyx.
+- **Aprende significados** cuando se los enseñas («capicúa significa palíndromo», «bucle quiere decir
+  repetir algo») y cuando lee frases que definen: «X es un…», «X significa…», «X quiere decir…»,
+  «X sirve para…», «llamamos X a…» o «X: …». Lee sus notas de Go al arrancar, lo que le escribes, los
+  textos que le das con «lee esto: …» y las páginas en español que encuentra en internet. Lo que lee
+  nunca cambia lo que tú le enseñaste, y una definición nueva tuya guarda la anterior.
+- **Sabe de dónde viene cada significado**: «Me lo enseñaste tú el 17/10», «Lo leí en mis notas de Go»,
+  «Viene del diccionario de Nyx». Una palabra que solo aparece dentro de otras definiciones está
+  «anclada»: sabe de qué tema habla, pero te dice que no tiene su definición.
+- **Compara palabras por lo que significan**: «¿qué relación hay entre aprender y olvidar?» → opuestos
+  (hablan de la memoria pero uno guarda y el otro pierde); también afines, del mismo tema o sin relación,
+  con las palabras que lo justifican. Si no sabe qué significa una, no se inventa la relación.
+- **Aprende a hablar** con un modelo de trigramas de palabras entrenado con todo lo que lee. Con
+  «háblame de las funciones» construye una frase propia, y solo la dice si conoce el significado de
+  todas sus palabras importantes; si no puede, te lo dice: «Todavía no sé decir nada sobre X: léeme algo
+  o enséñame qué significa».
+
+Pruébalo con: «¿qué significa variable?», «¿qué es un bucle?», «zarzamora significa una fruta negra»,
+«lee esto: un parámetro es un valor que recibe una función», «háblame de las funciones», «¿sumar es lo
+contrario de restar?» y «¿qué palabras sabes?». Lo guarda en `habla.json`, dentro de su carpeta de
+datos; «olvida la palabra zarzamora» lo borra.
+
 ## Qué no sabe hacer
 
 - **Entiende el español con patrones y un diccionario**, no como una persona. Las frases largas, las

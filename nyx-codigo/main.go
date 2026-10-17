@@ -500,6 +500,11 @@ func (m *motor) indexar(datos string) {
 }
 
 func (m *motor) cerrar() {
+	if m.cer != nil {
+		if err := m.cer.Cerrar(); err != nil { // the dictionary and the sentences read (habla.json)
+			log.Printf("cerebro.Cerrar: %v", err)
+		}
+	}
 	if err := m.mem.Cerrar(); err != nil {
 		log.Printf("memoria.Cerrar: %v", err)
 	}

@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"nyxcodigo/internal/habla"
 	"nyxcodigo/internal/lengua"
 	"nyxcodigo/internal/logica"
 	"nyxcodigo/internal/mates"
@@ -58,6 +59,7 @@ type Cerebro struct {
 	biblio      *sintesis.Biblioteca
 	resolutores []nucleo.Resolutor
 	pipes       pipelines
+	habla       *habla.Habla // what words mean and the sentences read (habla.go)
 	ahora       func() time.Time
 	espera      time.Duration // how long a question waits for an answer (5 min)
 
@@ -106,6 +108,11 @@ func Nuevo(cfg Config, d Dependencias) (*Cerebro, error) {
 	c.biblio.Cargar(d.Mem.Funciones()) // functions without a DSL program are skipped on purpose
 	c.resolutores = resolutoresPorDefecto(d.Mem)
 	c.pipes = pipelinesPorDefecto()
+	dirHabla := cfg.DirDatos
+	if strings.TrimSpace(dirHabla) == "" {
+		dirHabla = d.Mem.Dir()
+	}
+	c.iniciarHabla(dirHabla)
 	return c, nil
 }
 
@@ -171,6 +178,7 @@ func (c *Cerebro) responder(ctx context.Context, p nucleo.Peticion, t *nucleo.Tr
 	r := c.rutear(k)
 	c.redactar(k, &r)
 	c.aprender(k, &r)
+	c.hablaDespues(k)
 	s.registrar(k, r)
 	return r
 }
@@ -258,8 +266,9 @@ func (c *Cerebro) Hechos(q string) []nucleo.Hecho {
 	return c.mem.BuscarHechos(q, 0)
 }
 
-// Palabras returns the confirmed learned words (word → concept).
-func (c *Cerebro) Palabras() map[string]string { return c.mem.Palabras() }
+// Palabras returns the confirmed learned words (word → concept) and the learned meanings (word →
+// definition).
+func (c *Cerebro) Palabras() map[string]string { return c.palabrasConSignificado() }
 
 // Olvidar forgets a function, a fact (or rule), or a learned word. tipo: "funcion" | "hecho" | "regla" | "palabra".
 func (c *Cerebro) Olvidar(tipo, id string) error {
@@ -285,7 +294,7 @@ func (c *Cerebro) Olvidar(tipo, id string) error {
 	case "regla":
 		return c.mem.OlvidarRegla(id)
 	case "palabra":
-		return c.mem.OlvidarPalabra(id)
+		return c.olvidarPalabra(id)
 	}
 	return fmt.Errorf("cerebro: no sé olvidar cosas de tipo %q (funcion, hecho o palabra)", tipo)
 }
@@ -315,7 +324,9 @@ func (c *Cerebro) Estado() nucleo.EstadoApp {
 	}
 	e.Internet = c.hayInternet()
 	e.Funciones, e.Hechos, e.Palabras = c.mem.Contar()
+	e.Palabras += c.palabrasHabla(c.mem.Palabras())
 	e.Avisos = append(e.Avisos, c.mem.Avisos()...)
+	e.Avisos = append(e.Avisos, c.habla.Avisos()...)
 	return e
 }
 

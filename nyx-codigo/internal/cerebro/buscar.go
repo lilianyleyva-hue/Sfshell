@@ -49,6 +49,7 @@ func pipeBuscar(c *Cerebro, k *tarea) nucleo.Respuesta {
 
 	nb := k.raiz.Sub(nucleo.PasoBusqueda, "Busco «%s»", consulta)
 	_, docs, err := c.web.BuscarDocumentos(k.ctx, consulta)
+	c.hablaLeerWeb(docs...) // Spanish pages also teach meanings and how to talk (habla.go)
 	if err != nil || len(docs) == 0 {
 		motivo := "no encontré páginas"
 		if err != nil {

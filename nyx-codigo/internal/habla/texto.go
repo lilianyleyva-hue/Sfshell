@@ -61,18 +61,26 @@ cero uno dos tres cuatro cinco seis siete ocho nueve diez cien mil primero prime
 ser es son era eran fue fueron sea sean siendo sido soy eres somos sera seran seria
 estar estan estaba estaban estoy estas estamos estado este esten
 tener tiene tienen tenia tenian tengo tienes tenemos tenido teniendo tenga tengan
-hacer hace hacen hizo hago haces hacemos hecho haciendo haz haga hagan
 haber hay ha han he has habia habian hubo habido haya
 poder puede pueden puedo puedes podemos podia pudo pueda puedan
 ir va van voy vas vamos iba iban vaya
 deber debe deben debo debes debia
 querer quiere quieren quiero quieres queria
+soler suele suelen
+significa significan significar
+` + verbosLibres)
+
+// verbosLibres are common verbs a sentence may use freely but that still carry meaning inside a
+// definition ("crear: hacer algo nuevo"), so they are not skipped there.
+const verbosLibres = `
+hacer hace hacen hizo hago haces hacemos hecho haciendo haz haga hagan
 decir dice dicen digo dices dicho diciendo
 dar da dan doy das dio dado
 servir sirve sirven sirvio servia
-soler suele suelen
 llamar llama llaman llamamos llamado llamada
-`)
+`
+
+var libres = conjunto(verbosLibres)
 
 func conjunto(s string) map[string]bool {
 	m := map[string]bool{}
@@ -84,6 +92,10 @@ func conjunto(s string) map[string]bool {
 
 // esFuncion reports whether a (folded) word is a function word.
 func esFuncion(w string) bool { return funcion[w] }
+
+// esVacia: a function word that carries no meaning inside a definition (articles, prepositions,
+// pronouns, ser/estar/tener…); the common verbs of verbosLibres do carry it.
+func esVacia(w string) bool { return funcion[w] && !libres[w] }
 
 // ordenes are first words of commands: a sentence that starts with one is a request, not a statement,
 // and is not used to learn to talk ("haz una función que…").
@@ -465,4 +477,28 @@ func cortarRunas(s string, n int) string {
 		}
 	}
 	return strings.TrimSpace(string(r[:corte]))
+}
+
+// palabrasEspanol and palabrasIngles are very common words used to tell the language of a text.
+var (
+	palabrasEspanol = conjunto(`de la que el en y los se del las un por con no una su para es al lo como mas pero sus le ya o este si porque esta entre cuando muy sin sobre tambien me hasta hay donde`)
+	palabrasIngles  = conjunto(`the of and to in is that for it with as was on be by this are or an at from which you can if not your use returns function value`)
+)
+
+// EsEspanol tells whether a text is mostly Spanish (by its most common words). Linear in the text.
+func EsEspanol(texto string) bool {
+	es, en := 0, 0
+	for _, t := range tokenizar(recortarBytes(texto, 64<<10)) {
+		if t.clase != 'w' {
+			continue
+		}
+		w := plegar(t.texto)
+		if palabrasEspanol[w] {
+			es++
+		}
+		if palabrasIngles[w] {
+			en++
+		}
+	}
+	return es >= 3 && es > 2*en
 }

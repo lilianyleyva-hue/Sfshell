@@ -60,7 +60,7 @@ func tokensCadena(s string) []tokC {
 				}
 				j += n2
 			}
-			t.tipo, t.orig, t.w = 'w', s[i:j], nucleo.Normalizar(s[i:j])
+			t.tipo, t.orig, t.w = 'w', s[i:j], normalizarPalabra(s[i:j])
 			i = j
 		case r >= '0' && r <= '9' || r == '-' && i+1 < len(s) && s[i+1] >= '0' && s[i+1] <= '9' && antesDeNegativo(out):
 			j := i
@@ -103,7 +103,7 @@ func tokensCadena(s string) []tokC {
 		case strings.ContainsRune("<>!:", r) && i+1 < len(s) && s[i+1] == '=':
 			t.tipo, t.w, t.orig = 'o', s[i:i+2], s[i:i+2]
 			i += 2
-		case strings.ContainsRune("+-*/^%<>√·×÷−", r):
+		case strings.ContainsRune("+-*/^%<>√·×÷−&|", r):
 			t.tipo, t.w, t.orig = 'o', string(r), string(r)
 			i += n
 		default:
@@ -115,6 +115,16 @@ func tokensCadena(s string) []tokC {
 	}
 	marcarPreguntas(out)
 	return out
+}
+
+// normalizarPalabra is nucleo.Normalizar without allocating for the usual lowercase ASCII word.
+func normalizarPalabra(w string) string {
+	for k := 0; k < len(w); k++ {
+		if c := w[k]; c >= 0x80 || c >= 'A' && c <= 'Z' {
+			return nucleo.Normalizar(w)
+		}
+	}
+	return w
 }
 
 // antesDeNegativo: a «-» right before a digit is a sign after "=", a separator or "vale", "a", "que".
@@ -192,15 +202,14 @@ func esNombreCadena(t tokC) bool {
 
 // datosCadena is what a chain text says.
 type datosCadena struct {
-	nombres  []string   // display text of each node
-	claves   []string   // node keys: the normalized name, or "#" + the number
-	valores  []*big.Rat // the value of a number node (nil for names)
-	indice   map[string]int
-	enlaces  []enlaceC
-	fuentes  []string // the text of each stated chain
-	cadenas  [][]int  // the nodes of each stated chain, in order
-	impuro   bool     // an operator touches an equality: it is algebra, not a chain
-	demasiad bool
+	nombres    []string   // display text of each node
+	claves     []string   // node keys: the normalized name, or "#" + the number
+	valores    []*big.Rat // the value of a number node (nil for names)
+	indice     map[string]int
+	enlaces    []enlaceC
+	fuentes    []string // the text of each stated chain
+	impuro     bool     // an operator touches an equality: it is algebra, not a chain
+	demasiados bool
 	// recognition features
 	enlacesNombres int  // links between two different names
 	larga          bool // a chain with three or more members
@@ -228,7 +237,7 @@ func (d *datosCadena) nodo(t tokC) (int, bool) {
 		return k, true
 	}
 	if len(d.claves) >= maxNodosCadena {
-		d.demasiad = true
+		d.demasiados = true
 		return 0, false
 	}
 	d.indice[clave] = len(d.claves)
@@ -282,8 +291,33 @@ func igualEn(ts []tokC, i int) (int, bool) {
 	return 0, false
 }
 
+// operando: a number, a name, or a short word that is clearly a name because an "=" touches it
+// ("x = u = e", "a = b": u, e and a are also Spanish words).
 func operando(ts []tokC, i int) bool {
-	return i < len(ts) && (ts[i].tipo == 'n' || esNombreCadena(ts[i]))
+	if i < 0 || i >= len(ts) {
+		return false
+	}
+	t := ts[i]
+	if t.tipo == 'n' || esNombreCadena(t) {
+		return true
+	}
+	if t.tipo != 'w' || utf8.RuneCountInString(t.w) > 2 {
+		return false
+	}
+	if i > 0 && ts[i-1].tipo == '=' || i+1 < len(ts) && ts[i+1].tipo == '=' {
+		return true
+	}
+	if k, _ := igualEn(ts, i+1); k > 0 {
+		return true
+	}
+	for _, f := range frasesIgual {
+		if i-len(f) >= 0 {
+			if k, _ := igualEn(ts, i-len(f)); k == len(f) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // leerCadenas reads the stated equalities and the question. It never fails: what it cannot read
@@ -291,7 +325,7 @@ func operando(ts []tokC, i int) bool {
 func leerCadenas(texto string) *datosCadena {
 	d := &datosCadena{indice: map[string]int{}}
 	if len(texto) > maxTextoCadena {
-		d.demasiad = true
+		d.demasiados = true
 		return d
 	}
 	ts := tokensCadena(texto)
@@ -367,7 +401,25 @@ func leerCadenas(texto string) *datosCadena {
 		}
 	}
 	d.leerPregunta(ts)
+	d.pregunta.texto = textoPregunta(texto, ts)
 	return d
+}
+
+// textoPregunta is the question as written (from its first to its last token).
+func textoPregunta(texto string, ts []tokC) string {
+	desde, hasta := -1, -1
+	for _, t := range ts {
+		if t.pregunta {
+			if desde < 0 {
+				desde = t.desde
+			}
+			hasta = t.hasta
+		}
+	}
+	if desde < 0 {
+		return ""
+	}
+	return strings.TrimSpace(texto[desde:hasta])
 }
 
 func (d *datosCadena) agregarCadena(texto string, ts []tokC, miembros []int) {
@@ -381,7 +433,6 @@ func (d *datosCadena) agregarCadena(texto string, ts []tokC, miembros []int) {
 	}
 	fuente := len(d.fuentes)
 	d.fuentes = append(d.fuentes, strings.TrimSpace(texto[ts[miembros[0]].desde:ts[miembros[len(miembros)-1]].hasta]))
-	d.cadenas = append(d.cadenas, nodos)
 	if len(nodos) >= 3 {
 		d.larga = true
 	}
@@ -398,14 +449,22 @@ func (d *datosCadena) agregarCadena(texto string, ts []tokC, miembros []int) {
 func (d *datosCadena) leerPregunta(ts []tokC) {
 	var palabras []string
 	var nombres []int
-	var partes []string
 	igual := false
-	for _, t := range ts {
+	for i := 0; i < len(ts); i++ {
+		t := ts[i]
 		if !t.pregunta {
 			continue
 		}
 		d.pregunta.hayPreg = true
-		partes = append(partes, t.orig)
+		// "igual a", "lo mismo que": the "a" and "que" are not names
+		if k, pal := igualEn(ts, i); k > 1 && pal {
+			igual = true
+			for m := i; m < i+k; m++ {
+				palabras = append(palabras, ts[m].w)
+			}
+			i += k - 1
+			continue
+		}
 		switch {
 		case t.tipo == '=':
 			igual = true
@@ -424,7 +483,6 @@ func (d *datosCadena) leerPregunta(ts []tokC) {
 			}
 		}
 	}
-	d.pregunta.texto = strings.TrimSpace(strings.Join(partes, " "))
 	sec := " " + strings.Join(palabras, " ") + " "
 	d.pregunta.nodos = nombres
 	d.pregunta.todos = strings.Contains(sec, " todos ") || strings.Contains(sec, " todas ") || strings.Contains(sec, " cada ")
@@ -589,7 +647,7 @@ func (resCadena) Reconoce(p *nucleo.Pregunta) nucleo.Reconocimiento {
 		return nucleo.Reconocimiento{}
 	}
 	d := leerCadenas(t)
-	if d.impuro || d.demasiad || d.enlacesNombres == 0 {
+	if d.impuro || d.demasiados || d.enlacesNombres == 0 {
 		return nucleo.Reconocimiento{}
 	}
 	rec := nucleo.Reconocimiento{Puntos: 0.9, Intencion: nucleo.IEcuacion, Lectura: "una cadena de igualdades"}
@@ -613,7 +671,7 @@ func (resCadena) Resolver(ctx context.Context, p *nucleo.Pregunta, n *nucleo.Nod
 	t := textoDe(p)
 	d := leerCadenas(t)
 	switch {
-	case d.demasiad:
+	case d.demasiados:
 		return nucleo.Respuesta{}, fmt.Errorf("%w: hay demasiados nombres (como mucho %d)", nucleo.ErrNoSoportado, maxNodosCadena)
 	case d.impuro:
 		return nucleo.Respuesta{}, fmt.Errorf("%w: hay operaciones además de igualdades; escríbelo como ecuación", nucleo.ErrNoEntiendo)
@@ -873,6 +931,9 @@ func (s *salidaCadena) valores(n *nucleo.Nodo) (nucleo.Respuesta, error) {
 			}
 			n.Sub(nucleo.PasoError, "Contradicción en el grupo de %s", nombre).Mal("")
 			textos = append(textos, fmt.Sprintf("%s no tiene un valor único: %s", nombre, txt))
+			nodos, fuentes := camino(s.ady, ns[0], ns[1])
+			r.Plan = append(r.Plan, s.pasos(nodos, fuentes)...)
+			r.Plan = append(r.Plan, fmt.Sprintf("Pero %s no es igual a %s: los datos se contradicen", d.nombres[ns[0]], d.nombres[ns[1]]))
 		}
 		s.marcar(g)
 	}

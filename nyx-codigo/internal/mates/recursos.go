@@ -123,7 +123,6 @@ func convertir(v *big.Rat, de, a string) (*big.Rat, bool) {
 
 type recargaR struct {
 	t, cantidad *big.Rat // t in the base unit of time
-	texto       string
 }
 
 type recursoR struct {
@@ -133,6 +132,7 @@ type recursoR struct {
 	tasa         *big.Rat // per base unit of time (constant rates)
 	tasaTexto    string   // "3 litros por hora"
 	expr         Expr     // a rate that depends on t (nil if constant)
+	exprTexto    string   // as written, with · for *
 	escala       float64  // expression unit of time per base unit
 	minimo       *big.Rat
 	recargas     []recargaR
@@ -188,6 +188,14 @@ func (r *recursoR) cantidad(v *big.Rat) string {
 }
 
 func textoRatCorto(v *big.Rat) string {
+	if len(v.Num().String())+len(v.Denom().String()) > 40 {
+		// a huge or tiny exact value is shown rounded: "≈ 3,33333·10^399"
+		m, e, _ := strings.Cut(new(big.Float).SetPrec(64).SetRat(v).Text('e', 5), "e")
+		if m == "" || e == "" {
+			return textoRat(v)
+		}
+		return "≈ " + strings.Replace(m, ".", ",", 1) + "·10^" + strings.TrimLeft(strings.TrimPrefix(e, "+"), "0")
+	}
 	if v.IsInt() {
 		return textoRat(v)
 	}
@@ -198,10 +206,9 @@ func textoRatCorto(v *big.Rat) string {
 type problemaRecursos struct {
 	recursos []*recursoR
 	base     periodoTiempo
-	pregunta string // "dura" | "primero" | "queda" | "sobra" | ""
+	pregunta string // "dura" | "cuando" | "primero" | "queda" | "sobra" | ""
 	cual     *recursoR
 	en       *big.Rat // the instant asked about ("¿cuánto queda a las 5 horas?")
-	enTexto  string
 	numerico bool
 	textoPre string
 	notas    []string
@@ -256,7 +263,6 @@ type lectorRecursos struct {
 	ultimo     *recursoR
 	base       *periodoTiempo
 	err        error
-	periodico  bool
 }
 
 type cantidadR struct {
@@ -452,7 +458,7 @@ func (l *lectorRecursos) cantidadEn(i int, expr bool) (cantidadR, int, bool) {
 			} else {
 				c.expr = e
 			}
-			c.exprTexto = strings.ReplaceAll(e.String(), "*", "·")
+			c.exprTexto = strings.ReplaceAll(txt, "*", "·")
 			j = k
 		}
 	}
@@ -646,6 +652,7 @@ func (l *lectorRecursos) gasto(u periodoTiempo, cada *big.Rat, texto string) {
 				return
 			}
 			r.expr = c.expr
+			r.exprTexto = c.exprTexto
 			// the expression's t is in its own unit: t = escala·τ, and the rate per base unit is escala·f(t)
 			r.escala, _ = escala.Float64()
 		}
@@ -710,9 +717,8 @@ func (l *lectorRecursos) recarga(c cantidadR, t *big.Rat, u periodoTiempo) {
 		}
 		v = w
 	}
-	r.recargas = append(r.recargas, recargaR{t: new(big.Rat).Set(t), cantidad: v, texto: fmt.Sprintf("a las %s %s añades %s", textoRat(t), u.texto(t), c.texto)})
-	// the instant is converted to the base unit once the base unit is known (see aBase)
-	r.recargas[len(r.recargas)-1].t = new(big.Rat).Mul(t, big.NewRat(u.segundos, 1))
+	// the instant is kept in seconds here and passed to the base unit once it is known
+	r.recargas = append(r.recargas, recargaR{t: new(big.Rat).Mul(t, big.NewRat(u.segundos, 1)), cantidad: v})
 }
 
 // minimo records "sin bajar de 10 litros de aceite" for the named resource, the last one, or all.
@@ -778,9 +784,8 @@ func leerRecursos(texto string) (*problemaRecursos, error) {
 		}
 		if fraseEn(ts, i, []string{"cada"}) {
 			if _, _, k, ok := periodoEn(ts, i); ok && (l.modo == 'r' || l.siguienteVerboRecarga(i+k)) && len(l.pendientes) == 0 {
-				l.periodico = true
-				i += k - 1
-				continue
+				l.err = fmt.Errorf("%w: todavía no sé hacer recargas que se repiten («cada 10 horas…»)", nucleo.ErrNoSoportado)
+				break
 			}
 		}
 		if v, u, k, ok := momentoEn(ts, i); ok {
@@ -818,10 +823,14 @@ func leerRecursos(texto string) (*problemaRecursos, error) {
 				l.ultimo = r
 			}
 		}
-		if t.tipo == 'n' || l.modo == 'g' && (t.tipo == 'o' || t.tipo == 's' && t.w == "(" || t.tipo == 'w' && funcionesTasa[t.w]) {
-			c, k, ok := l.cantidadEn(i, l.modo == 'g')
+		if t.tipo == 'n' || l.modo == 'g' && (t.tipo == 'o' && t.w != "/" || t.tipo == 's' && t.w == "(" || t.tipo == 'w' && funcionesTasa[t.w] && (t.w != "t" || i+1 < len(ts) && ts[i+1].tipo == 'o')) {
+			c, k, ok := l.cantidadEn(i, true)
 			if !ok {
 				continue
+			}
+			if c.expr != nil && l.modo != 'g' {
+				l.err = fmt.Errorf("%w: «%s» depende de t, y solo un gasto puede depender del tiempo", nucleo.ErrNoEntiendo, c.texto)
+				break
 			}
 			switch l.modo {
 			case 'g':
@@ -846,9 +855,6 @@ func leerRecursos(texto string) (*problemaRecursos, error) {
 	}
 	if l.err != nil {
 		return nil, l.err
-	}
-	if l.periodico {
-		return nil, fmt.Errorf("%w: todavía no sé hacer recargas que se repiten («cada 10 horas…»)", nucleo.ErrNoSoportado)
 	}
 	pr := &problemaRecursos{}
 	for _, r := range l.recursos {
@@ -899,12 +905,11 @@ func (l *lectorRecursos) siguienteVerboRecarga(i int) bool {
 // instant. A minimum said in the question ("¿cuánto dura sin bajar de 10?") applies too.
 func (l *lectorRecursos) leerPregunta(pr *problemaRecursos) {
 	ts := l.ts
-	var ws, partes []string
+	var ws []string
 	for i := 0; i < len(ts); i++ {
 		if !ts[i].pregunta {
 			continue
 		}
-		partes = append(partes, ts[i].orig)
 		if k := cualquieraEn(ts, i, frasesMinimo); k > 0 {
 			if c, kc, ok := l.cantidadEn(i+k, false); ok {
 				l.minimo(c, true)
@@ -914,7 +919,6 @@ func (l *lectorRecursos) leerPregunta(pr *problemaRecursos) {
 		}
 		if v, u, k, ok := momentoEn(ts, i); ok && pr.en == nil {
 			pr.en = new(big.Rat).Mul(v, big.NewRat(u.segundos, pr.base.segundos))
-			pr.enTexto = fmt.Sprintf("%s %s", textoRat(v), u.texto(v))
 			i += k - 1
 			continue
 		}
@@ -934,14 +938,13 @@ func (l *lectorRecursos) leerPregunta(pr *problemaRecursos) {
 			// "¿cuánto queda a las 5?" (unit left out): the base unit
 			if i > 0 && (palabraEn(ts, i-1) == "las" || palabraEn(ts, i-1) == "los") {
 				pr.en = new(big.Rat).Set(ts[i].num)
-				pr.enTexto = fmt.Sprintf("%s %s", textoRat(ts[i].num), pr.base.texto(ts[i].num))
 			}
 		}
 	}
 	if pr.cual != nil && pr.cual.stock == nil {
 		pr.cual = nil
 	}
-	pr.textoPre = strings.Join(partes, " ")
+	pr.textoPre = textoPregunta(l.texto, ts)
 	s := " " + strings.Join(ws, " ") + " "
 	tiene := func(fs ...string) bool {
 		for _, f := range fs {
@@ -962,7 +965,7 @@ func (l *lectorRecursos) leerPregunta(pr *problemaRecursos) {
 		pr.pregunta = "dura"
 	case tiene("cuando") && tiene("acaba", "acaban", "agota", "agotan", "termina", "terminan", "gasta", "gastan", "consume",
 		"consumen", "vacia", "vacian", "apaga", "apagan", "acabara", "acabaran", "agotara", "agotaran", "termine", "acabe", "agote"):
-		pr.pregunta = "dura"
+		pr.pregunta = "cuando"
 	case tiene("queda", "quedan", "sobra", "sobran"):
 		pr.pregunta = "sobra"
 	}
@@ -974,14 +977,13 @@ func (l *lectorRecursos) leerPregunta(pr *problemaRecursos) {
 // ---- the exact method (constant rates) ----
 
 type agotado struct {
-	t      *big.Rat // nil: it never runs out
-	justo  bool     // a refill arrives exactly when it was going to run out
-	pasos  []string
-	yaBajo bool
+	t     *big.Rat // nil: it never runs out
+	justo bool     // it runs out exactly when a refill was going to arrive
+	pasos []string
 }
 
 // agotarExacto: when the level of r reaches its minimum. Between refills the level falls in a
-// straight line, so each piece is (level − minimum)/rate.
+// straight line, so each piece lasts (level − minimum)/rate.
 func agotarExacto(r *recursoR, u periodoTiempo) agotado {
 	var a agotado
 	m := r.min()
@@ -990,14 +992,14 @@ func agotarExacto(r *recursoR, u periodoTiempo) agotado {
 	k := 0
 	for ; k < len(r.recargas) && r.recargas[k].t.Sign() <= 0; k++ {
 		nivel.Add(nivel, r.recargas[k].cantidad)
-		a.pasos = append(a.pasos, fmt.Sprintf("al empezar añades %s → %s", textoRat(r.recargas[k].cantidad), r.cantidad(nivel)))
+		a.pasos = append(a.pasos, fmt.Sprintf("al empezar añades %s → %s", textoRatCorto(r.recargas[k].cantidad), r.cantidad(nivel)))
 	}
 	if r.tasa.Sign() <= 0 {
 		a.pasos = append(a.pasos, "no gastas nada (o ganas), así que no se acaba")
 		return a
 	}
 	if nivel.Cmp(m) <= 0 {
-		a.t, a.yaBajo = new(big.Rat), true
+		a.t = new(big.Rat)
 		a.pasos = append(a.pasos, fmt.Sprintf("ya empieza en %s, que no está por encima del mínimo", r.cantidad(nivel)))
 		return a
 	}
@@ -1005,31 +1007,59 @@ func agotarExacto(r *recursoR, u periodoTiempo) agotado {
 		margen := new(big.Rat).Sub(nivel, m)
 		dur := new(big.Rat).Quo(margen, r.tasa)
 		fin := new(big.Rat).Add(ahora, dur)
-		cuenta := fmt.Sprintf("%s ÷ %s por %s = %s %s", textoRat(margen), textoRat(r.tasa), u.uno, textoRat(dur), u.texto(dur))
+		cuenta := fmt.Sprintf("%s ÷ %s = %s %s", r.cantidad(margen), r.porTiempo(u), textoRatCorto(dur), u.texto(dur))
 		if m.Sign() != 0 {
-			cuenta = fmt.Sprintf("(%s − %s) ÷ %s por %s = %s %s", textoRat(nivel), textoRat(m), textoRat(r.tasa), u.uno, textoRat(dur), u.texto(dur))
+			cuenta = fmt.Sprintf("(%s − %s) ÷ %s = %s %s", r.cantidad(nivel), textoRatCorto(m), r.porTiempo(u), textoRatCorto(dur), u.texto(dur))
 		}
-		if k >= len(r.recargas) || fin.Cmp(r.recargas[k].t) < 0 {
+		// reaching the minimum exactly when a refill arrives still counts as running out
+		if k >= len(r.recargas) || fin.Cmp(r.recargas[k].t) <= 0 {
+			if k < len(r.recargas) && fin.Cmp(r.recargas[k].t) == 0 {
+				a.justo = true
+			}
 			if ahora.Sign() == 0 {
 				a.pasos = append(a.pasos, cuenta)
 			} else {
-				a.pasos = append(a.pasos, fmt.Sprintf("desde las %s %s: %s más → se acaba a las %s %s", textoRat(ahora), u.texto(ahora), cuenta, textoRat(fin), u.texto(fin)))
+				a.pasos = append(a.pasos, fmt.Sprintf("desde ahí, %s más: se acaba al cabo de %s %s en total", cuenta, textoRatCorto(fin), u.texto(fin)))
 			}
 			a.t = fin
 			return a
 		}
 		rc := r.recargas[k]
-		if fin.Cmp(rc.t) == 0 {
-			a.justo = true
-		}
 		gastado := new(big.Rat).Mul(r.tasa, new(big.Rat).Sub(rc.t, ahora))
 		nivel.Sub(nivel, gastado)
 		antes := new(big.Rat).Set(nivel)
 		nivel.Add(nivel, rc.cantidad)
-		a.pasos = append(a.pasos, fmt.Sprintf("a las %s %s quedan %s y añades %s → %s", textoRat(rc.t), u.texto(rc.t), textoRatCorto(antes), textoRatCorto(rc.cantidad), r.cantidad(nivel)))
+		a.pasos = append(a.pasos, fmt.Sprintf("a las %s %s quedan %s y añades %s → %s", textoRatCorto(rc.t), u.texto(rc.t), textoRatCorto(antes), textoRatCorto(rc.cantidad), r.cantidad(nivel)))
 		ahora.Set(rc.t)
 		k++
 	}
+}
+
+// porTiempo: "3 litros por hora".
+func (r *recursoR) porTiempo(u periodoTiempo) string {
+	s := textoRatCorto(r.tasa)
+	if r.unidad != "" {
+		s += " " + r.unidad
+	}
+	return s + " por " + u.uno
+}
+
+// nivelPorTramos is the level at instant t walking refill by refill (the second way of computing
+// what is left; nivelExacto is the closed formula).
+func nivelPorTramos(r *recursoR, t *big.Rat) *big.Rat {
+	nivel := new(big.Rat).Set(r.stock)
+	ahora := new(big.Rat)
+	for _, rc := range r.recargas {
+		if rc.t.Cmp(t) > 0 {
+			break
+		}
+		paso := new(big.Rat).Sub(rc.t, ahora)
+		nivel.Sub(nivel, paso.Mul(paso, r.tasa))
+		nivel.Add(nivel, rc.cantidad)
+		ahora = rc.t
+	}
+	paso := new(big.Rat).Sub(t, ahora)
+	return nivel.Sub(nivel, paso.Mul(paso, r.tasa))
 }
 
 // nivelExacto is the level of r at instant t with the closed formula: stock + refills up to t − rate·t.
@@ -1049,7 +1079,10 @@ func nivelExacto(r *recursoR, t *big.Rat, incluirEnT bool) *big.Rat {
 func comprobarExacto(pr *problemaRecursos, tFin *big.Rat, primeros []*recursoR) bool {
 	for _, r := range pr.recursos {
 		m := r.min()
-		if r.tasa.Sign() > 0 && nivelExacto(r, new(big.Rat), true).Cmp(m) <= 0 {
+		if r.tasa.Sign() <= 0 {
+			continue // it never runs out: nothing to check
+		}
+		if nivelExacto(r, new(big.Rat), true).Cmp(m) <= 0 {
 			if tFin.Sign() != 0 {
 				return false
 			}
@@ -1189,6 +1222,12 @@ type eventoR struct {
 // horizon). The step is halved while the step-doubling estimate exceeds tol and doubled when it is
 // far below; refills are steps of their own; the crossing is refined by bisection inside the step.
 func integrar(ctx context.Context, rs []*recursoR, horizonte, tol float64) (resultadoNum, error) {
+	return integrarCon(ctx, rs, horizonte, tol, 1)
+}
+
+// integrarCon is integrar with the step sizes scaled by rejilla, so a second run walks another grid of
+// instants (a singularity between grid points shows up as a disagreement).
+func integrarCon(ctx context.Context, rs []*recursoR, horizonte, tol, rejilla float64) (resultadoNum, error) {
 	res := resultadoNum{horizonte: horizonte}
 	n := len(rs)
 	y := make([]float64, n)
@@ -1215,7 +1254,7 @@ func integrar(ctx context.Context, rs []*recursoR, horizonte, tol float64) (resu
 		}
 	}
 	t := 0.0
-	hMax := horizonte / 64
+	hMax := horizonte / 64 * rejilla
 	h := hMax / 64
 	hMin := horizonte * 1e-15
 	for res.pasos = 0; res.pasos < maxPasosRK; {
@@ -1256,8 +1295,8 @@ func integrar(ctx context.Context, rs []*recursoR, horizonte, tol float64) (resu
 		// the first crossing inside this step, refined by bisection
 		mejor, cruce := 2.0, []int(nil)
 		for i := range y {
-			if y2[i] > mins[i] {
-				continue
+			if y2[i] > mins[i] || y[i] <= mins[i] {
+				continue // above its minimum, or already below it without spending (it never "runs out")
 			}
 			lo, hi := 0.0, 1.0
 			for it := 0; it < 64; it++ {
@@ -1315,7 +1354,14 @@ func horizonteDe(rs []*recursoR) float64 {
 			te, _ := rc.t.Float64()
 			h = math.Max(h, 2*te)
 		}
-		if g, err := r.tasaEn(0); err == nil && g > 0 {
+		// the largest rate among a few instants (a rate can start at 0 and grow)
+		g := 0.0
+		for _, t := range []float64{0, 1, 10, 100, 1000, 10000} {
+			if v, err := r.tasaEn(t); err == nil && v > g {
+				g = v
+			}
+		}
+		if g > 0 {
 			h = math.Max(h, 1000*total/g)
 		}
 	}
@@ -1392,11 +1438,11 @@ func (resRecursos) Resolver(ctx context.Context, p *nucleo.Pregunta, n *nucleo.N
 	leer := n.Sub(nucleo.PasoEntender, "Leo %d %s que se %s", len(pr.recursos), plural(len(pr.recursos), "recurso", "recursos"), plural(len(pr.recursos), "gasta", "gastan"))
 	var entendi []string
 	for _, r := range pr.recursos {
-		linea := r.cantidad(r.stock)
+		linea := r.cantidadNombre(r.stock)
 		if r.expr != nil {
-			linea += fmt.Sprintf("; gasto %s por %s (t en %s)", r.tasaTexto, u.uno, u.varias)
+			linea += fmt.Sprintf("; gasto %s (t en %s)", strings.ReplaceAll(r.tasaTexto, "*", "·"), u.varias)
 		} else {
-			linea += fmt.Sprintf("; gasto %s por %s", textoRatCorto(r.tasa), u.uno)
+			linea += "; gasto " + r.porTiempo(u)
 		}
 		if r.minimo != nil {
 			linea += "; sin bajar de " + textoRatCorto(r.minimo)
@@ -1441,15 +1487,12 @@ func resolverExacto(ctx context.Context, pr *problemaRecursos, n *nucleo.Nodo) (
 	for i, x := range pr.recursos {
 		a := agotarExacto(x, u)
 		tiempos[i] = a
-		etiqueta := x.etiqueta()
-		pasos := strings.Join(a.pasos, "; ")
+		r.Plan = append(r.Plan, fmt.Sprintf("%s: %s", x.etiqueta(), strings.Join(a.pasos, "; ")))
 		if a.t == nil {
-			r.Plan = append(r.Plan, fmt.Sprintf("%s: %s", etiqueta, pasos))
-			cuenta.Detalle("%s: no se acaba", etiqueta)
+			cuenta.Detalle("%s: no se acaba", x.etiqueta())
 			continue
 		}
-		r.Plan = append(r.Plan, fmt.Sprintf("%s: %s → se acaba a las %s %s", etiqueta, pasos, textoRatCorto(a.t), u.texto(a.t)))
-		cuenta.Detalle("%s: %s %s", etiqueta, textoRatCorto(a.t), u.texto(a.t))
+		cuenta.Detalle("%s: %s %s", x.etiqueta(), textoRatCorto(a.t), u.texto(a.t))
 		switch {
 		case tFin == nil || a.t.Cmp(tFin) < 0:
 			tFin, primeros = a.t, []*recursoR{x}
@@ -1460,6 +1503,10 @@ func resolverExacto(ctx context.Context, pr *problemaRecursos, n *nucleo.Nodo) (
 	cuenta.Bien("")
 	if ctx.Err() != nil {
 		return nucleo.Respuesta{}, nucleo.ErrSinTiempo
+	}
+	r.Metodo = "exacto"
+	if pr.pregunta == "queda" && pr.en != nil {
+		return quedaExacto(pr, tiempos, tFin, primeros, r, n)
 	}
 	if tFin == nil {
 		comp := n.Sub(nucleo.PasoComprobar, "Compruebo: ningún gasto es positivo")
@@ -1472,7 +1519,6 @@ func resolverExacto(ctx context.Context, pr *problemaRecursos, n *nucleo.Nodo) (
 		comp.Bien("")
 		r.Texto = "No se acaba nunca: no gastas nada (o lo que gastas se repone)."
 		r.Comprobaciones = []nucleo.Comprobacion{comprobacionCalculo(1, 1, "Comprobado por cálculo", "ningún gasto es positivo")}
-		r.Metodo = "exacto"
 		return r, nil
 	}
 	// check 1: substitution in the closed formula
@@ -1481,90 +1527,157 @@ func resolverExacto(ctx context.Context, pr *problemaRecursos, n *nucleo.Nodo) (
 		comp.Mal("No cuadra")
 		return nucleo.Respuesta{}, errSinComprobar
 	}
-	comp.Bien("Cuadra: a esa hora se acaba y antes no se acaba nada")
-	// check 2: the same system integrated numerically must give the same instant
-	num := n.Sub(nucleo.PasoComprobar, "Lo integro también paso a paso (Runge-Kutta 4 con paso adaptativo)")
+	comp.Bien("Cuadra: en ese momento se acaba y antes no se acaba nada")
+	// check 2: the same system integrated numerically must give the same instant (when float64 can
+	// hold the numbers and the instant is within the integrator's reach)
 	tf, _ := tFin.Float64()
-	res, err := integrar(ctx, pr.recursos, horizonteDe(pr.recursos), 1e-9*escalaNiveles(pr.recursos))
-	if err != nil {
-		num.Mal("%s", mensaje(err))
-		return nucleo.Respuesta{}, err
+	numerico := cabeEnFloat(pr.recursos) && tf <= horizonteMax/10
+	var res resultadoNum
+	if numerico {
+		num := n.Sub(nucleo.PasoComprobar, "Lo integro también paso a paso (Runge-Kutta 4 con paso adaptativo)")
+		var err error
+		res, err = integrar(ctx, pr.recursos, horizonteDe(pr.recursos), 1e-9*escalaNiveles(pr.recursos))
+		if err != nil {
+			num.Mal("%s", mensaje(err))
+			return nucleo.Respuesta{}, err
+		}
+		if res.nunca || math.Abs(res.t-tf) > 1e-7*math.Max(1, tf) {
+			num.Mal("Sale %s y no %s", textoFloat(res.t), textoFloat(tf))
+			return nucleo.Respuesta{}, errSinComprobar
+		}
+		num.Bien("Sale %s %s en %d pasos: coincide", textoFloat(res.t), u.varias, res.pasos)
+	} else {
+		n.Nota("Los números son demasiado grandes o pequeños para integrarlos con decimales: me quedo con la comprobación exacta")
 	}
-	if res.nunca || math.Abs(res.t-tf) > 1e-7*math.Max(1, tf) {
-		num.Mal("Sale %s y no %s", textoFloat(res.t), textoFloat(tf))
-		return nucleo.Respuesta{}, errSinComprobar
-	}
-	num.Bien("Sale %s %s en %d pasos: coincide", textoFloat(res.t), u.varias, res.pasos)
 
 	tTxt := textoRatCorto(tFin) + " " + u.texto(tFin)
 	nombres := nombresDe(primeros)
-	quedan := func(t *big.Rat, excepto []*recursoR) []string {
-		var out []string
-		for _, x := range pr.recursos {
-			if contieneRecurso(excepto, x) {
-				continue
-			}
-			out = append(out, x.cantidadNombre(nivelExacto(x, t, true)))
-		}
-		return out
-	}
-	r.Metodo = "exacto"
 	switch {
-	case pr.pregunta == "queda" && pr.en != nil:
-		var partes []string
-		for i, x := range pr.recursos {
-			if a := tiempos[i]; a.t != nil && a.t.Cmp(pr.en) < 0 {
-				partes = append(partes, fmt.Sprintf("%s ya se ha acabado (a las %s %s)", x.nombreO(), textoRatCorto(a.t), u.texto(a.t)))
-				continue
-			}
-			partes = append(partes, x.cantidadNombre(nivelExacto(x, pr.en, true)))
-		}
-		r.Texto = fmt.Sprintf("A las %s %s: %s.", textoRatCorto(pr.en), u.texto(pr.en), unirY(partes))
-		if tFin.Cmp(pr.en) < 0 {
-			r.Parrafos = append(r.Parrafos, fmt.Sprintf("Ojo: a las %s ya se ha acabado %s.", tTxt, nombres))
-		}
+	case tFin.Sign() == 0:
+		r.Texto = fmt.Sprintf("No dura nada: %s ya %s en su mínimo o por debajo.", nombres, plural(len(primeros), "empieza", "empiezan"))
 	case pr.cual != nil:
-		i := indiceRecurso(pr.recursos, pr.cual)
-		a := tiempos[i]
+		a := tiempos[indiceRecurso(pr.recursos, pr.cual)]
 		if a.t == nil {
 			r.Texto = fmt.Sprintf("%s no se acaba nunca.", mayusculaInicial(pr.cual.nombreO()))
 		} else {
 			r.Texto = fmt.Sprintf("%s dura %s %s.", mayusculaInicial(pr.cual.nombreO()), textoRatCorto(a.t), u.texto(a.t))
 		}
 		if len(pr.recursos) > 1 && !contieneRecurso(primeros, pr.cual) {
-			r.Parrafos = append(r.Parrafos, fmt.Sprintf("Pero antes, a las %s, se acaba %s.", tTxt, nombres))
+			r.Parrafos = append(r.Parrafos, fmt.Sprintf("Pero antes, al cabo de %s, se acaba %s.", tTxt, nombres))
 		}
+	case pr.pregunta == "primero" && len(primeros) > 1:
+		r.Texto = fmt.Sprintf("Se acaban a la vez %s, al cabo de %s.", nombres, tTxt)
 	case pr.pregunta == "primero":
-		if len(primeros) > 1 {
-			r.Texto = fmt.Sprintf("Se acaban a la vez %s, a las %s.", nombres, tTxt)
-		} else {
-			r.Texto = fmt.Sprintf("Se acaba primero %s, a las %s.", nombres, tTxt)
-		}
+		r.Texto = fmt.Sprintf("Se acaba primero %s, al cabo de %s.", nombres, tTxt)
+	case pr.pregunta == "cuando" && len(pr.recursos) == 1:
+		r.Texto = fmt.Sprintf("Se acaba al cabo de %s.", tTxt)
+	case len(pr.recursos) == 1:
+		r.Texto = fmt.Sprintf("Dura %s.", tTxt)
+	case len(primeros) > 1:
+		r.Texto = fmt.Sprintf("Dura %s: %s se acaban a la vez.", tTxt, nombres)
 	default:
-		switch {
-		case len(pr.recursos) == 1:
-			r.Texto = fmt.Sprintf("Dura %s.", tTxt)
-		case len(primeros) > 1:
-			r.Texto = fmt.Sprintf("Dura %s: %s se acaban a la vez.", tTxt, nombres)
-		default:
-			r.Texto = fmt.Sprintf("Dura %s: lo primero que se acaba es %s.", tTxt, nombres)
+		r.Texto = fmt.Sprintf("Dura %s: lo primero que se acaba es %s.", tTxt, nombres)
+	}
+	var quedan []string
+	for _, x := range pr.recursos {
+		if !contieneRecurso(primeros, x) {
+			quedan = append(quedan, x.cantidadNombre(nivelExacto(x, tFin, true)))
 		}
 	}
-	if q := quedan(tFin, primeros); len(q) > 0 && pr.pregunta != "queda" {
-		r.Parrafos = append(r.Parrafos, fmt.Sprintf("Cuando se acaba %s (a las %s) quedan %s.", nombres, tTxt, unirY(q)))
+	if len(quedan) > 0 {
+		r.Parrafos = append(r.Parrafos, fmt.Sprintf("Cuando se acaba %s (al cabo de %s) quedan %s.", nombres, tTxt, unirY(quedan)))
 	}
 	for i := range pr.recursos {
 		if tiempos[i].justo {
-			r.Parrafos = append(r.Parrafos, fmt.Sprintf("%s llega a su mínimo justo cuando le añades más: sigue.", mayusculaInicial(pr.recursos[i].nombreO())))
+			r.Parrafos = append(r.Parrafos, fmt.Sprintf("%s llega a su mínimo justo cuando ibas a añadir más: lo cuento como que se acaba ahí.", mayusculaInicial(pr.recursos[i].nombreO())))
 		}
 	}
-	r.Parrafos = append(r.Parrafos,
-		fmt.Sprintf("Compruebo: a las %s %s está justo en su mínimo y nada se ha acabado antes ✔", tTxt, nombres),
-		fmt.Sprintf("Lo integro también paso a paso (Runge-Kutta 4 con paso adaptativo): sale %s %s ✔", textoFloat(res.t), u.varias))
+	r.Parrafos = append(r.Parrafos, fmt.Sprintf("Compruebo: al cabo de %s, %s está justo en su mínimo y nada se ha acabado antes ✔", tTxt, nombres))
 	r.Tablas = []nucleo.Tabla{tablaRecursos(pr, tiempos, tFin)}
+	if !numerico {
+		r.Comprobaciones = []nucleo.Comprobacion{comprobacionCalculo(1, 1, "Comprobado sustituyendo",
+			"sustituí el instante en la fórmula de cada nivel (con fracciones exactas)")}
+		return r, nil
+	}
+	r.Parrafos = append(r.Parrafos, fmt.Sprintf("Lo integro también paso a paso (Runge-Kutta 4 con paso adaptativo): sale %s %s ✔", textoFloat(res.t), u.varias))
 	r.Comprobaciones = []nucleo.Comprobacion{comprobacionCalculo(2, 2, "Comprobado por dos caminos",
 		"sustituí el instante en la fórmula de cada nivel y lo integré paso a paso (Runge-Kutta 4): coinciden")}
 	return r, nil
+}
+
+// quedaExacto answers "¿cuánto queda al cabo de 5 horas?" with the closed formula, checked by walking
+// refill by refill.
+func quedaExacto(pr *problemaRecursos, tiempos []agotado, tFin *big.Rat, primeros []*recursoR, r nucleo.Respuesta, n *nucleo.Nodo) (nucleo.Respuesta, error) {
+	u := pr.base
+	enTxt := textoRatCorto(pr.en) + " " + u.texto(pr.en)
+	comp := n.Sub(nucleo.PasoComprobar, "Calculo cada nivel de dos formas: con la fórmula y tramo a tramo")
+	var partes []string
+	r.Plan = nil
+	vivos := 0
+	for i, x := range pr.recursos {
+		if a := tiempos[i]; a.t != nil && a.t.Sign() == 0 {
+			partes = append(partes, fmt.Sprintf("%s ya empieza en su mínimo o por debajo", x.nombreO()))
+			continue
+		} else if a.t != nil && a.t.Cmp(pr.en) < 0 {
+			partes = append(partes, fmt.Sprintf("%s ya se ha acabado (al cabo de %s %s)", x.nombreO(), textoRatCorto(a.t), u.texto(a.t)))
+			r.Plan = append(r.Plan, fmt.Sprintf("%s: %s", x.etiqueta(), strings.Join(a.pasos, "; ")))
+			continue
+		}
+		v := nivelExacto(x, pr.en, true)
+		if v.Cmp(nivelPorTramos(x, pr.en)) != 0 {
+			comp.Mal("No coinciden")
+			return nucleo.Respuesta{}, errSinComprobar
+		}
+		partes = append(partes, x.cantidadNombre(v))
+		vivos++
+		linea := fmt.Sprintf("%s: %s − %s · %s", x.etiqueta(), textoRatCorto(x.stock), textoRatCorto(x.tasa), textoRatCorto(pr.en))
+		for _, rc := range x.recargas {
+			if rc.t.Cmp(pr.en) <= 0 {
+				linea += " + " + textoRatCorto(rc.cantidad)
+			}
+		}
+		r.Plan = append(r.Plan, linea+" = "+x.cantidad(v))
+	}
+	comp.Bien("Coinciden")
+	if len(pr.recursos) == 1 && vivos == 1 {
+		r.Texto = fmt.Sprintf("Al cabo de %s quedan %s.", enTxt, partes[0])
+	} else {
+		r.Texto = fmt.Sprintf("Al cabo de %s: %s.", enTxt, unirY(partes))
+	}
+	switch {
+	case tFin == nil:
+	case len(pr.recursos) == 1 && tFin.Cmp(pr.en) >= 0:
+		r.Parrafos = append(r.Parrafos, fmt.Sprintf("Se acaba del todo al cabo de %s %s.", textoRatCorto(tFin), u.texto(tFin)))
+	case tFin.Cmp(pr.en) >= 0:
+		r.Parrafos = append(r.Parrafos, fmt.Sprintf("Todo dura %s %s: lo primero que se acaba es %s.", textoRatCorto(tFin), u.texto(tFin), nombresDe(primeros)))
+	}
+	r.Parrafos = append(r.Parrafos, "Compruebo: lo calculo con la fórmula (lo que tengo − gasto · tiempo + lo que añado) y tramo a tramo, recarga a recarga: coincide ✔")
+	r.Comprobaciones = []nucleo.Comprobacion{comprobacionCalculo(2, 2, "Comprobado por dos caminos",
+		"calculé cada nivel con la fórmula y tramo a tramo: coinciden")}
+	return r, nil
+}
+
+// cabeEnFloat: every number of the problem is a normal float64 (not too big, not too small).
+func cabeEnFloat(rs []*recursoR) bool {
+	ok := func(v *big.Rat) bool {
+		if v == nil || v.Sign() == 0 {
+			return true
+		}
+		f, _ := v.Float64()
+		f = math.Abs(f)
+		return f < 1e200 && f > 1e-200
+	}
+	for _, r := range rs {
+		if !ok(r.stock) || !ok(r.tasa) || !ok(r.minimo) {
+			return false
+		}
+		for _, rc := range r.recargas {
+			if !ok(rc.t) || !ok(rc.cantidad) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func escalaNiveles(rs []*recursoR) float64 {
@@ -1588,8 +1701,8 @@ func resolverNumerico(ctx context.Context, pr *problemaRecursos, n *nucleo.Nodo)
 		return nucleo.Respuesta{}, err
 	}
 	paso.Bien("%d pasos aceptados", a.pasos)
-	comp := n.Sub(nucleo.PasoComprobar, "Lo repito con una tolerancia 1000 veces menor")
-	b, err := integrar(ctx, pr.recursos, horizonte, tol/1000)
+	comp := n.Sub(nucleo.PasoComprobar, "Lo repito con una tolerancia 1000 veces menor y otros pasos")
+	b, err := integrarCon(ctx, pr.recursos, horizonte, tol/1000, 1/math.Sqrt2)
 	if err != nil {
 		comp.Mal("%s", mensaje(err))
 		return nucleo.Respuesta{}, err
@@ -1609,11 +1722,17 @@ func resolverNumerico(ctx context.Context, pr *problemaRecursos, n *nucleo.Nodo)
 		comp.Mal("Difieren en %s", textoFloat(dif))
 		return nucleo.Respuesta{}, errSinComprobar
 	}
+	for i := range a.niveles {
+		if i >= len(b.niveles) || math.Abs(a.niveles[i]-b.niveles[i]) > 1e-5*math.Max(1, math.Abs(b.niveles[i])) {
+			comp.Mal("Los niveles no coinciden")
+			return nucleo.Respuesta{}, errSinComprobar
+		}
+	}
 	comp.Bien("Coinciden (diferencia %s)", textoFloat(dif))
 	r.Metodo = "aproximado"
 	cota := "< " + textoFloat(math.Max(errT, 1e-9))
 	if b.nunca {
-		r.Texto = fmt.Sprintf("En las primeras %s %s no se acaba: el gasto baja tan deprisa que no llega a agotarlo.", textoFloat(b.horizonte), u.varias)
+		r.Texto = fmt.Sprintf("En las primeras %s %s no se acaba.", textoFloat(b.horizonte), u.varias)
 		r.Parrafos = append(r.Parrafos, "Es un cálculo aproximado (paso a paso), no una fórmula exacta.")
 		for i, x := range pr.recursos {
 			r.Parrafos = append(r.Parrafos, fmt.Sprintf("A las %s %s quedan ≈ %s de %s.", textoFloat(b.horizonte), u.varias, textoFloat(b.niveles[i]), strings.ToLower(x.etiqueta())))
@@ -1646,7 +1765,7 @@ func resolverNumerico(ctx context.Context, pr *problemaRecursos, n *nucleo.Nodo)
 	}
 	for _, x := range pr.recursos {
 		if x.expr != nil {
-			r.Plan = append(r.Plan, fmt.Sprintf("%s: nivel(t) = %s − ∫ %s dt", x.etiqueta(), textoRat(x.stock), strings.ReplaceAll(x.expr.String(), "*", "·")))
+			r.Plan = append(r.Plan, fmt.Sprintf("%s: nivel(t) = %s − ∫ %s dt", x.etiqueta(), textoRat(x.stock), x.exprTexto))
 		} else {
 			r.Plan = append(r.Plan, fmt.Sprintf("%s: nivel(t) = %s − %s·t", x.etiqueta(), textoRat(x.stock), textoRat(x.tasa)))
 		}
@@ -1673,6 +1792,9 @@ func tablaRecursos(pr *problemaRecursos, tiempos []agotado, tFin *big.Rat) nucle
 func (r *recursoR) nombreO() string {
 	if n := r.nombre(); n != "" {
 		return n
+	}
+	if r.unidad != "" {
+		return (&recursoR{cosa: r.unidad}).nombre()
 	}
 	return "lo que tienes"
 }

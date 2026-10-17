@@ -51,6 +51,9 @@ func (c *Cerebro) rutear(k *tarea) nucleo.Respuesta {
 		}
 	}
 	k.q = c.analizar(k, k.p.Texto, k.p.Codigo)
+	if r, ok := c.rutearHabla(k); ok {
+		return r
+	}
 	return c.interpretar(k)
 }
 
@@ -148,6 +151,7 @@ func (c *Cerebro) candidatos(q *nucleo.Pregunta) []candidato {
 		out = append(out, candidato{nombre: string(nucleo.ICharla), intencion: nucleo.ICharla, familia: "charla",
 			puntos: 0.97, lectura: etiquetaIntencion(nucleo.ICharla), motivo: "es una pregunta sobre mí"})
 	}
+	out = append(out, c.candidatosHabla(q)...) // "¿qué significa X?" (habla.go)
 	visto := map[nucleo.TipoIntencion]bool{}
 	for _, ci := range q.Intenciones {
 		if intencionesRazonar[ci.Tipo] || visto[ci.Tipo] {
