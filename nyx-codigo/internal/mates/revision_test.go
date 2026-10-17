@@ -291,3 +291,14 @@ func TestRevisionMcdMcmConCero(t *testing.T) {
 		t.Errorf("MCM/MCD con cero")
 	}
 }
+
+// An unknown stem-changing verb is asked about by its real infinitive (trueca → trocar, not truecar).
+func TestInfinitivoProbableDiptongo(t *testing.T) {
+	casos := map[string]string{"trueca": "trocar", "truecan": "trocar", "troca": "trocar", "cierra": "cerrar",
+		"frecuenta": "frecuentar", "bebe": "beber", "cuestiona": "cuestionar"}
+	for w, quiero := range casos {
+		if got := infinitivoProbable(w); got != quiero {
+			t.Errorf("infinitivoProbable(%q) = %q, quiero %q", w, got, quiero)
+		}
+	}
+}

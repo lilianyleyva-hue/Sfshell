@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"nyxcodigo/internal/analisis"
 	"nyxcodigo/internal/nucleo"
@@ -201,5 +202,150 @@ func TestExplicarFrasesYRoles(t *testing.T) {
 	got := explicarFraseTraza(f, "nums = [1, 2, 4]", r, map[string]string{"total": "acumulador"})
 	if got != "Lo ejecuté con nums = [1, 2, 4]: `total` pasa por 0 → 2 → 6, `n` pasa por 1 → 2 → 4; devuelve 6." {
 		t.Errorf("traza: %q", got)
+	}
+}
+
+// Regression: sub-millisecond timings are noise; no class is reported from them.
+func TestExplicarClasificarMedidasPequenas(t *testing.T) {
+	ruido := [][]analisis.Medida{
+		{{N: 100, Micros: 0}, {N: 1000, Micros: 0}, {N: 10000, Micros: 4}, {N: 100000, Micros: 178}},
+		{{N: 100, Micros: 0}, {N: 1000, Micros: 1}, {N: 10000, Micros: 12}, {N: 100000, Micros: 275}},
+		{{N: 10000, Micros: 4}, {N: 100000, Micros: 1200}},
+	}
+	for _, ms := range ruido {
+		if cl, nota := explicarClasificarMedidas(ms); cl != "" || nota == "" {
+			t.Errorf("%v: clase %q nota %q", ms, cl, nota)
+		}
+	}
+	if _, nota := explicarClasificarMedidas(ruido[0]); !strings.Contains(nota, "va tan rápido") || !strings.Contains(nota, "178 µs") {
+		t.Errorf("nota: %q", nota)
+	}
+	if cl, _ := explicarClasificarMedidas([]analisis.Medida{{N: 100, Micros: 3}, {N: 1000, Micros: 400}, {N: 10000, Micros: 40000}}); cl != "cuadrática" {
+		t.Errorf("cuadrática: %q", cl)
+	}
+	if cl, _ := explicarClasificarMedidas([]analisis.Medida{{N: 1000, Micros: 150}, {N: 10000, Micros: 1500}, {N: 100000, Micros: 15000}}); cl != "lineal" {
+		t.Errorf("lineal: %q", cl)
+	}
+}
+
+// Regression: a fast linear function is never reported as "midiendo parece cuadrática".
+func TestExplicarLinealRapidaNoSeMideMal(t *testing.T) {
+	explicarNecesitaGo(t)
+	c := cerebroExamen(t)
+	const suma = "func Suma(xs []int) int {\n\ttotal := 0\n\tfor _, x := range xs {\n\t\ttotal += x\n\t}\n\treturn total\n}\n"
+	for i := 0; i < 2; i++ {
+		r, tr := preguntar(t, c, "s"+itoa(int64(i)), "¿es eficiente?\n"+suma, nil)
+		if !strings.Contains(r.Texto, "Estimé O(n)") {
+			t.Fatalf("texto: %q\n%s", r.Texto, titulos(tr))
+		}
+		if strings.Contains(r.Texto, "no coinciden") || strings.Contains(r.Texto, "cuadrática") || strings.Contains(r.Texto, "cúbica") {
+			t.Errorf("medida falsa: %q\n%s", r.Texto, titulos(tr))
+		}
+	}
+}
+
+// Regression: measuring the growth has its own time limit and says why it stopped.
+func TestExplicarMedirTieneLimite(t *testing.T) {
+	explicarNecesitaGo(t)
+	c := cerebroExamen(t)
+	const cubo = "func Cubo(n int) int {\n\ts := 0\n\tfor i := 0; i < n*n*n; i++ {\n\t\ts++\n\t}\n\treturn s\n}\n"
+	r, tr := preguntar(t, c, "s", "¿es eficiente?\n"+cubo, nil)
+	// the measuring step lasts at most explicarMaxMedir (plus slack), measured from the step before it
+	pasos := tr.Pasos()
+	for i, p := range pasos {
+		if strings.HasPrefix(p.Titulo, "Mido cuánto tarda con entradas") && i > 0 {
+			if d := time.Duration(p.Ms-pasos[i-1].Ms) * time.Millisecond; d > explicarMaxMedir+2*time.Second {
+				t.Errorf("medir duró %v: tiene su propio límite\n%s", d, titulos(tr))
+			}
+		}
+	}
+	if strings.Contains(r.Texto, "no conseguí medidas suficientes") {
+		t.Errorf("motivo equivocado: %q\n%s", r.Texto, titulos(tr))
+	}
+	if !strings.Contains(r.Texto, "midiendo") && !strings.Contains(r.Texto, "paré de medir") && !strings.Contains(r.Texto, "no lo he medido") {
+		t.Errorf("dice qué pasó al medir: %q", r.Texto)
+	}
+	if strings.Contains(r.Texto, "midiendo parece cúbica") && !strings.Contains(r.Texto, "crece más deprisa") {
+		t.Errorf("si mide más de lo estimado lo dice así: %q", r.Texto)
+	}
+}
+
+// Regression: estimates other than the four common ones are named, measured when ≥ O(n), or the answer
+// says why not.
+func TestExplicarOrdenesRaros(t *testing.T) {
+	casos := []struct {
+		o     string
+		clase string
+		maxN  int
+		nota  bool
+	}{
+		{"O(n√n)", "entre lineal y cuadrática", 100000, false},
+		{"O(n² log n)", "algo más que cuadrática", 10000, false},
+		{"O(n⁴)", "polinómica de grado 4", 0, true},
+		{"O(2ⁿ)?", "exponencial", 0, true},
+		{"O(n log² n)", "algo más que lineal", 100000, false},
+		{"O(log² n)", "logarítmica", 0, false},
+		{"O(√n)", "raíz cuadrada de n", 0, false},
+		{"O(n³)", "cúbica", 1000, false},
+	}
+	for _, c := range casos {
+		if got := explicarClase(c.o); got != c.clase {
+			t.Errorf("%s: clase %q, quiero %q", c.o, got, c.clase)
+		}
+		maxN, nota := explicarMaxN(c.o)
+		if maxN != c.maxN || (nota != "") != c.nota {
+			t.Errorf("%s: maxN %d nota %q", c.o, maxN, nota)
+		}
+	}
+	x := &explicacion{fn: analisis.InfoFunc{OGrande: "O(n⁴)"}}
+	_, x.notaMedida = explicarMaxN("O(n⁴)")
+	if s := x.fraseComplejidad(); !strings.Contains(s, "(no lo he medido: crece tan deprisa") {
+		t.Errorf("dice por qué no mide: %q", s)
+	}
+	x = &explicacion{fn: analisis.InfoFunc{OGrande: "O(n√n)"}, medida: "cuadrática"}
+	if s := x.fraseComplejidad(); strings.Contains(s, "no coinciden") || !strings.Contains(s, "parecida") {
+		t.Errorf("n√n medida como cuadrática es parecida: %q", s)
+	}
+	x = &explicacion{fn: analisis.InfoFunc{OGrande: "O(n)"}, medida: "cúbica"}
+	if s := x.fraseComplejidad(); !strings.Contains(s, "pero midiendo parece cúbica, así que no coinciden: crece más deprisa") {
+		t.Errorf("más deprisa: %q", s)
+	}
+}
+
+// Regression (§0, N3): "más rápido" is said only when the timing shows it.
+func TestExplicarVeredictoTiempo(t *testing.T) {
+	if s, ok := explicarVeredictoTiempo(10000, 45000, 2000, false); !ok || s != "Lo medí con n = 10000: tu código tarda 45,0 ms y el nuevo 2,0 ms." {
+		t.Errorf("más rápido: %q %v", s, ok)
+	}
+	if s, ok := explicarVeredictoTiempo(10000, 300, 100, false); ok || !strings.Contains(s, "demasiado poco") {
+		t.Errorf("tiempos de ruido: %q %v", s, ok)
+	}
+	if s, ok := explicarVeredictoTiempo(10000, 5000, 4900, false); ok || !strings.Contains(s, "no he visto que vaya más rápido") {
+		t.Errorf("igual de rápido: %q %v", s, ok)
+	}
+	if s, ok := explicarVeredictoTiempo(10000, 2_000_000, 2000, true); !ok || !strings.Contains(s, "seguía sin terminar a los 2 s") {
+		t.Errorf("el original no termina: %q %v", s, ok)
+	}
+	if s, ok := explicarVeredictoTiempo(10000, 500, 2000, true); ok || !strings.Contains(s, "no sé cuál") {
+		t.Errorf("cortado demasiado pronto: %q %v", s, ok)
+	}
+	if got := explicarTiempo(2_000_000); got != "2 s" {
+		t.Errorf("tiempo: %q", got)
+	}
+}
+
+func TestExplicarOptimizarNoAfirmaSinMedir(t *testing.T) {
+	explicarNecesitaGo(t)
+	c := cerebroExamen(t)
+	r, tr := preguntar(t, c, "s", "hazlo más rápido:\n"+explicarUnir, nil)
+	todo := todoElTexto(r)
+	switch {
+	case strings.HasPrefix(r.Texto, "Lo hago más rápido"):
+		if !strings.Contains(todo, "Lo medí con n = ") {
+			t.Errorf("dice «más rápido» sin medirlo:\n%s\n%s", todo, titulos(tr))
+		}
+	case strings.HasPrefix(r.Texto, "Creo que"), strings.HasPrefix(r.Texto, "Este cambio da lo mismo"):
+	default:
+		t.Errorf("texto: %q\n%s", r.Texto, titulos(tr))
 	}
 }

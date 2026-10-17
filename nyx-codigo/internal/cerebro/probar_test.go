@@ -53,3 +53,17 @@ func TestProbarNoCompila(t *testing.T) {
 		t.Errorf("%s [%s] %v", r.Texto, r.Nivel, r.Parrafos)
 	}
 }
+
+// Regression (review): probar honours p.Confirmado: unconfirmed it returns the risks and the code (no
+// «Pulsa Ejecutar», which would run a program instead of testing the function); confirmed it tests.
+func TestProbarConfirmado(t *testing.T) {
+	c := cerebroConGo(t)
+	r, tr := pedir(t, c, nucleo.Peticion{Texto: "hazle pruebas: 3 -> 3", Codigo: tamConArchivo})
+	if len(r.Riesgos) == 0 || r.Codigo == "" || !contiene(r, "Antes de probarlo necesito tu permiso") || contiene(r, "Pulsa «Ejecutar»") {
+		t.Errorf("sin permiso: %s [%s] %+v\n%s\n%s", r.Texto, r.Nivel, r.Riesgos, strings.Join(r.Parrafos, "\n"), titulos(tr))
+	}
+	r, tr = pedir(t, c, nucleo.Peticion{Texto: "hazle pruebas: 3 -> 3", Codigo: tamConArchivo, Confirmado: true})
+	if !r.Exito || !strings.Contains(r.Texto, "todas bien") || r.Nivel != nucleo.NivelTusEjemplos || len(r.Riesgos) != 0 {
+		t.Errorf("con permiso: %s [%s]\n%s\n%s", r.Texto, r.Nivel, strings.Join(r.Parrafos, "\n"), titulos(tr))
+	}
+}

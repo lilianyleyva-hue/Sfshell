@@ -1,0 +1,5 @@
+# Binaries made by "go build" (named after the module) and "go build -o nyx-codigo"
+/nyxcodigo
+/nyx-codigo
+# Test binaries ("go test -c")
+*.test

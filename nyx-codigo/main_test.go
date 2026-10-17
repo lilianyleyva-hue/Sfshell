@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -210,7 +211,7 @@ func TestImpresoraArbol(t *testing.T) {
 	i := plan.Sub(nucleo.PasoIntento, "Pruebo")
 	i.Progreso("Probé 100 programas")
 	i.Bien("Encontré: la suma de los números pares de nums")
-	plan.Bien("") // same title: not printed twice
+	plan.Bien("") // printed while open: its closing line shows ✔
 	c := r.Sub(nucleo.PasoComprobar, "Compruebo")
 	c.Mal("Falla con [-1]")
 	abierto := r.Sub(nucleo.PasoNota, "nota informativa") // notes are born closed
@@ -223,6 +224,7 @@ func TestImpresoraArbol(t *testing.T) {
 		"▸ Construyo el programa",
 		"  · Boceto: (suma (filtra ? nums))",
 		"  ✔ Encontré: la suma de los números pares de nums",
+		"✔ Construyo el programa",
 		"✘ Falla con [-1]",
 		"· nota informativa",
 		"▸ Sigo pensando",
@@ -241,6 +243,23 @@ func TestImpresoraArbol(t *testing.T) {
 	quiero = "▸ Compruebo\n  · Compila\n✘ No pasa las pruebas\n"
 	if b.String() != quiero {
 		t.Fatalf("árbol:\n%q\nquiero:\n%q", b.String(), quiero)
+	}
+
+	// Regression: a parent that ends well with the same title no longer stays "▸" (it looked unfinished).
+	b.Reset()
+	imp = nuevaImpresora(&b)
+	tr = nucleo.NuevaTraza(imp.Evento, nil)
+	p = tr.Raiz().Sub(nucleo.PasoComprobar, "Compruebo la receta SumaPares")
+	h := p.Sub(nucleo.PasoComprobar, "Caso [1,2]")
+	h.Bien("")
+	p.Bien("")
+	quiero = "▸ Compruebo la receta SumaPares\n  ✔ Caso [1,2]\n✔ Compruebo la receta SumaPares\n"
+	if b.String() != quiero {
+		t.Fatalf("árbol:\n%q\nquiero:\n%q", b.String(), quiero)
+	}
+	imp.Vaciar() // nothing left to print
+	if b.String() != quiero {
+		t.Fatalf("Vaciar repitió líneas:\n%q", b.String())
 	}
 }
 
@@ -268,7 +287,8 @@ func TestLectorResponder(t *testing.T) {
 		}
 	}
 	if !strings.Contains(b.String(), "? ¿Qué debe dar con [-2]?\n    1) 4\n    2) 0\n    3) otra cosa\n") ||
-		!strings.Contains(b.String(), "(Intro = «sí»)") || !strings.Contains(b.String(), "(sin respuesta)") {
+		!strings.Contains(b.String(), "(Intro = «sí»)") || !strings.Contains(b.String(), "(sin respuesta)") ||
+		!strings.Contains(b.String(), "o tu respuesta: 2\n") { // piped answers are echoed
 		t.Fatalf("salida de las preguntas:\n%s", b.String())
 	}
 	// A number that is itself an option is taken literally.
@@ -306,6 +326,9 @@ func TestImprimirRespuesta(t *testing.T) {
 			{Nivel: nucleo.NivelCalculo, Texto: "Comprobado sustituyendo"},
 			{Nivel: nucleo.NivelTusEjemplos, Pasan: 2, Total: 3, Texto: "2/3 de tus ejemplos"},
 			{Nivel: nucleo.NivelSinComprobar, Texto: "Sin comprobar"},
+			{Nivel: nucleo.NivelFuente, Texto: "Según la documentación de Go (go doc strings.Split)"},
+			{Nivel: nucleo.NivelSinFallos, Texto: "123 casos sin errores", Detalle: "semilla 996259"},
+			{Nivel: nucleo.NivelPropiedades, Texto: "✔ Cumple las propiedades"},
 		},
 		Fuentes:     []nucleo.Fuente{{URL: "https://go.dev/doc", Titulo: "go.dev"}},
 		Riesgos:     []nucleo.Violacion{{Linea: 3, Que: "usa os/exec"}},
@@ -322,6 +345,10 @@ func TestImprimirRespuesta(t *testing.T) {
 		"Código:\npackage solucion\n",
 		"! línea 3: usa os/exec",
 		"✔ Comprobado sustituyendo\n✘ 2/3 de tus ejemplos\n· Sin comprobar\n",
+		// Regression (§4.14.3): fuente and sin_fallos are not checks of the result, so no ✔ (as in the web app).
+		"\n· Según la documentación de Go (go doc strings.Split)\n",
+		"\n· 123 casos sin errores (semilla 996259)\n",
+		"\n✔ Cumple las propiedades\n", // already marked: not marked twice
 		"Fuente: go.dev — https://go.dev/doc",
 		"Lo he guardado en mi memoria como F",
 		"Puedes seguir con: ¿Por qué?",
@@ -351,6 +378,124 @@ func TestCarpetaDatos(t *testing.T) {
 	if dir, _ := carpetaDatos(propia); dir != propia {
 		t.Fatalf("-datos: %q", dir)
 	}
+	if !esCarpetaNyx(propia) {
+		t.Fatal("una carpeta nueva debe quedar marcada como de Nyx Código")
+	}
+	if dir, err := carpetaDatos(propia); dir != propia || err != nil { // a Nyx folder is accepted again
+		t.Fatalf("otra vez: %q %v", dir, err)
+	}
+	vacia := filepath.Join(base, "vacia")
+	os.Mkdir(vacia, 0o755)
+	if dir, err := carpetaDatos(vacia); dir != vacia || err != nil || !esCarpetaNyx(vacia) {
+		t.Fatalf("carpeta vacía: %q %v", dir, err)
+	}
+}
+
+// TestCarpetaDatosAjena is the regression test for "-datos ~": a folder with other files is refused, and
+// neither its permissions nor its tmp/ subfolder are touched.
+func TestCarpetaDatosAjena(t *testing.T) {
+	casa := filepath.Join(t.TempDir(), "casa")
+	if err := os.MkdirAll(filepath.Join(casa, "tmp"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.Chmod(casa, 0o755)
+	notas := filepath.Join(casa, "tmp", "notas.txt")
+	os.WriteFile(notas, []byte("mis notas"), 0o644)
+	os.WriteFile(filepath.Join(casa, "version"), []byte("v2.0 de mi proyecto\n"), 0o644) // not memoria's
+
+	if _, err := carpetaDatos(casa); err == nil || !strings.Contains(err.Error(), "ya tiene otros archivos") {
+		t.Fatalf("carpetaDatos de una carpeta ajena: %v", err)
+	}
+	var salErr bytes.Buffer
+	if c := correr([]string{"-sin-internet", "-datos", casa, "-preguntar", "resuelve 2x+3=11"}, strings.NewReader(""), io.Discard, &salErr); c != 1 ||
+		!strings.Contains(salErr.String(), "No la uso para no tocar tus archivos") {
+		t.Fatalf("modo terminal con una carpeta ajena: %d %q", c, salErr.String())
+	}
+	if c := correr([]string{"-sin-internet", "-sin-navegador", "-puerto", "0", "-datos", casa}, strings.NewReader(""), io.Discard, io.Discard); c != 1 {
+		t.Fatalf("servidor con una carpeta ajena: %d", c)
+	}
+	if b, err := os.ReadFile(notas); err != nil || string(b) != "mis notas" {
+		t.Fatalf("tmp/notas.txt: %q %v", b, err)
+	}
+	if fi, _ := os.Stat(casa); fi == nil || fi.Mode().Perm() != 0o755 {
+		t.Fatalf("cambió los permisos de la carpeta: %v", fi.Mode().Perm())
+	}
+	if _, err := os.Stat(filepath.Join(casa, archivoRegistro)); err == nil {
+		t.Fatal("escribió registro.log en una carpeta ajena")
+	}
+}
+
+// TestCarpetaOcupada is the regression test for lost memory updates: while another process (a running
+// server or a terminal question) uses the data folder, the terminal mode and a second server refuse to
+// open memoria on it.
+func TestCarpetaOcupada(t *testing.T) {
+	datos, err := carpetaDatos(filepath.Join(t.TempDir(), "datos"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := bloquearDatos(datos)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g, err := bloquearDatos(datos); !errors.Is(err, errCarpetaOcupada) {
+		if g != nil {
+			g.Close()
+		}
+		t.Fatalf("segundo bloqueo: %v", err)
+	}
+
+	// Terminal question while a server runs: refused, with the server's address.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/estado" && r.Header.Get("X-Nyx-Token") == "clave" {
+			w.Write([]byte("{}"))
+			return
+		}
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+	puerto := srv.Listener.Addr().(*net.TCPAddr).Port
+	otra := instancia{Puerto: puerto, Token: "clave", PID: os.Getppid()}
+	if err := escribirInstancia(datos, otra); err != nil {
+		t.Fatal(err)
+	}
+	var sal, salErr bytes.Buffer
+	c := correr([]string{"-sin-internet", "-datos", datos, "-preguntar", "resuelve 2x+3=11"}, strings.NewReader(""), &sal, &salErr)
+	if c != 1 || !strings.Contains(salErr.String(), "ya está abierto con esta carpeta de datos en "+otra.url()) {
+		t.Fatalf("modo terminal con el servidor abierto: %d\n%s\n%s", c, sal.String(), salErr.String())
+	}
+	if _, err := os.Stat(filepath.Join(datos, "aprendizaje.json")); err == nil {
+		t.Fatal("el modo terminal abrió la memoria de otro proceso")
+	}
+	// A second server opens the running one instead.
+	sal.Reset()
+	if c := correr([]string{"-sin-internet", "-sin-navegador", "-puerto", "0", "-datos", datos}, strings.NewReader(""), &sal, io.Discard); c != 0 ||
+		!strings.Contains(sal.String(), "ya está abierto en "+otra.url()) {
+		t.Fatalf("segundo servidor: %d %q", c, sal.String())
+	}
+
+	// Locked without a live server (a terminal question): both modes refuse.
+	os.Remove(filepath.Join(datos, archivoInstancia))
+	antes := esperaOcupada
+	esperaOcupada = 300 * time.Millisecond
+	defer func() { esperaOcupada = antes }()
+	salErr.Reset()
+	if c := correr([]string{"-sin-internet", "-datos", datos, "-preguntar", "resuelve 2x+3=11"}, strings.NewReader(""), io.Discard, &salErr); c != 1 ||
+		!strings.Contains(salErr.String(), "Otro Nyx Código está usando esta carpeta de datos") {
+		t.Fatalf("modo terminal con la carpeta ocupada: %d %q", c, salErr.String())
+	}
+	salErr.Reset()
+	if c := correr([]string{"-sin-internet", "-sin-navegador", "-puerto", "0", "-datos", datos}, strings.NewReader(""), io.Discard, &salErr); c != 1 ||
+		!strings.Contains(salErr.String(), "Otro Nyx Código está usando esta carpeta de datos") {
+		t.Fatalf("servidor con la carpeta ocupada: %d %q", c, salErr.String())
+	}
+
+	// Free again: the lock can be taken.
+	f.Close()
+	g, err := bloquearDatos(datos)
+	if err != nil {
+		t.Fatalf("tras soltarlo: %v", err)
+	}
+	g.Close()
 }
 
 func TestInstanciaArchivo(t *testing.T) {
@@ -502,6 +647,95 @@ func TestModoPregunta(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(datos, archivoInstancia)); err == nil {
 		t.Error("el modo terminal no debe escribir instancia.json")
+	}
+}
+
+// TestPeticionConfirmable is the regression test for the terminal mode's risk confirmation: an answer
+// with risks gives a request to resend with Confirmado, never for grave risks or twice.
+func TestPeticionConfirmable(t *testing.T) {
+	p := nucleo.Peticion{Tarea: "cli-1", Sesion: "cli", Texto: "ejecuta esto", Codigo: "package main\n"}
+	if _, ok := peticionConfirmable(p, nucleo.Respuesta{}); ok {
+		t.Fatal("sin riesgos no hay nada que confirmar")
+	}
+	r := nucleo.Respuesta{Riesgos: []nucleo.Violacion{{Linea: 4, Que: "lee archivos"}}, Codigo: "package main\n"}
+	q, ok := peticionConfirmable(p, r)
+	if !ok || !q.Confirmado || q.Texto != p.Texto || q.Codigo != p.Codigo || q.Sesion != "cli" {
+		t.Fatalf("con riesgos: %+v %v", q, ok)
+	}
+	if _, ok := peticionConfirmable(q, r); ok {
+		t.Fatal("ya confirmada: no se pregunta otra vez")
+	}
+	grave := nucleo.Respuesta{Riesgos: []nucleo.Violacion{{Que: "usa cgo", Grave: true}}, Codigo: "x"}
+	if _, ok := peticionConfirmable(p, grave); ok {
+		t.Fatal("un riesgo grave nunca se ejecuta")
+	}
+	// Without code in the request, the answer's code is run (as the web app's dialog does).
+	q, ok = peticionConfirmable(nucleo.Peticion{Sesion: "cli", Texto: "ejecútala"}, r)
+	if !ok || q.Accion != "ejecutar" || q.Codigo != r.Codigo || !q.Confirmado {
+		t.Fatalf("sin código en la petición: %+v %v", q, ok)
+	}
+	if _, ok := peticionConfirmable(nucleo.Peticion{Texto: "x"}, nucleo.Respuesta{Riesgos: r.Riesgos}); ok {
+		t.Fatal("sin código no hay nada que ejecutar")
+	}
+	for s, quiero := range map[string]bool{"sí": true, " Si ": true, "s": true, "no": false, "": false, "2": false} {
+		if esSi(s) != quiero {
+			t.Errorf("esSi(%q) = %v", s, !quiero)
+		}
+	}
+}
+
+// TestModoPreguntaConfirma runs risky code in the terminal mode: it asks, and with "1" (sí) runs it.
+func TestModoPreguntaConfirma(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("no hay Go instalado")
+	}
+	if testing.Short() {
+		t.Skip("compila código en la caja de arena")
+	}
+	datos, err := carpetaDatos(filepath.Join(t.TempDir(), "datos"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Share the build cache between test runs (a cold cache takes long).
+	if c, err := os.UserCacheDir(); err == nil {
+		comun := filepath.Join(c, "nyx-codigo-pruebas", "go-build")
+		if os.MkdirAll(comun, 0o700) == nil && os.MkdirAll(filepath.Join(datos, "cache"), 0o700) == nil {
+			os.Symlink(comun, filepath.Join(datos, "cache", "go-build"))
+		}
+	}
+	lee := filepath.Join(t.TempDir(), "lee.go")
+	os.WriteFile(lee, []byte("package main\n\nimport (\n\t\"fmt\"\n\t\"os\"\n)\n\nfunc main() {\n\t_, err := os.ReadFile(\"/no/existe/nada.txt\")\n\tfmt.Println(\"leído:\", err != nil)\n}\n"), 0o644)
+	run := func(entrada string) (int, string) {
+		var sal, salErr bytes.Buffer
+		c := correr([]string{"-sin-internet", "-datos", datos, "-preguntar", "ejecuta esto", "-codigo", lee}, strings.NewReader(entrada), &sal, &salErr)
+		return c, sal.String() + salErr.String()
+	}
+	c, s := run("2\n")
+	if c != 1 || !strings.Contains(s, "? ¿Lo ejecuto en la caja segura?") || !strings.Contains(s, "No lo ejecuto.") || strings.Contains(s, "leído: true") {
+		t.Fatalf("con «no»: %d\n%s", c, s)
+	}
+	c, s = run("1\n")
+	if c != 0 || !strings.Contains(s, "? ¿Lo ejecuto en la caja segura?") || !strings.Contains(s, "leído: true") {
+		t.Fatalf("con «sí»: %d\n%s", c, s)
+	}
+}
+
+// TestReadme is the regression test for the README's commands: "go build" alone makes a binary named
+// after the module (nyxcodigo), so the README must build with -o nyx-codigo; it must say how to close an
+// instance started from the menu, and that requests may be searched on DuckDuckGo.
+func TestReadme(t *testing.T) {
+	b, err := os.ReadFile("README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	for _, quiero := range []string{"go build -o nyx-codigo && ./nyx-codigo", "pkill nyx-codigo", "DuckDuckGo", "-sin-internet", "¿Lo ejecuto en la caja segura?"} {
+		if !strings.Contains(s, quiero) {
+			t.Errorf("README.md no dice %q", quiero)
+		}
+	}
+	if regexp.MustCompile(`go build( &&|\n|$)`).MatchString(s) {
+		t.Error("README.md tiene un «go build» sin -o nyx-codigo")
 	}
 }
 

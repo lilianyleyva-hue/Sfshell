@@ -53,10 +53,16 @@ const (
 	puertoPorDefecto = 8765
 	archivoInstancia = "instancia.json"
 	archivoRegistro  = "registro.log"
-	maxRegistro      = 5 << 20 // registro.log is rotated at 5 MB (one old copy)
+	archivoBloqueo   = "bloqueo" // flock held by the process that uses <datos> (server or terminal question)
+	archivoVersion   = "version" // written by memoria ("1\n"): marks a Nyx Código data folder
+	maxRegistro      = 5 << 20   // registro.log is rotated at 5 MB (one old copy)
 	esperaApagado    = 5 * time.Second
 	esperaIndiceCLI  = 3 * time.Second
 )
+
+// esperaOcupada is how long a second start waits for the process holding <datos> to announce itself
+// in instancia.json (a server still starting) before giving up. A variable so tests can shorten it.
+var esperaOcupada = 10 * time.Second
 
 func main() {
 	if arenero.EsTrampolin() {
@@ -155,7 +161,10 @@ func correr(args []string, entrada io.Reader, sal, salErr io.Writer) int {
 // ---------------------------------------------------------------------------------------------
 // Data directory, log and instance file
 
-// carpetaDatos resolves the data directory and makes sure it exists with mode 0700.
+// carpetaDatos resolves the data directory and makes sure it exists with mode 0700. It never takes over a
+// folder that holds other things: an existing folder must be empty or already a Nyx Código data folder
+// (it has memoria's "version" file), and only such a folder (or one it creates) is made private (0700),
+// because the app empties its tmp/ subfolder.
 func carpetaDatos(pedida string) (string, error) {
 	dir := pedida
 	if dir == "" {
@@ -173,13 +182,71 @@ func carpetaDatos(pedida string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(abs, 0o700); err != nil {
+	fi, err := os.Stat(abs)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		if err := os.MkdirAll(abs, 0o700); err != nil {
+			return "", err
+		}
+	case err != nil:
 		return "", err
+	case !fi.IsDir():
+		return "", fmt.Errorf("%s no es una carpeta", abs)
+	case pedida == "" || esCarpetaNyx(abs):
+		// the default folder (its name is ours) or a folder Nyx Código already uses
+	default:
+		es, err := os.ReadDir(abs)
+		if err != nil {
+			return "", err
+		}
+		if len(es) > 0 {
+			return "", fmt.Errorf("%s ya tiene otros archivos y no es una carpeta de datos de Nyx Código. "+
+				"No la uso para no tocar tus archivos: elige con -datos una carpeta nueva o vacía", abs)
+		}
 	}
 	if err := os.Chmod(abs, 0o700); err != nil {
 		return "", err
 	}
+	// Mark the folder as ours at once, so a crash before memoria opens does not make it look foreign.
+	ruta := filepath.Join(abs, archivoVersion)
+	if _, err := os.Stat(ruta); errors.Is(err, os.ErrNotExist) {
+		if err := os.WriteFile(ruta, []byte(fmt.Sprintf("%d\n", memoria.Version)), 0o600); err != nil {
+			return "", err
+		}
+	}
 	return abs, nil
+}
+
+// esCarpetaNyx reports whether dir has memoria's version file (a positive number on one line).
+func esCarpetaNyx(dir string) bool {
+	b, err := os.ReadFile(filepath.Join(dir, archivoVersion))
+	if err != nil || len(b) > 32 {
+		return false
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	return err == nil && n > 0
+}
+
+// errCarpetaOcupada: another Nyx Código process holds <datos>/bloqueo.
+var errCarpetaOcupada = errors.New("otro Nyx Código está usando esta carpeta de datos")
+
+// bloquearDatos takes an exclusive flock on <datos>/bloqueo, so that only one process (the server or a
+// terminal question) uses the memory files at a time: memoria rewrites whole files from its own copy,
+// so two processes on one folder would overwrite each other's updates. The lock ends when the returned
+// file is closed or the process ends (also when it crashes).
+func bloquearDatos(datos string) (*os.File, error) {
+	f, err := os.OpenFile(filepath.Join(datos, archivoBloqueo), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, errCarpetaOcupada
+		}
+		return nil, err
+	}
+	return f, nil
 }
 
 // registro is the app log (registro.log), rotated at maxRegistro with one old copy.
@@ -447,12 +514,25 @@ func servir(o opciones, datos string, sal, salErr io.Writer) int {
 
 	// Single instance: if another Nyx Código already serves this data directory, open it instead.
 	if i, ok := instanciaViva(datos); ok {
-		fmt.Fprintf(sal, "Nyx Código ya está abierto en %s\n", i.url())
-		if !o.sinNavegador && !abrirNavegador(i.url()) {
-			fmt.Fprintln(sal, "No encuentro xdg-open: abre esa dirección en tu navegador.")
-		}
-		return 0
+		return abrirOtra(o, i, sal)
 	}
+	bloqueo, err := bloquearDatos(datos)
+	if errors.Is(err, errCarpetaOcupada) {
+		// A server that is still starting, or a terminal question: wait a little for an instance file.
+		for fin := time.Now().Add(esperaOcupada); time.Now().Before(fin); time.Sleep(200 * time.Millisecond) {
+			if i, ok := instanciaViva(datos); ok {
+				return abrirOtra(o, i, sal)
+			}
+		}
+		fmt.Fprintln(salErr, "Otro Nyx Código está usando esta carpeta de datos (quizá respondiendo una pregunta en la terminal). "+
+			"Espera a que termine o usa otra carpeta con -datos.")
+		return 1
+	}
+	if err != nil {
+		fmt.Fprintf(salErr, "No puedo reservar la carpeta de datos: %v\n", err)
+		return 1
+	}
+	defer bloqueo.Close()
 
 	m, err := construir(o, datos, arenero.Config{DirDatos: datos})
 	if err != nil {
@@ -545,8 +625,18 @@ func servir(o opciones, datos string, sal, salErr io.Writer) int {
 	m.cerrar()
 	borrarInstancia(datos, yo)
 	vaciarTmp(datos)
+	bloqueo.Close()
 	fmt.Fprintln(sal, "Nyx Código se ha cerrado. Tu memoria está guardada.")
 	return salida
+}
+
+// abrirOtra opens the running instance i in the browser.
+func abrirOtra(o opciones, i instancia, sal io.Writer) int {
+	fmt.Fprintf(sal, "Nyx Código ya está abierto en %s\n", i.url())
+	if !o.sinNavegador && !abrirNavegador(i.url()) {
+		fmt.Fprintln(sal, "No encuentro xdg-open: abre esa dirección en tu navegador.")
+	}
+	return 0
 }
 
 // esperar waits for wg at most d.
@@ -565,6 +655,22 @@ func esperar(wg *sync.WaitGroup, d time.Duration) {
 func modoPregunta(o opciones, datos string, entrada io.Reader, sal, salErr io.Writer) int {
 	ctx, parar := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer parar()
+
+	// One process per data folder: memoria has no lock of its own, and the last writer would win.
+	bloqueo, err := bloquearDatos(datos)
+	if err != nil {
+		switch i, ok := instanciaViva(datos); {
+		case ok:
+			fmt.Fprintf(salErr, "Nyx Código ya está abierto con esta carpeta de datos en %s. "+
+				"Pregúntaselo allí, ciérralo antes, o usa otra carpeta con -datos.\n", i.url())
+		case errors.Is(err, errCarpetaOcupada):
+			fmt.Fprintln(salErr, "Otro Nyx Código está usando esta carpeta de datos. Espera a que termine o usa otra carpeta con -datos.")
+		default:
+			fmt.Fprintf(salErr, "No puedo reservar la carpeta de datos: %v\n", err)
+		}
+		return 1
+	}
+	defer bloqueo.Close()
 
 	codigo := ""
 	if o.codigo != "" {
@@ -610,15 +716,64 @@ func modoPregunta(o opciones, datos string, entrada io.Reader, sal, salErr io.Wr
 	r := m.cer.Responder(ctx, p, tr)
 	imp.Vaciar()
 	imprimirRespuesta(sal, r)
+
+	// Code with risks: ask here, as the web app's dialog does, and run it again with permission.
+	if q, ok := peticionConfirmable(p, r); ok {
+		resp, err := lec.Responder(imp)(ctx, nucleo.PreguntaUsuario{ID: "confirmar",
+			Texto: "¿Lo ejecuto en la caja segura?", Opciones: []string{"sí", "no"}, PorDefecto: "no"})
+		if err != nil || !esSi(resp) {
+			fmt.Fprintln(sal, "No lo ejecuto.")
+			return 1
+		}
+		id, _ := nuevoToken()
+		q.Tarea = "cli-" + id[:12]
+		imp = nuevaImpresora(sal)
+		tr = nucleo.NuevaTraza(imp.Evento, lec.Responder(imp))
+		r = m.cer.Responder(ctx, q, tr)
+		imp.Vaciar()
+		imprimirRespuesta(sal, r)
+	}
 	if r.Exito {
 		return 0
 	}
 	return 1
 }
 
+// peticionConfirmable returns the request to send again with Confirmado when the answer r asks for
+// permission to run code with (non-grave) risks. Without code in the request it runs the answer's code,
+// as the web app's dialog does.
+func peticionConfirmable(p nucleo.Peticion, r nucleo.Respuesta) (nucleo.Peticion, bool) {
+	if len(r.Riesgos) == 0 || p.Confirmado {
+		return p, false
+	}
+	for _, v := range r.Riesgos {
+		if v.Grave {
+			return p, false
+		}
+	}
+	q := p
+	q.Confirmado = true
+	if strings.TrimSpace(q.Codigo) == "" {
+		if strings.TrimSpace(r.Codigo) == "" {
+			return p, false
+		}
+		q = nucleo.Peticion{Sesion: p.Sesion, Codigo: r.Codigo, Accion: "ejecutar", Entrada: p.Entrada, Confirmado: true}
+	}
+	return q, true
+}
+
+// esSi: the answer to a yes/no question is yes.
+func esSi(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "sí", "si", "s", "vale", "ok":
+		return true
+	}
+	return false
+}
+
 // impresora prints trace events as an indented tree: "  "×depth + marker (▸ ✔ ✘ ·) + title.
 // An open step is printed when it closes (with its final title), when a child of it is printed,
-// before a question, or at the end.
+// before a question, or at the end; a step printed while open (▸) gets a closing line when it closes.
 type impresora struct {
 	mu    sync.Mutex
 	w     io.Writer
@@ -631,7 +786,6 @@ type pasoCLI struct {
 	titulo          string
 	estado          nucleo.Estado
 	impreso         bool
-	tituloImpreso   string
 }
 
 func nuevaImpresora(w io.Writer) *impresora {
@@ -685,8 +839,8 @@ func (im *impresora) Evento(e nucleo.Evento) {
 		switch {
 		case !p.impreso:
 			im.imprimir(p)
-		case antes == nucleo.EstadoAbierto && (p.estado == nucleo.EstadoMal || p.titulo != p.tituloImpreso):
-			im.linea(p)
+		case antes == nucleo.EstadoAbierto:
+			im.linea(p) // printed while open (▸): its closing line shows how it ended
 		}
 	case "pregunta":
 		im.vaciar()
@@ -703,7 +857,6 @@ func (im *impresora) imprimir(p *pasoCLI) {
 
 func (im *impresora) linea(p *pasoCLI) {
 	p.impreso = true
-	p.tituloImpreso = p.titulo
 	fmt.Fprintf(im.w, "%s%s %s\n", strings.Repeat("  ", p.prof), marcador(p.estado), p.titulo)
 }
 
@@ -750,6 +903,16 @@ func (l *lector) empezar() {
 	})
 }
 
+// esTerminal reports whether the input is a terminal (which echoes what the user types).
+func (l *lector) esTerminal() bool {
+	f, ok := l.r.(*os.File)
+	if !ok {
+		return false
+	}
+	fi, err := f.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+}
+
 // Responder returns the nucleo.Responder: it shows the question and its options, and reads a line.
 // A number picks an option; an empty line takes the default; end of input means no answer.
 func (l *lector) Responder(imp *impresora) nucleo.Responder {
@@ -783,6 +946,10 @@ func (l *lector) Responder(imp *impresora) nucleo.Responder {
 		if !ok {
 			imp.escribir(func(w io.Writer) { fmt.Fprintln(w, "(sin respuesta)") })
 			return p.PorDefecto, nucleo.ErrSinRespuesta
+		}
+		if !l.esTerminal() {
+			// piped input is not echoed by a terminal: show the answer so the next line starts clean
+			imp.escribir(func(w io.Writer) { fmt.Fprintln(w, s) })
 		}
 		s = strings.TrimSpace(s)
 		if s == "" {
@@ -867,7 +1034,11 @@ func imprimirRespuesta(w io.Writer, r nucleo.Respuesta) {
 			if c.Detalle != "" {
 				texto += " (" + c.Detalle + ")"
 			}
-			fmt.Fprintf(w, "%s %s\n", marcaComprobacion(c), texto)
+			if strings.HasPrefix(texto, "✔") || strings.HasPrefix(texto, "✘") {
+				fmt.Fprintln(w, texto) // already marked, as the web app shows it
+			} else {
+				fmt.Fprintf(w, "%s %s\n", marcaComprobacion(c), texto)
+			}
 		}
 	}
 	for _, f := range r.Fuentes {
@@ -885,14 +1056,18 @@ func imprimirRespuesta(w io.Writer, r nucleo.Respuesta) {
 	}
 }
 
+// marcaComprobacion is the badge mark (§4.14.3), the same as the web app's: ✔ only for the levels that
+// checked the result (tus_ejemplos, entendido, propiedades, calculo), ✘ for a failure, and · for the rest
+// (fuente: taken from a source; sin_fallos: only "it does not crash"; sin_comprobar).
 func marcaComprobacion(c nucleo.Comprobacion) string {
 	switch {
 	case c.Nivel == nucleo.NivelFallo || (c.Total > 0 && c.Pasan < c.Total):
 		return "✘"
-	case c.Nivel == nucleo.NivelSinComprobar || c.Nivel == "":
-		return "·"
+	case c.Nivel == nucleo.NivelTusEjemplos, c.Nivel == nucleo.NivelEntendido,
+		c.Nivel == nucleo.NivelPropiedades, c.Nivel == nucleo.NivelCalculo:
+		return "✔"
 	}
-	return "✔"
+	return "·"
 }
 
 func imprimirTablero(w io.Writer, t *nucleo.Tablero) {

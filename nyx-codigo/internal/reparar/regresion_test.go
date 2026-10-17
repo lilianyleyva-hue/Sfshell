@@ -527,3 +527,17 @@ func TestSinPanicoConFuentesRotas(t *testing.T) {
 		}()
 	}
 }
+
+// The linker prints the missing-main error with a "runtime.main_main·f: " prefix; it must still be
+// translated (it used to reach the user in English).
+func TestTraducirMainEnlazador(t *testing.T) {
+	for _, msg := range []string{
+		"function main is undeclared in the main package",
+		"runtime.main_main·f: function main is undeclared in the main package",
+	} {
+		got := Traducir(nucleo.ErrorGo{Linea: 1, Msg: msg})
+		if !strings.Contains(got, "necesita una función `main`") || strings.Contains(got, "undeclared") {
+			t.Errorf("Traducir(%q) = %q", msg, got)
+		}
+	}
+}

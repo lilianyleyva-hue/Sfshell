@@ -66,11 +66,15 @@ func pipeEstudiar(c *Cerebro, k *tarea) nucleo.Respuesta {
 	if len(pend) == 0 {
 		k.raiz.Sub(nucleo.PasoNota, "4/4 No tengo preguntas pendientes").Info("")
 	} else {
-		n := k.raiz.Sub(nucleo.PasoIntento, "4/4 Reintento %d preguntas pendientes con más tiempo y con la web", len(pend))
+		n := k.raiz.Sub(nucleo.PasoIntento, "4/4 Reintento %s con más tiempo y con la web", cuantas(len(pend), "pregunta pendiente", "preguntas pendientes"))
 		intentadas := 0
 		for i, p := range pend {
 			if intentadas == estudiarMaxPendientes || k.ctx.Err() != nil || k.restante() < estudiarMinPendiente+estudiarReserva {
-				notas = append(notas, fmt.Sprintf("Me quedan %d preguntas pendientes para otra vez.", len(pend)-i))
+				if len(pend)-i == 1 {
+					notas = append(notas, "Me queda 1 pregunta pendiente para otra vez.")
+				} else {
+					notas = append(notas, fmt.Sprintf("Me quedan %d preguntas pendientes para otra vez.", len(pend)-i))
+				}
 				break
 			}
 			if estudiarSaltar(k, p) {
@@ -94,10 +98,10 @@ func pipeEstudiar(c *Cerebro, k *tarea) nucleo.Respuesta {
 		if resueltas > 0 {
 			n.Bien("Resolví %d de %d", resueltas, intentadas)
 		} else {
-			n.Info("No resolví ninguna (%d intentos)", intentadas)
+			n.Info("No resolví ninguna (%s)", cuantas(intentadas, "intento", "intentos"))
 		}
 		if intentadas > 0 {
-			justif = append(justif, fmt.Sprintf("Reintenté %d preguntas pendientes con 4 veces más tiempo y con la web; cada respuesta pasó sus propias comprobaciones.", intentadas))
+			justif = append(justif, "Reintenté "+cuantas(intentadas, "pregunta pendiente", "preguntas pendientes")+" con 4 veces más tiempo y con la web; cuento como resuelta la que pasa sus propias comprobaciones o se responde con una fuente.")
 		}
 	}
 
@@ -126,7 +130,11 @@ func pipeEstudiar(c *Cerebro, k *tarea) nucleo.Respuesta {
 // estudiarIndice indexes the GOROOT examples when there is no index yet.
 func (c *Cerebro) estudiarIndice(k *tarea) string {
 	if ix := c.indice(); ix != nil {
-		k.raiz.Sub(nucleo.PasoRecuerdo, "2/4 Ya tengo indexados %d ejemplos de la biblioteca estándar", len(ix.Ejemplos)).Info("")
+		if len(ix.Ejemplos) == 1 {
+			k.raiz.Sub(nucleo.PasoRecuerdo, "2/4 Ya tengo indexado 1 ejemplo de la biblioteca estándar").Info("")
+		} else {
+			k.raiz.Sub(nucleo.PasoRecuerdo, "2/4 Ya tengo indexados %d ejemplos de la biblioteca estándar", len(ix.Ejemplos)).Info("")
+		}
 		return ""
 	}
 	n := k.raiz.Sub(nucleo.PasoRecuerdo, "2/4 Leo los ejemplos de la biblioteca estándar de Go")
@@ -146,8 +154,8 @@ func (c *Cerebro) estudiarIndice(k *tarea) string {
 		return ""
 	}
 	c.PonerIndice(ix)
-	n.Bien("Indexé %d ejemplos", len(ix.Ejemplos))
-	return fmt.Sprintf("%d ejemplos de la biblioteca estándar, con su salida", len(ix.Ejemplos))
+	n.Bien("Indexé %s", cuantas(len(ix.Ejemplos), "ejemplo", "ejemplos"))
+	return cuantas(len(ix.Ejemplos), "ejemplo", "ejemplos") + " de la biblioteca estándar, con su salida"
 }
 
 // estudiarGoroot finds GOROOT and the Go version (from the sandbox, else from `go env`).
@@ -226,9 +234,17 @@ func (c *Cerebro) estudiarWeb(k *tarea) (string, string) {
 			}
 		}
 	}
-	n.Bien("Leí %d páginas: %d programas pasan go vet, %d funcionan al ejecutarlos", len(docs), vetados, comprobados)
-	s := fmt.Sprintf("%d páginas de Go by Example (%d programas comprobados al ejecutarlos)", len(docs), comprobados)
-	j := fmt.Sprintf("Leí %d páginas de gobyexample.com; pasé go vet a sus programas y ejecuté una vez los que pasan la revisión de seguridad automática (nunca con permisos extra). Guardé pistas de %d páginas para construir funciones.", len(docs), pistas)
+	paginas := cuantas(len(docs), "página", "páginas")
+	if c.ej == nil {
+		// without a sandbox nothing was vetted or run: say so instead of "0 programas pasan go vet"
+		n.Bien("Leí %s (sin caja segura no pasé go vet ni ejecuté sus programas)", paginas)
+		s := paginas + " de Go by Example (sin ejecutar sus programas: no tengo caja segura)"
+		j := "Leí " + paginas + " de gobyexample.com sin comprobar sus programas (no tengo caja segura). Guardé pistas de " + cuantas(pistas, "página", "páginas") + " para construir funciones."
+		return s, j
+	}
+	n.Bien("Leí %s: %s go vet, %s al ejecutarlos", paginas, cuantas(vetados, "programa pasa", "programas pasan"), cuantas(comprobados, "funciona", "funcionan"))
+	s := paginas + " de Go by Example (" + cuantas(comprobados, "programa comprobado", "programas comprobados") + " al ejecutarlos)"
+	j := "Leí " + paginas + " de gobyexample.com; pasé go vet a sus programas y ejecuté una vez los que pasan la revisión de seguridad automática (nunca con permisos extra). Guardé pistas de " + cuantas(pistas, "página", "páginas") + " para construir funciones."
 	return s, j
 }
 
@@ -294,5 +310,12 @@ func (c *Cerebro) estudiarReintentar(k *tarea, p memoria.Pendiente) (nucleo.Resp
 		r = nucleo.Respuesta{Texto: "error interno: " + err.Error(), Nivel: nucleo.NivelFallo}
 	}
 	tr.Terminar(&r, "terminada")
-	return r, r.Exito && nivelVerificado(r.Nivel) && k2.pendiente == ""
+	return r, estudiarResuelta(r, k2.pendiente)
+}
+
+// estudiarResuelta: a retried question counts as solved when the answer succeeded, left nothing pending,
+// and is backed by a check (examples, my reading, properties, maths) or, for buscar and doc_go, by a
+// source (fuente is their correct level, §4.14.3).
+func estudiarResuelta(r nucleo.Respuesta, pendiente string) bool {
+	return r.Exito && pendiente == "" && (nivelVerificado(r.Nivel) || r.Nivel == nucleo.NivelFuente)
 }

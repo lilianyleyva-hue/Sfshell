@@ -13,7 +13,7 @@ import (
 // pipeProbar is the pipeline to probar código (probar, §4.14.2; follow-ups probar_con and vacia): the
 // same spec and generated cases as reparar, run on the user's code, plus a downloadable _test.go, go vet
 // and the static findings. A failure is shown as its minimized case: "Falla con [-1]: esperaba 0, da -1".
-func pipeProbar(c *Cerebro, k *tarea) nucleo.Respuesta {
+func pipeProbar(c *Cerebro, k *tarea) (resp nucleo.Respuesta) {
 	codigo := c.repCodigo(k, "Pega el código que quieres que pruebe")
 	if codigo == "" {
 		return repSinCodigo("probarlo")
@@ -21,6 +21,10 @@ func pipeProbar(c *Cerebro, k *tarea) nucleo.Respuesta {
 	plan := k.raiz.Sub(nucleo.PasoPlan, "Plan: 1) ver si compila 2) elegir la función 3) preparar casos 4) probarla y escribir el _test.go")
 	plan.Info("")
 	src := repCompletar(codigo)
+	if src.sinMain {
+		k.raiz.Nota("Es `package main` sin `func main`: lo trato como un archivo de funciones")
+		defer func() { src.volverMain(&resp) }()
+	}
 
 	if errs, _ := reparar.ChequeoTipos(src.fuente); len(errs) > 0 {
 		n := k.raiz.Sub(nucleo.PasoError, "No compila: %d errores", len(errs))
@@ -62,12 +66,23 @@ func pipeProbar(c *Cerebro, k *tarea) nucleo.Respuesta {
 		k.raiz.Sub(nucleo.PasoNota, "No tengo caja segura: no puedo ejecutar las pruebas").Info("")
 		return prbSinPruebas("No puedo ejecutar pruebas: no tengo caja segura (falta Go).", avisos)
 	}
+	permiso := nucleo.PermisoAuto
 	if v := c.ej.Revisar(src.fuente, nucleo.PermisoAuto); len(v) > 0 {
-		k.raiz.Sub(nucleo.PasoNota, "No lo pruebo solo: %s", v[0].Que).Info("")
-		return prbSinPruebas("No lo pruebo sin tu permiso porque "+v[0].Que+". Pulsa «Ejecutar» si quieres ejecutarlo.", avisos)
+		pr, ok := c.ejcPermiso(k, src.fuente, v, "probarlo")
+		if !ok {
+			r := prbSinPruebas(pr.Texto, avisos)
+			r.Parrafos = append(pr.Parrafos, r.Parrafos...)
+			r.Riesgos = pr.Riesgos
+			if len(r.Riesgos) > 0 {
+				r.Codigo = src.fuente // what the dialog sends back with confirmado:true
+			}
+			return r
+		}
+		permiso = nucleo.PermisoUsuario
 	}
 
 	e := c.repEspec(k, f, fn.Nombre)
+	defer e.cerrar()
 	repRecordarEspec(k, e)
 	var tuyo *nucleo.Caso
 	if ent, ok := prbEntradaPedida(k, f); ok {
@@ -84,7 +99,7 @@ func pipeProbar(c *Cerebro, k *tarea) nucleo.Respuesta {
 			avisos = append(avisos, "go vet: "+reparar.Traducir(src.linea(v)))
 		}
 	}
-	b, rs, err := c.repCorrerCasos(k, k.raiz, fmt.Sprintf("Pruebo «%s» con %d casos", f.Nombre, len(casos)), src.fuente, e, casos)
+	b, rs, err := c.repCorrerCasos(k, k.raiz, fmt.Sprintf("Pruebo «%s» con %d casos", f.Nombre, len(casos)), src.fuente, e, casos, permiso)
 	if err != nil {
 		return prbSinPruebas("No pude probarlo: "+mensajeError(err)+".", avisos)
 	}
@@ -96,7 +111,7 @@ func pipeProbar(c *Cerebro, k *tarea) nucleo.Respuesta {
 		Comprobaciones: comps,
 		Nivel:          pruebas.NivelGlobal(comps),
 		Tablas:         []nucleo.Tabla{pruebas.Tabla(f, casos, rs, 0)},
-		CodigoTest:     pruebas.ArchivoTest(f, prbCasosTest(casos), src.paquete),
+		CodigoTest:     pruebas.ArchivoTest(f, prbCasosTest(casos), src.paqueteUsuario()),
 		Metodo:         "pruebas",
 		Exito:          true,
 	}

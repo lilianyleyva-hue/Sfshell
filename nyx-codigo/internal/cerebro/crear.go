@@ -38,6 +38,34 @@ const (
 	crearRepetidos         = 20 // the first cases run twice (determinism)
 	crearMaxVariantesWeb   = 12
 	crearCercaCosto        = 3 // without examples, programs this close in cost are "two readings"
+	crearTiempoReducir     = 3 * time.Second
+)
+
+// Notes of stored cases: crearNotaGuardada marks a case whose expected value is only what the function
+// itself gave when it was stored (a regression check, not a check of what it should do).
+const (
+	crearNotaGuardada = "lo que hacía al guardarla"
+	crearNotaMemoria  = "lo que guardé en mi memoria"
+	crearOtraCosa     = "Otra cosa"
+)
+
+// crearOraculo computes the expected outputs of a case (a DSL program, the previous version…).
+type crearOraculo = func([]nucleo.Valor) ([]nucleo.Valor, error)
+
+// crearRechazo: the user answered «Otra cosa» to "¿Qué debe dar F(x)?": with ent it must not give any
+// of malas (nor fail).
+type crearRechazo struct {
+	ent   []nucleo.Valor
+	malas []nucleo.Valor
+}
+
+// crearSalida is how "¿Qué debe dar F(x)?" was answered.
+type crearSalida int
+
+const (
+	salidaSinRespuesta crearSalida = iota
+	salidaValor
+	salidaOtraCosa // none of the offered outputs, and no value given
 )
 
 // opcionesRecibe are the buttons of "¿Qué recibe la función?".
@@ -62,17 +90,22 @@ type crearIntento struct {
 }
 
 type crearFlujo struct {
-	c          *Cerebro
-	k          *tarea
-	f          nucleo.Firma
-	usuario    []nucleo.Caso // EspUsuario: examples, counterexamples, answers to questions
-	props      []nucleo.Propiedad
-	necesarios []string // concepts a stored function or recipe must have (action, modifiers, predicates)
-	otraForma  bool
-	sinArenero bool
-	dudas      []string
-	mejor      crearIntento
-	intentos   []string
+	c           *Cerebro
+	k           *tarea
+	f           nucleo.Firma
+	usuario     []nucleo.Caso // EspUsuario: examples, counterexamples, answers to questions
+	props       []nucleo.Propiedad
+	necesarios  []string // concepts a stored function or recipe must have (action, modifiers, predicates)
+	otraForma   bool
+	sinArenero  bool
+	dudas       []string
+	mejor       crearIntento
+	intentos    []string
+	relojSint   *reloj            // the synthesis clock: paused while the user is asked
+	rechazos    []crearRechazo    // «Otra cosa» answers
+	descartes   []string          // programs the user rejected (sintesis.Especificacion.Excluir)
+	reducidos   map[string]string // fuente → its minimized failing case ("Falla con [-1]: …")
+	webConsenso bool              // the web answer agrees with another independent source
 }
 
 // pipeCrearFuncion is the pipeline to crear funciones (crear_funcion, §4.14.2).
@@ -350,15 +383,11 @@ func (cf *crearFlujo) memoria() (crearHecho, bool) {
 		if err != nil {
 			guardados = nil
 		}
-		for i := range guardados {
-			if guardados[i].ConEsperado() {
-				guardados[i].Expectativa = nucleo.EspReferencia
-				guardados[i].Nota = "lo que guardé en mi memoria"
-			}
-		}
+		crearEtiquetarGuardados(guardados, F.Nivel)
 		casos := append(append([]nucleo.Caso(nil), cf.usuario...), guardados...)
 		casos = append(casos, cf.sondas(F.Firma, nil)...)
-		v, err := cf.comprobar("Compruebo "+F.Nombre+", que ya tengo en mi memoria", F.Codigo, F.Firma, casos, nil)
+		v, err := cf.comprobar("Compruebo "+F.Nombre+", que ya tengo en mi memoria", F.Codigo, F.Firma, casos, nil, nil)
+		v = crearRebajarRegresion(v)
 		if err != nil {
 			if errors.Is(err, errSinArenero) {
 				cf.sinArenero = true
@@ -381,7 +410,13 @@ func (cf *crearFlujo) memoria() (crearHecho, bool) {
 				programa = e
 			}
 		}
-		h := cf.respuesta("memoria", texto, F.Codigo, F.Firma, v, programa, F.Descripcion, nil)
+		// Only a description written from the program (sintesis.Describir) says what the code does; an
+		// older entry may hold the request's text instead.
+		desc := ""
+		if programa != nil {
+			desc = F.Descripcion
+		}
+		h := cf.respuesta("memoria", texto, F.Codigo, F.Firma, v, programa, desc, nil)
 		if programa != nil {
 			k.programa = programa
 			k.turno.Expr = programa.String()
@@ -391,6 +426,47 @@ func (cf *crearFlujo) memoria() (crearHecho, bool) {
 		return h, true
 	}
 	return crearHecho{}, false
+}
+
+// crearEtiquetarGuardados labels the cases of a stored function for its reuse. Expected values that were
+// checked when it was stored (at tus_ejemplos or entendido) compare as «lo que guardé en mi memoria»
+// (entendido); the function's own outputs, and every case of a function stored with less evidence,
+// only say it still gives what it gave (crearNotaGuardada, see crearRebajarRegresion).
+func crearEtiquetarGuardados(cs []nucleo.Caso, nivel nucleo.Nivel) {
+	verificada := nivel == nucleo.NivelTusEjemplos || nivel == nucleo.NivelEntendido
+	for i := range cs {
+		if !cs[i].ConEsperado() {
+			continue
+		}
+		cs[i].Expectativa = nucleo.EspReferencia
+		if verificada && cs[i].Nota != crearNotaGuardada {
+			cs[i].Nota = crearNotaMemoria
+		} else {
+			cs[i].Nota = crearNotaGuardada
+		}
+	}
+}
+
+// crearRebajarRegresion: the badge of the crearNotaGuardada cases is a regression check, not a check of
+// what the function should do, so it counts as sin_fallos ("N/M casos dan lo mismo que cuando la guardé").
+func crearRebajarRegresion(v verificacion) verificacion {
+	sufijo := "comparando con " + crearNotaGuardada
+	cambiado := false
+	for i := range v.Comprobaciones {
+		cp := &v.Comprobaciones[i]
+		if !strings.HasSuffix(cp.Texto, sufijo) {
+			continue
+		}
+		cambiado = true
+		if cp.Nivel != nucleo.NivelFallo {
+			cp.Nivel = nucleo.NivelSinFallos
+		}
+		cp.Texto = fmt.Sprintf("%d/%d casos dan lo mismo que cuando la guardé", cp.Pasan, cp.Total)
+	}
+	if cambiado {
+		v.Nivel = pruebas.NivelGlobal(v.Comprobaciones)
+	}
+	return v
 }
 
 func crearExcluido(excluir []string, claves ...string) bool {
@@ -443,7 +519,7 @@ func (cf *crearFlujo) recetas() (crearHecho, bool) {
 		casos := append(append([]nucleo.Caso(nil), cf.usuario...), propias...)
 		casos = append(casos, cf.generados(r.Firma, nil, 32, 100)...)
 		casos = append(casos, cf.sondas(r.Firma, nil)...)
-		v, err := cf.comprobar("Compruebo la receta "+rc.Nombre+" ("+decimal(h.Puntos)+")", r.Codigo, r.Firma, casos, cf.props)
+		v, err := cf.comprobar("Compruebo la receta "+rc.Nombre+" ("+decimal(h.Puntos)+")", r.Codigo, r.Firma, casos, cf.props, nil)
 		if err != nil {
 			if errors.Is(err, errSinArenero) {
 				cf.sinArenero = true
@@ -486,8 +562,11 @@ func (cf *crearFlujo) sintesis() (crearHecho, bool) {
 	reg := c.registro()
 	n := k.raiz.Sub(nucleo.PasoIntento, "Construyo el programa")
 	lim := cf.limiteSintesis()
-	ctx, cancelar := context.WithTimeout(k.ctx, lim+time.Second)
-	defer cancelar()
+	// A pausable clock: it stops while the user answers "¿Qué debe dar …?" (preguntarSalida).
+	ctx := nuevoReloj(k.ctx, lim+time.Second)
+	defer ctx.Cancelar()
+	cf.relojSint = ctx
+	defer func() { cf.relojSint = nil }()
 
 	var sols []sintesis.Solucion
 	if len(cf.usuario) > 0 {
@@ -525,7 +604,8 @@ func (cf *crearFlujo) sintesis() (crearHecho, bool) {
 		oraculo := sintesis.Oraculo(s.Expr)
 		casos = append(casos, cf.generados(cf.f, oraculo, 64, 200)...)
 		casos = append(casos, cf.sondas(cf.f, oraculo)...)
-		v, err := cf.comprobar("Compruebo el código en Go", fuente, cf.f, casos, cf.props)
+		v, err := cf.comprobar("Compruebo el código en Go", fuente, cf.f, casos, cf.props,
+			map[string]crearOraculo{"lo que entendí": oraculo})
 		if err != nil {
 			if errors.Is(err, errSinArenero) {
 				return cf.sinComprobar(fuente, s.Expr, desc), true
@@ -573,7 +653,7 @@ func (cf *crearFlujo) especificacion(reg *sintesis.Registro) sintesis.Especifica
 		Ejemplos:   cf.usuario,
 		Conceptos:  crearPesos(q.Marco),
 		Constantes: crearConstantes(q, cf.f, len(cf.usuario) > 0),
-		Excluir:    cf.k.excluir,
+		Excluir:    append(append([]string(nil), cf.k.excluir...), cf.descartes...),
 	}
 	if q.Marco != nil {
 		esp.Esqueletos = sintesis.Esqueletos(q.Marco, cf.f, reg)
@@ -599,7 +679,7 @@ func (cf *crearFlujo) conEjemplos(ctx context.Context, n *nucleo.Nodo, reg *sint
 			if err != nil && len(res.Soluciones) == 0 {
 				n.Nota("No encontré un programa: %s", mensajeError(err))
 			}
-			sols = res.Soluciones
+			sols = cf.sinRechazadas(res.Soluciones)
 			resintetizar = false
 		}
 		cf.ordenar(sols, true)
@@ -615,10 +695,17 @@ func (cf *crearFlujo) conEjemplos(ctx context.Context, n *nucleo.Nodo, reg *sint
 			cf.anotarDuda(ent, sal, grupos)
 			break
 		}
-		valor, ok := cf.preguntarSalida(ent, sal)
-		if !ok {
+		valor, como := cf.preguntarSalida(ent, sal)
+		if como == salidaSinRespuesta {
 			cf.anotarDuda(ent, sal, grupos)
 			break
+		}
+		if como == salidaOtraCosa {
+			// none of my readings gives what the user wants with ent: drop them all and look again
+			cf.rechazar(n, ent, sal, sols)
+			sols = cf.sinRechazadas(sols)
+			resintetizar = true
+			continue
 		}
 		cf.usuario = append(cf.usuario, nucleo.Caso{
 			Entradas: ent, Esperado: []nucleo.Valor{valor}, Expectativa: nucleo.EspUsuario,
@@ -671,10 +758,14 @@ func (cf *crearFlujo) desdeConceptos(ctx context.Context, n *nucleo.Nodo, reg *s
 	if !ok {
 		return sols
 	}
-	valor, ok := cf.preguntarSalida(ent, sal)
-	if !ok {
+	valor, como := cf.preguntarSalida(ent, sal)
+	switch como {
+	case salidaSinRespuesta:
 		cf.anotarDuda(ent, sal, grupos)
 		return sols
+	case salidaOtraCosa:
+		cf.rechazar(n, ent, sal, cerca)
+		return cf.sinRechazadas(sols)
 	}
 	caso := nucleo.Caso{Entradas: ent, Esperado: []nucleo.Valor{valor}, Expectativa: nucleo.EspUsuario,
 		Origen: nucleo.OrigenUsuario, Nota: "tu respuesta"}
@@ -819,8 +910,13 @@ func crearCobertura(e *sintesis.Expr, quiero []string) int {
 	return n
 }
 
-// preguntarSalida asks "¿Qué debe dar F(x)?" with the outputs of the groups and "Otra cosa".
-func (cf *crearFlujo) preguntarSalida(ent []nucleo.Valor, sal []nucleo.Valor) (nucleo.Valor, bool) {
+// preguntarSalida asks "¿Qué debe dar F(x)?" with the outputs of the groups and «Otra cosa» (free text).
+// «Otra cosa», or an answer that is not a value of the result type, is asked again as free text. The
+// synthesis clock is paused while the user thinks.
+func (cf *crearFlujo) preguntarSalida(ent []nucleo.Valor, sal []nucleo.Valor) (nucleo.Valor, crearSalida) {
+	if cf.relojSint != nil {
+		defer cf.relojSint.Pausar()()
+	}
 	var ops []string
 	visto := map[string]bool{}
 	for _, v := range sal {
@@ -833,10 +929,91 @@ func (cf *crearFlujo) preguntarSalida(ent []nucleo.Valor, sal []nucleo.Valor) (n
 			ops = append(ops, s)
 		}
 	}
-	ops = append(ops, "Otra cosa")
-	texto := fmt.Sprintf("¿Qué debe dar %s?", crearLlamada(cf.f, ent))
-	v, _, ok := cf.c.preguntarValor(cf.k, texto, ops, cf.f.Res[0])
-	return v, ok
+	ops = append(ops, crearOtraCosa)
+	tipo := cf.f.Res[0]
+	llamada := crearLlamada(cf.f, ent)
+	s, ok := cf.c.preguntarCon(cf.k, nucleo.PreguntaUsuario{Texto: fmt.Sprintf("¿Qué debe dar %s?", llamada), Opciones: ops, Libre: true}, &tipo)
+	if !ok {
+		return nil, salidaSinRespuesta
+	}
+	otra := crearEsOtraCosa(s)
+	if !otra {
+		if v, err := nucleo.ParseValor(strings.TrimSpace(s), tipo); err == nil {
+			return v, salidaValor
+		}
+	}
+	s, ok = cf.c.preguntarCon(cf.k, nucleo.PreguntaUsuario{Texto: fmt.Sprintf("Escribe qué debe dar %s:", llamada), Libre: true}, &tipo)
+	if ok && !crearEsOtraCosa(s) {
+		if v, err := nucleo.ParseValor(strings.TrimSpace(s), tipo); err == nil {
+			return v, salidaValor
+		}
+	}
+	if otra {
+		return nil, salidaOtraCosa
+	}
+	return nil, salidaSinRespuesta
+}
+
+func crearEsOtraCosa(s string) bool {
+	return strings.Trim(nucleo.Normalizar(s), " .;,:!¡") == nucleo.Normalizar(crearOtraCosa)
+}
+
+// rechazar records an «Otra cosa» answer: with ent none of the offered outputs is right, so the programs
+// asked about are excluded from the next synthesis.
+func (cf *crearFlujo) rechazar(n *nucleo.Nodo, ent []nucleo.Valor, sal []nucleo.Valor, sols []sintesis.Solucion) {
+	r := crearRechazo{ent: ent}
+	var textos []string
+	for _, v := range sal {
+		if _, malo := v.(nucleo.ErrorV); malo {
+			continue
+		}
+		r.malas = append(r.malas, v)
+		textos = append(textos, nucleo.FormatoHumano(v, cf.f.Res[0]))
+	}
+	cf.rechazos = append(cf.rechazos, r)
+	for _, s := range sols {
+		if s.Expr != nil {
+			cf.descartes = append(cf.descartes, s.Expr.String())
+		}
+	}
+	n.Nota("Con %s no debe dar %s: busco otro programa", crearArgs(cf.f, ent), strings.Join(textos, " ni "))
+	cf.intentos = append(cf.intentos, fmt.Sprintf("Con %s no debía dar %s y no encontré otro programa que encaje.",
+		crearArgs(cf.f, ent), strings.Join(textos, " ni ")))
+}
+
+// sinRechazadas drops the programs that give a rejected output (or no output) on a rejected input.
+func (cf *crearFlujo) sinRechazadas(sols []sintesis.Solucion) []sintesis.Solucion {
+	if len(cf.rechazos) == 0 {
+		return sols
+	}
+	var out []sintesis.Solucion
+	for _, s := range sols {
+		if s.Expr == nil {
+			continue
+		}
+		o := sintesis.Oraculo(s.Expr)
+		vale := true
+		for _, r := range cf.rechazos {
+			res, err := o(r.ent)
+			if err != nil || len(res) != 1 {
+				vale = false
+				break
+			}
+			if _, malo := res[0].(nucleo.ErrorV); malo {
+				vale = false
+				break
+			}
+			for _, m := range r.malas {
+				if nucleo.Igual(res[0], m) {
+					vale = false
+				}
+			}
+		}
+		if vale {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // anotarDuda keeps "Había otra forma de entenderlo: con X daría Y" for the answer (the best program is
@@ -858,11 +1035,14 @@ func (cf *crearFlujo) anotarDuda(ent []nucleo.Valor, sal []nucleo.Valor, grupos 
 		if _, malo := sal[g].(nucleo.ErrorV); malo {
 			continue
 		}
-		cf.dudas = append(cf.dudas, fmt.Sprintf("Había otra forma de entenderlo: con %s daría %s.",
+		cf.dudas = append(cf.dudas, fmt.Sprintf(prefijoOtraForma+" con %s daría %s.",
 			crearArgs(cf.f, ent), nucleo.FormatoHumano(sal[g], cf.f.Res[0])))
 		return
 	}
 }
+
+// prefijoOtraForma starts the sentence that names the reading not chosen (§4.14.2 crear_funcion step 4).
+const prefijoOtraForma = "Había otra forma de entenderlo:"
 
 // crearPesos: concept weights from the frame (action 1.0, modifiers and predicates 0.8).
 func crearPesos(m *nucleo.Marco) map[string]float64 {
@@ -1081,7 +1261,11 @@ func (cf *crearFlujo) otraFormaIgual() (crearHecho, bool) {
 			casos = append(casos, cf.generados(cf.f, oraculo, 64, 200)...)
 		}
 		casos = append(casos, cf.sondas(cf.f, oraculo)...)
-		v, err := cf.comprobar("Compruebo el código en Go", fuente, cf.f, casos, cf.props)
+		oraculos := map[string]crearOraculo{"lo que entendí": oraculo}
+		if oraculoPrevio != nil {
+			oraculos[antes] = oraculoPrevio
+		}
+		v, err := cf.comprobar("Compruebo el código en Go", fuente, cf.f, casos, cf.props, oraculos)
 		if err != nil || len(v.Fallos) > 0 {
 			if err == nil {
 				cf.anotarIntento(fuente, cf.f, v)
@@ -1114,6 +1298,11 @@ func (cf *crearFlujo) web() (crearHecho, bool) {
 	}
 	ctx, cancelar := context.WithTimeout(k.ctx, presupuesto)
 	defer cancelar()
+	// The whole web stage (search, build, runs, re-synthesis and its check) lives in its share of the
+	// budget: preparar, probarCasos and comprobar read k.ctx.
+	ctxTarea := k.ctx
+	k.ctx = ctx
+	defer func() { k.ctx = ctxTarea }()
 	n := k.raiz.Sub(nucleo.PasoBusqueda, "Busco en la web: «%s»", q.ConsultaWeb)
 	_, docs, err := c.web.BuscarDocumentos(ctx, q.ConsultaWeb)
 	if err != nil || len(docs) == 0 {
@@ -1240,6 +1429,7 @@ func (cf *crearFlujo) web() (crearHecho, bool) {
 	resultados := rs[mejor.i]
 	casosV := append([]nucleo.Caso(nil), casos...)
 	if mejor.acuerdo > 0 {
+		cf.webConsenso = true
 		nota := fmt.Sprintf("otras %d fuentes", mejor.acuerdo)
 		if mejor.acuerdo == 1 {
 			nota = "otra fuente"
@@ -1253,7 +1443,11 @@ func (cf *crearFlujo) web() (crearHecho, bool) {
 		}
 	}
 	// Re-synthesize from its outputs so the stored function is a program I understand.
-	if nu == 0 && sintesis.Sintetizable(cf.f) && k.restante() > 4*time.Second {
+	quedaWeb := presupuesto
+	if dl, ok := ctx.Deadline(); ok {
+		quedaWeb = time.Until(dl)
+	}
+	if nu == 0 && sintesis.Sintetizable(cf.f) && quedaWeb > 2*time.Second {
 		var ejemplos []nucleo.Caso
 		for j := nu; j < len(casos) && len(ejemplos) < 10; j++ {
 			if crearTerminado(resultados[j]) && resultados[j].Obtenido != nil {
@@ -1262,17 +1456,19 @@ func (cf *crearFlujo) web() (crearHecho, bool) {
 			}
 		}
 		if len(ejemplos) >= 3 {
-			ctx3, c3 := context.WithTimeout(k.ctx, 3*time.Second)
+			lim3 := min(3*time.Second, quedaWeb/2)
+			ctx3, c3 := context.WithTimeout(k.ctx, lim3)
 			esp := cf.especificacion(c.registro())
 			esp.Ejemplos = ejemplos
-			res, _ := sintesis.Sintetizar(ctx3, esp, c.registro(), sintesis.Opciones{Limite: 3 * time.Second, Priors: c.stats}, n)
+			res, _ := sintesis.Sintetizar(ctx3, esp, c.registro(), sintesis.Opciones{Limite: lim3, Priors: c.stats}, n)
 			c3()
 			if len(res.Soluciones) > 0 {
 				e := res.Soluciones[0].Expr
 				if fuente, err := sintesis.AGo(e, cf.f); err == nil {
 					cs := append([]nucleo.Caso(nil), casosV...)
 					cs = append(cs, cf.sondas(cf.f, sintesis.Oraculo(e))...)
-					if v, err := cf.comprobar("Compruebo el programa que saqué de la web", fuente, cf.f, cs, cf.props); err == nil && len(v.Fallos) == 0 {
+					if v, err := cf.comprobar("Compruebo el programa que saqué de la web", fuente, cf.f, cs, cf.props,
+						map[string]crearOraculo{"lo que entendí": sintesis.Oraculo(e)}); err == nil && len(v.Fallos) == 0 {
 						desc := sintesis.Describir(e, cf.f)
 						texto := fmt.Sprintf("Aquí tienes `%s`: %s.", cf.f.Nombre, strings.TrimSuffix(desc, "."))
 						fs := []nucleo.Fuente{{URL: elegida.url, Titulo: elegida.titulo, Nota: "lo comparé con este código"}}
@@ -1338,8 +1534,10 @@ func (cf *crearFlujo) sondas(f nucleo.Firma, oraculo func([]nucleo.Valor) ([]nuc
 }
 
 // comprobar builds fuente once (PermisoAuto, InstrNormal, properties), runs the first 20 cases twice
-// (determinism) and the rest once, runs go vet, and computes the comprobaciones.
-func (cf *crearFlujo) comprobar(titulo, fuente string, f nucleo.Firma, casos []nucleo.Caso, props []nucleo.Propiedad) (verificacion, error) {
+// (determinism) and the rest once, runs go vet, and computes the comprobaciones. When a case fails, the
+// first failing one is minimized on the same binary (oraculos give the expected outputs of the smaller
+// inputs, by the case's Nota) and kept in cf.reducidos for the failure answer.
+func (cf *crearFlujo) comprobar(titulo, fuente string, f nucleo.Firma, casos []nucleo.Caso, props []nucleo.Propiedad, oraculos map[string]crearOraculo) (verificacion, error) {
 	c, k := cf.c, cf.k
 	var v verificacion
 	n := k.raiz.Sub(nucleo.PasoComprobar, "%s", titulo)
@@ -1350,6 +1548,9 @@ func (cf *crearFlujo) comprobar(titulo, fuente string, f nucleo.Firma, casos []n
 		return v, err
 	}
 	defer b.Cerrar()
+	// go vet runs in its own process while the cases run: it only needs the source.
+	vetHecho := make(chan nucleo.Compilacion, 1)
+	go func() { vetHecho <- c.ej.Vet(k.ctx, fuente) }()
 	primeros := min(crearRepetidos, len(casos))
 	var res []nucleo.ResultadoCaso
 	if primeros > 0 {
@@ -1377,7 +1578,13 @@ func (cf *crearFlujo) comprobar(titulo, fuente string, f nucleo.Firma, casos []n
 			res = append(res, r)
 		}
 	}
-	vet := c.ej.Vet(k.ctx, fuente)
+	if frase := cf.reducirFallo(n, b, f, casos, res, oraculos); frase != "" {
+		if cf.reducidos == nil {
+			cf.reducidos = map[string]string{}
+		}
+		cf.reducidos[fuente] = frase
+	}
+	vet := <-vetHecho
 	if vet.OK {
 		n.Sub(nucleo.PasoComprobar, "Compila y go vet no se queja").Bien("")
 	} else if len(vet.Errores) > 0 {
@@ -1431,6 +1638,9 @@ func (cf *crearFlujo) anotarIntento(codigo string, f nucleo.Firma, v verificacio
 	if cf.mejor.codigo != "" && pasan <= cf.mejor.pasan {
 		return
 	}
+	if r, ok := cf.reducidos[codigo]; ok {
+		contra = r
+	}
 	tb := v.Tabla
 	cf.mejor = crearIntento{codigo: codigo, pasan: pasan, total: total, contra: contra, tabla: &tb}
 }
@@ -1449,6 +1659,99 @@ func crearFrasefallo(f nucleo.Firma, cs nucleo.Caso, r nucleo.ResultadoCaso) str
 		return fmt.Sprintf("Falla con %s: esperaba %s, da %s.", ent, crearValores(f.Res, cs.Esperado), crearValores(f.Res, r.Obtenido))
 	}
 	return fmt.Sprintf("Falla con %s.", ent)
+}
+
+// reducirFallo minimizes the first failing case (pruebas.Minimizar, one Probar per round on the binary
+// already built) and returns its sentence, or "" when it cannot be shrunk: a timeout (every try would
+// wait for the limit), a wrong output with no oracle for smaller inputs (the user's examples), or no
+// smaller input that still fails.
+func (cf *crearFlujo) reducirFallo(n *nucleo.Nodo, b nucleo.Binario, f nucleo.Firma, casos []nucleo.Caso, rs []nucleo.ResultadoCaso, oraculos map[string]crearOraculo) string {
+	i := -1
+	for j, r := range rs {
+		if !r.OK && j < len(casos) {
+			i = j
+			break
+		}
+	}
+	if i < 0 {
+		return ""
+	}
+	cs, r := casos[i], rs[i]
+	var oraculo crearOraculo
+	var falla func(nucleo.ResultadoCaso) bool
+	switch {
+	case r.Agotado || r.SinCombustible || r.NoDeterminista || !r.Ejecutado:
+		return ""
+	case r.Panico != "" || r.Caida:
+		falla = func(x nucleo.ResultadoCaso) bool { return x.Panico != "" || x.Caida }
+	case r.PropFallida != "":
+		falla = func(x nucleo.ResultadoCaso) bool { return crearTerminado(x) && x.PropFallida != "" }
+	case cs.ConEsperado() && cs.Expectativa != nucleo.EspUsuario && oraculos[cs.Nota] != nil:
+		oraculo = oraculos[cs.Nota]
+		falla = func(x nucleo.ResultadoCaso) bool { return crearTerminado(x) && !x.OK }
+	default:
+		return ""
+	}
+	// preparado gives a case the expectation of the original (by the oracle) or none.
+	preparado := func(x nucleo.Caso) (nucleo.Caso, bool) {
+		x.Expectativa, x.Nota, x.Esperado = nucleo.EspNinguna, "", nil
+		if oraculo == nil {
+			return x, true
+		}
+		out, err := oraculo(x.Entradas)
+		if err != nil || len(out) != len(f.Res) {
+			return x, false
+		}
+		x.Esperado, x.Expectativa, x.Nota = out, cs.Expectativa, cs.Nota
+		return x, true
+	}
+	ctx, cancelar := context.WithTimeout(cf.k.ctx, crearTiempoReducir)
+	defer cancelar()
+	probar := func(xs []nucleo.Caso) []nucleo.ResultadoCaso {
+		out, err := b.Probar(ctx, xs, nucleo.OpcionesProbar{})
+		if err != nil || len(out) == 0 {
+			return nil
+		}
+		return out[0]
+	}
+	base, ok := preparado(cs)
+	if !ok {
+		return ""
+	}
+	red := pruebas.Minimizar(ctx, base, f, func(cands []nucleo.Caso) []bool {
+		res := make([]bool, len(cands))
+		var xs []nucleo.Caso
+		var idx []int
+		for j, c := range cands {
+			if x, ok := preparado(c); ok {
+				xs = append(xs, x)
+				idx = append(idx, j)
+			}
+		}
+		if len(xs) == 0 {
+			return res
+		}
+		for j, x := range probar(xs) {
+			if j < len(idx) && falla(x) {
+				res[idx[j]] = true
+			}
+		}
+		return res
+	}, 0)
+	if crearClaveEntradas(red.Entradas) == crearClaveEntradas(cs.Entradas) {
+		return ""
+	}
+	red, ok = preparado(red)
+	if !ok {
+		return ""
+	}
+	otra := probar([]nucleo.Caso{red})
+	if len(otra) != 1 || !falla(otra[0]) {
+		return ""
+	}
+	frase := crearFrasefallo(f, red, otra[0])
+	n.Sub(nucleo.PasoComprobar, "Reduzco el fallo: %s", strings.TrimSuffix(frase, ".")).Info("")
+	return frase
 }
 
 // ---- answers ----
@@ -1472,15 +1775,24 @@ func (cf *crearFlujo) respuesta(origen, texto, fuente string, f nucleo.Firma, v 
 		}
 		r.Tablas = []nucleo.Tabla{tb}
 	}
+	// What the code does is only stated as checked when a badge compared its outputs with what it should
+	// give (the user's examples, my reading, a reference); no-panic runs say nothing about it.
 	var mejorComp *nucleo.Comprobacion
 	for i := range v.Comprobaciones {
-		if v.Comprobaciones[i].Nivel != nucleo.NivelFallo && v.Comprobaciones[i].Nivel != nucleo.NivelSinComprobar {
+		if nv := v.Comprobaciones[i].Nivel; nv == nucleo.NivelTusEjemplos || nv == nucleo.NivelEntendido {
 			mejorComp = &v.Comprobaciones[i]
 			break
 		}
 	}
-	if desc != "" && origen != "sintesis" {
-		r.Parrafos = append(r.Parrafos, afirmar("Lo que hace: "+strings.TrimSuffix(desc, ".")+".", mejorComp))
+	queHace := ""
+	if desc != "" {
+		queHace = "Lo que hace: " + strings.TrimSuffix(desc, ".") + "."
+		if mejorComp == nil {
+			queHace = "Creo que hace esto: " + strings.TrimSuffix(desc, ".") + "."
+		}
+	}
+	if queHace != "" && origen != "sintesis" {
+		r.Parrafos = append(r.Parrafos, queHace)
 	}
 	claves := crearClaves(fuente, f.Nombre)
 	r.Parrafos = append(r.Parrafos, claves...)
@@ -1503,8 +1815,8 @@ func (cf *crearFlujo) respuesta(origen, texto, fuente string, f nucleo.Firma, v 
 	if programa != nil {
 		just = append(just, "Mi programa: "+programa.String())
 	}
-	if desc != "" {
-		just = append(just, "Lo que hace: "+strings.TrimSuffix(desc, ".")+".")
+	if queHace != "" {
+		just = append(just, queHace)
 	}
 	just = append(just, claves...)
 	if v.Compilacion.Comando != "" {
@@ -1512,14 +1824,12 @@ func (cf *crearFlujo) respuesta(origen, texto, fuente string, f nucleo.Firma, v 
 	}
 	r.Justificacion = just
 
-	// Store (≥ entendido; web code also with sin_fallos).
+	// Store (≥ entendido; web code with sin_fallos only when another source agrees). Descripcion is only
+	// what the program does (sintesis.Describir): the request's text would come back as a claim.
 	huella := crearHuella(f, v.Casos, v.Resultados)
 	fa := nucleo.FuncionAprendida{
 		Nombre: f.Nombre, Firma: f, Codigo: fuente, Descripcion: strings.TrimSuffix(strings.TrimSpace(desc), "."),
 		Huella: huella, Nivel: v.Nivel, Origen: origen,
-	}
-	if desc == "" {
-		fa.Descripcion = k.q.Texto
 	}
 	if len(fuentes) > 0 {
 		fa.Fuente = fuentes[0].URL
@@ -1531,7 +1841,7 @@ func (cf *crearFlujo) respuesta(origen, texto, fuente string, f nucleo.Firma, v 
 		fa.DSL = programa.String()
 	}
 	if origen != "memoria" {
-		frase, err := c.guardarFuncion(k, fa, programa, origen == "web")
+		frase, err := c.guardarFuncion(k, fa, programa, origen == "web" && cf.webConsenso)
 		if err == nil {
 			r.Aprendido = frase
 		} else {
@@ -1604,7 +1914,7 @@ func crearCasosGuardar(v verificacion) []nucleo.Caso {
 			x := cs
 			x.Esperado = v.Resultados[i].Obtenido
 			x.Expectativa = nucleo.EspReferencia
-			x.Nota = "lo que hacía al guardarla"
+			x.Nota = crearNotaGuardada
 			extra = append(extra, x)
 		}
 	}

@@ -2,6 +2,7 @@ package cerebro
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -157,7 +158,11 @@ func (c *Cerebro) candidatos(q *nucleo.Pregunta) []candidato {
 			puntos: ci.Puntos, lectura: etiquetaIntencion(ci.Tipo), motivo: ci.Motivo})
 	}
 	hayResolutor := false
+	cantidad := preguntaCantidad(q.Texto)
 	for _, r := range c.resolutores {
+		if cantidad && soloVerdad[r.Nombre()] {
+			continue
+		}
 		rec := reconocer(r, q)
 		if rec.Puntos <= 0 {
 			continue
@@ -358,7 +363,11 @@ func primeroElResolutor(cs []candidato, nombre string) []candidato {
 func (c *Cerebro) candidatosRazonar(q *nucleo.Pregunta, i nucleo.TipoIntencion) []candidato {
 	prefijo := prefijoIntencion(i)
 	var propios, otros []candidato
+	cantidad := q != nil && preguntaCantidad(q.Texto)
 	for _, r := range c.resolutores {
+		if cantidad && soloVerdad[r.Nombre()] {
+			continue // a "¿cuántos…?" question never gets a "se sigue / no se sigue" answer (§0)
+		}
 		rec := reconocer(r, q)
 		cd := candidato{nombre: r.Nombre(), intencion: rec.Intencion, familia: familiaDe(rec.Intencion),
 			puntos: rec.Puntos, res: r, lectura: rec.Lectura}
@@ -380,10 +389,24 @@ func (c *Cerebro) candidatosRazonar(q *nucleo.Pregunta, i nucleo.TipoIntencion) 
 	sort.SliceStable(otros, func(a, b int) bool { return otros[a].score > otros[b].score })
 	if len(propios) == 0 && len(otros) == 0 {
 		for _, r := range c.resolutores {
+			if cantidad && soloVerdad[r.Nombre()] {
+				continue
+			}
 			propios = append(propios, candidato{nombre: r.Nombre(), intencion: i, familia: familiaDe(i), res: r, lectura: etiquetaIntencion(i)})
 		}
 	}
 	return append(propios, otros...)
+}
+
+// soloVerdad are the resolvers whose answer is a truth value ("se sigue", "no se sigue", "siempre es
+// verdad"): they cannot answer a question that asks for a quantity.
+var soloVerdad = map[string]bool{"logica.proposicional": true, "logica.silogismo": true}
+
+var reCantidad = regexp.MustCompile(`\bcuant[oa]s?\b`)
+
+// preguntaCantidad: the question asks for a number ("¿cuántos le quedan?", "¿cuánto cuesta?").
+func preguntaCantidad(texto string) bool {
+	return reCantidad.MatchString(nucleo.Normalizar(texto))
 }
 
 func prefijoIntencion(i nucleo.TipoIntencion) string {

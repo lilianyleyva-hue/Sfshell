@@ -201,8 +201,12 @@ func programaComprobaciones(runs []programaRun, semilla int64) []nucleo.Comproba
 		lo = "Lo ejecuté con 1 entrada"
 	}
 	nueva(nucleo.NivelEntendido, ref, lo, fmt.Sprintf("Falla con %d de %d entradas", ref[1]-ref[0], ref[1]))
-	nueva(nucleo.NivelSinFallos, ninguna, fmt.Sprintf("Lo ejecuté %d veces sin errores", ninguna[1]),
-		fmt.Sprintf("Se cae en %d de %d ejecuciones", ninguna[1]-ninguna[0], ninguna[1]))
+	sin := fmt.Sprintf("Lo ejecuté %d veces sin errores", ninguna[1])
+	cae := fmt.Sprintf("Se cae en %d de %d ejecuciones", ninguna[1]-ninguna[0], ninguna[1])
+	if ninguna[1] == 1 {
+		sin, cae = "Lo ejecuté una vez sin errores", "Se cae al ejecutarlo"
+	}
+	nueva(nucleo.NivelSinFallos, ninguna, sin, cae)
 	return out
 }
 
@@ -237,16 +241,25 @@ func programaTabla(runs []programaRun) nucleo.Tabla {
 	return tb
 }
 
-// programaEntrada shows stdin with ⏎ for line breaks (and the args, if any).
+// programaEntrada shows stdin with ⏎ for line breaks (and the args, if any); "(sin entrada)" when
+// there is none.
 func programaEntrada(cs nucleo.CasoPrograma) string {
 	s := strings.ReplaceAll(cs.Entrada, "\n", "⏎")
 	if len(cs.Args) > 0 {
 		s = strings.TrimSpace(strings.Join(cs.Args, " ") + " " + s)
 	}
 	if s == "" {
-		return "(nada)"
+		return "(sin entrada)"
 	}
 	return s
+}
+
+// programaCon is the input for a sentence: "con «2⏎3⏎»", or "sin entrada".
+func programaCon(cs nucleo.CasoPrograma) string {
+	if strings.TrimSpace(cs.Entrada) == "" && len(cs.Args) == 0 {
+		return "sin entrada"
+	}
+	return "con «" + programaEntrada(cs) + "»"
 }
 
 // programaFraseRun: "Lo ejecuté con «2⏎3⏎» y escribió «La suma es 5»."
@@ -255,10 +268,10 @@ func programaFraseRun(pp programaPrueba) string {
 	if ok {
 		salida := strings.TrimSpace(r.ej.Salida)
 		if salida == "" {
-			return "Lo ejecuté con «" + programaEntrada(r.caso) + "» y no escribió nada (como debía)."
+			return "Lo ejecuté " + programaCon(r.caso) + " y no escribió nada (como debía)."
 		}
 		salida = strings.ReplaceAll(salida, "\n", " ⏎ ")
-		return "Lo ejecuté con «" + programaEntrada(r.caso) + "» y escribió «" + recortar(salida, 200) + "»."
+		return "Lo ejecuté " + programaCon(r.caso) + " y escribió «" + recortar(salida, 200) + "»."
 	}
 	return ""
 }
@@ -436,7 +449,7 @@ func programaEntendi(pp programaPrueba) string {
 			continue
 		}
 		salida := strings.ReplaceAll(strings.TrimSpace(r.ej.Salida), "\n", " ⏎ ")
-		partes = append(partes, "con «"+programaEntrada(r.caso)+"» escribe «"+recortar(salida, 80)+"»")
+		partes = append(partes, programaCon(r.caso)+" escribe «"+recortar(salida, 80)+"»")
 	}
 	return strings.Join(partes, "; ")
 }
@@ -631,6 +644,13 @@ func programaEnvolver(c *Cerebro, k *tarea, hecho crearHecho) (nucleo.Respuesta,
 	r.Parrafos = append(r.Parrafos, programaLee(hecho.firma))
 	if len(fr.Parrafos) > 0 {
 		r.Parrafos = append(r.Parrafos, fr.Parrafos[0])
+	}
+	// §4.14.2 crear_funcion step 4: an unanswered disambiguation question must still say that there was
+	// another reading ("Había otra forma de entenderlo: con X daría Y").
+	for _, p := range fr.Parrafos[min(1, len(fr.Parrafos)):] {
+		if strings.HasPrefix(p, prefijoOtraForma) {
+			r.Parrafos = append(r.Parrafos, p)
+		}
 	}
 	if frase := programaFraseRun(pp); frase != "" {
 		r.Parrafos = append(r.Parrafos, frase)

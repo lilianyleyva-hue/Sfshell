@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"nyxcodigo/internal/analisis"
@@ -24,7 +25,7 @@ import (
 // then the target function is tested against the spec (the user's examples, "con X da Y" reports,
 // counterexamples, concept properties and a stored reference) plus generated cases, and the failures are
 // repaired (panics, then fault localization and mutation), each fix checked by running the tests again.
-func pipeReparar(c *Cerebro, k *tarea) nucleo.Respuesta {
+func pipeReparar(c *Cerebro, k *tarea) (resp nucleo.Respuesta) {
 	codigo := c.repCodigo(k, "Pega el código que quieres que arregle")
 	if codigo == "" {
 		return repSinCodigo("arreglarlo")
@@ -32,6 +33,10 @@ func pipeReparar(c *Cerebro, k *tarea) nucleo.Respuesta {
 	plan := k.raiz.Sub(nucleo.PasoPlan, "Plan: 1) que compile 2) elegir la función 3) probarla 4) arreglar lo que falle")
 	plan.Info("")
 	src := repCompletar(codigo)
+	if src.sinMain {
+		k.raiz.Nota("Es `package main` sin `func main`: lo trato como un archivo de funciones")
+		defer func() { src.volverMain(&resp) }()
+	}
 	base := repFormatear(src.fuente)
 
 	// 1-2. compile errors, explained, and the rule-based repair loop
@@ -90,20 +95,26 @@ func pipeReparar(c *Cerebro, k *tarea) nucleo.Respuesta {
 	}
 	f := *fn.Firma
 	k.q = repConFirma(k.q, &f)
+	permiso := nucleo.PermisoAuto
 	if v := c.ej.Revisar(actual, nucleo.PermisoAuto); len(v) > 0 {
-		k.raiz.Sub(nucleo.PasoNota, "No lo pruebo solo: %s", v[0].Que).Info("")
-		r := repRespuestaCompila(base, actual, errores, cambios, ar.Suposiciones)
-		r.Parrafos = append(r.Parrafos, "No lo pruebo sin tu permiso porque "+v[0].Que+". Pulsa «Ejecutar» si quieres ejecutarlo.")
-		return r
+		pr, ok := c.ejcPermiso(k, actual, v, "probarlo")
+		if !ok {
+			r := repRespuestaCompila(base, actual, errores, cambios, ar.Suposiciones)
+			r.Parrafos = append(append(r.Parrafos, pr.Texto), pr.Parrafos...)
+			r.Riesgos = pr.Riesgos
+			return r
+		}
+		permiso = nucleo.PermisoUsuario
 	}
 
 	// 4. the spec and the generated cases
 	e := c.repEspec(k, f, fn.Nombre)
+	defer e.cerrar()
 	repRecordarEspec(k, e)
 	casos := e.casos(c, k)
 
 	// 5. run the original
-	bOrig, rsOrig, err := c.repCorrerCasos(k, k.raiz, "Pruebo «"+f.Nombre+"» con "+fmt.Sprint(len(casos))+" casos", actual, e, casos)
+	bOrig, rsOrig, err := c.repCorrerCasos(k, k.raiz, "Pruebo «"+f.Nombre+"» con "+fmt.Sprint(len(casos))+" casos", actual, e, casos, permiso)
 	if err != nil {
 		r := repRespuestaCompila(base, actual, errores, cambios, ar.Suposiciones)
 		r.Parrafos = append(r.Parrafos, "No pude probarlo: "+mensajeError(err)+".")
@@ -117,6 +128,22 @@ func pipeReparar(c *Cerebro, k *tarea) nucleo.Respuesta {
 
 	// 6. repair: panics first, then logic (with the reference oracle when there is one)
 	contra := c.repContraejemplo(k, bOrig, e, casos, rsOrig, fallos)
+	if permiso != nucleo.PermisoAuto {
+		// the repair search (reparar.Panicos/Logica) only builds code that passes the automatic check
+		k.raiz.Sub(nucleo.PasoNota, "Con código que necesita tu permiso no busco el arreglo solo").Info("")
+		comps := e.comprobaciones(k, casos, rsOrig)
+		r := repRespuestaCompila(base, actual, errores, cambios, ar.Suposiciones)
+		r.Texto = fmt.Sprintf("Lo probé con tu permiso y falla en %d de %d casos.", len(fallos), len(casos))
+		r.Comprobaciones, r.Nivel, r.Exito = comps, pruebas.NivelGlobal(comps), false
+		if contra != "" {
+			r.Parrafos = append(r.Parrafos, contra)
+		}
+		r.Parrafos = append(r.Parrafos, "Todavía no sé buscar el arreglo solo en código que necesita tu permiso: arregla el fallo y vuelve a pedirme que lo pruebe.")
+		r.Parrafos = append(r.Parrafos, notas...)
+		r.Tablas = []nucleo.Tabla{pruebas.Tabla(f, casos, rsOrig, 0)}
+		r.Justificacion = repJustificacion(k, e, casos, comps, cambios)
+		return r
+	}
 	nuevo, cambiosLogica, cerrado, casos, notasRep := c.repLogica(k, e, actual, casos)
 	notas = append(notas, notasRep...)
 	if !cerrado {
@@ -134,7 +161,7 @@ func pipeReparar(c *Cerebro, k *tarea) nucleo.Respuesta {
 	cambios = append(cambios, cambiosLogica...)
 
 	// 7. check the repaired code once more, on its own
-	bNuevo, rsNuevo, err := c.repCorrerCasos(k, k.raiz, "Compruebo el código arreglado", nuevo, e, casos)
+	bNuevo, rsNuevo, err := c.repCorrerCasos(k, k.raiz, "Compruebo el código arreglado", nuevo, e, casos, nucleo.PermisoAuto)
 	if err != nil {
 		r := c.respuestaFallo(k, "no pude comprobar el arreglo: "+mensajeError(err), nuevo, contra)
 		r.Metodo = "reparacion"
@@ -211,6 +238,46 @@ type repFuente struct {
 	paquete  string   // its package name
 	desfase  int      // lines added before the user's first line
 	importes []string // imports added while wrapping bare statements (reported as changes)
+	// sinMain: the user wrote `package main` with no func main (a file of functions). It is checked and
+	// tested as `package solucion` (same line, so line numbers do not move) and shown back as main.
+	sinMain bool
+}
+
+// paqueteUsuario is the package name to show the user (and to use in the generated _test.go).
+func (s repFuente) paqueteUsuario() string {
+	if s.sinMain {
+		return "main"
+	}
+	return s.paquete
+}
+
+var (
+	reClausulaMain     = regexp.MustCompile(`(?m)^(\s*package\s+)main\b`)
+	reClausulaSolucion = regexp.MustCompile(`(?m)^(\s*)package solucion\b`)
+	reDiffSolucion     = regexp.MustCompile(`(?m)^([ +-]\s*)package solucion\b`)
+)
+
+// volverMain puts `package main` back in the code shown to the user when the file was a package main
+// without func main (repFuente.sinMain); the checks ran on it as package solucion.
+func (s repFuente) volverMain(r *nucleo.Respuesta) {
+	if !s.sinMain {
+		return
+	}
+	cambiar := func(re *regexp.Regexp, txt string) string {
+		hecho := false
+		return re.ReplaceAllStringFunc(txt, func(m string) string {
+			if hecho {
+				return m
+			}
+			hecho = true
+			return strings.Replace(m, "package solucion", "package main", 1)
+		})
+	}
+	r.Codigo = cambiar(reClausulaSolucion, r.Codigo)
+	r.CodigoTest = cambiar(reClausulaSolucion, r.CodigoTest)
+	r.Diff = reDiffSolucion.ReplaceAllStringFunc(r.Diff, func(m string) string {
+		return strings.Replace(m, "package solucion", "package main", 1)
+	})
 }
 
 var (
@@ -224,6 +291,13 @@ var (
 func repCompletar(codigo string) repFuente {
 	src := strings.TrimSpace(strings.ReplaceAll(codigo, "\r\n", "\n")) + "\n"
 	if m := reClausulaPaquete.FindStringSubmatch(src); m != nil {
+		if m[1] == "main" && !reFuncMain.MatchString(src) && !repTieneMainAST(src) {
+			loc := reClausulaMain.FindStringSubmatchIndex(src)
+			if loc != nil {
+				fuente := src[:loc[3]] + "solucion" + src[loc[1]:]
+				return repFuente{fuente: fuente, paquete: "solucion", sinMain: true}
+			}
+		}
 		return repFuente{fuente: src, paquete: m[1]}
 	}
 	paquete := "solucion"
@@ -251,6 +325,21 @@ func repCompletar(codigo string) repFuente {
 		return r
 	}
 	return repFuente{fuente: "package main; func main() {\n" + src + "}\n", paquete: "main", desfase: 1}
+}
+
+// repTieneMainAST: the file parses and declares func main (catches spellings the regexp misses).
+// A file that does not parse counts as having one, so its own errors are reported as they are.
+func repTieneMainAST(src string) bool {
+	f, err := parser.ParseFile(token.NewFileSet(), "x.go", src, 0)
+	if err != nil {
+		return true
+	}
+	for _, d := range f.Decls {
+		if fd, ok := d.(*ast.FuncDecl); ok && fd.Recv == nil && fd.Name.Name == "main" {
+			return true
+		}
+	}
+	return false
 }
 
 // repEmpiezaConDeclaracion: the snippet starts (after comments) with a top-level declaration keyword.
@@ -432,8 +521,16 @@ type repEspec struct {
 	props      []nucleo.Propiedad // concept properties
 	negativas  []repNegativa      // "con [3,1,2] da 1": it must not give 1 there
 	oraculo    func([]nucleo.Valor) ([]nucleo.Valor, error)
-	referencia string // name of the stored function used as the reference
+	referencia string      // name of the stored function used as the reference
+	ref        *repCajaRef // the reference built in the sandbox (a stored function without DSL), or nil
 	extra      []nucleo.Caso
+}
+
+// cerrar frees the reference's binary, if any.
+func (e *repEspec) cerrar() {
+	if e.ref != nil {
+		e.ref.cerrar()
+	}
 }
 
 type repNegativa struct {
@@ -495,7 +592,7 @@ func (c *Cerebro) repEspec(k *tarea, f nucleo.Firma, nombre string) *repEspec {
 	}
 	agregar(c.contraejemplos(e.conceptos, f)...)
 
-	e.oraculo, e.referencia = c.repOraculo(k, f, e.conceptos)
+	e.oraculo, e.referencia, e.ref = c.repOraculo(k, f, e.conceptos)
 	for _, fl := range fallos {
 		if fl.Obtenido == "" {
 			continue
@@ -568,6 +665,13 @@ func (e *repEspec) casos(c *Cerebro, k *tarea) []nucleo.Caso {
 	out = append(out, e.mencion...)
 	out = append(out, e.extra...)
 	gen := c.generarCasos(k, e.f, out, 0, 0)
+	if e.ref != nil {
+		ins := make([][]nucleo.Valor, len(gen))
+		for i, cs := range gen {
+			ins[i] = cs.Entradas
+		}
+		e.ref.correr(ins) // one sandbox run for all the generated inputs
+	}
 	if e.oraculo != nil {
 		gen = pruebas.ConOraculo(gen, e.oraculo, nucleo.EspReferencia, e.referencia)
 	}
@@ -704,16 +808,25 @@ func repAcciones(cs []string) []string {
 	return out
 }
 
-// repOraculo looks for a stored, synthesized function with the same action concepts and the same types,
-// and evaluates its DSL program in process (inputs where it is undefined are left out).
-func (c *Cerebro) repOraculo(k *tarea, f nucleo.Firma, conceptos []string) (func([]nucleo.Valor) ([]nucleo.Valor, error), string) {
+// repOraculo looks for a stored function with the same action concepts and the same types to use as the
+// EspReferencia oracle (§4.14.2 reparar step 4). A synthesized one has its DSL program evaluated in
+// process (inputs where it is undefined are left out); any other one (from a recipe, a repair, the web)
+// is built in the sandbox under PermisoAuto and run on the inputs (the caller closes it with
+// repEspec.cerrar). Only functions verified beyond "no se rompe" are trusted as a reference.
+func (c *Cerebro) repOraculo(k *tarea, f nucleo.Firma, conceptos []string) (func([]nucleo.Valor) ([]nucleo.Valor, error), string, *repCajaRef) {
 	acc := repAcciones(conceptos)
 	if len(acc) == 0 || len(f.Res) != 1 || f.Receptor != nil {
-		return nil, ""
+		return nil, "", nil
 	}
 	for _, h := range c.mem.BuscarFunciones(conceptos, lemasDe(k.q), f.Forma(), 5) {
 		g := h.F
-		if g.DSL == "" || strings.Join(repAcciones(g.Conceptos), ",") != strings.Join(acc, ",") {
+		if strings.Join(repAcciones(g.Conceptos), ",") != strings.Join(acc, ",") {
+			continue
+		}
+		if g.DSL == "" {
+			if ref := c.repCajaReferencia(k, g); ref != nil {
+				return ref.oraculo, g.Nombre, ref
+			}
 			continue
 		}
 		e, err := sintesis.Parse(g.DSL, c.registro(), g.Firma)
@@ -730,17 +843,128 @@ func (c *Cerebro) repOraculo(k *tarea, f nucleo.Firma, conceptos []string) (func
 				return nil, err
 			}
 			return []nucleo.Valor{v}, nil
-		}, g.Nombre
+		}, g.Nombre, nil
 	}
-	return nil, ""
+	return nil, "", nil
+}
+
+// repCajaRef is a stored function built in the sandbox and used as the reference oracle. Its outputs are
+// remembered by input, so the generated cases cost one run. reparar.Logica asks for inputs one at a time
+// (each one a sandbox run of ~10 ms), so at most maxSueltasRef such runs are made; past that an unknown
+// input is "undefined" and its case keeps only the other checks.
+type repCajaRef struct {
+	ctx      context.Context
+	b        nucleo.Binario
+	mu       sync.Mutex
+	salidas  map[string][]nucleo.Valor // input key → output (absent: it fails or never ends there)
+	conocido map[string]bool
+	sueltas  int // single-input runs made
+}
+
+const maxSueltasRef = 64
+
+var errReferenciaIndefinida = fmt.Errorf("la referencia no da un resultado para esa entrada")
+
+// repCajaReferencia builds g in the sandbox, or returns nil when it cannot be used as a reference.
+func (c *Cerebro) repCajaReferencia(k *tarea, g nucleo.FuncionAprendida) *repCajaRef {
+	switch g.Nivel {
+	case nucleo.NivelTusEjemplos, nucleo.NivelEntendido, nucleo.NivelPropiedades:
+	default:
+		return nil
+	}
+	if c.ej == nil || strings.TrimSpace(g.Codigo) == "" || !g.Firma.Probable() || len(c.ej.Revisar(g.Codigo, nucleo.PermisoAuto)) > 0 {
+		return nil
+	}
+	b, _, err := c.ej.Preparar(k.ctx, nucleo.Preparacion{Variantes: []string{g.Codigo}, Firma: g.Firma, Instr: nucleo.InstrNormal, Permiso: nucleo.PermisoAuto})
+	if err != nil {
+		return nil
+	}
+	return &repCajaRef{ctx: k.ctx, b: b, salidas: map[string][]nucleo.Valor{}, conocido: map[string]bool{}}
+}
+
+// correr runs the reference on the inputs it has not seen yet, all in one sandbox run.
+func (r *repCajaRef) correr(ins [][]nucleo.Valor) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.correrSinCerrojo(ins)
+}
+
+func (r *repCajaRef) correrSinCerrojo(ins [][]nucleo.Valor) {
+	if r.b == nil {
+		return
+	}
+	var casos []nucleo.Caso
+	var claves []string
+	nuevo := map[string]bool{}
+	for _, in := range ins {
+		cl := repClave(in)
+		if r.conocido[cl] || nuevo[cl] {
+			continue
+		}
+		nuevo[cl] = true
+		copia := make([]nucleo.Valor, len(in))
+		for i, v := range in {
+			copia[i] = nucleo.Copiar(v)
+		}
+		casos = append(casos, nucleo.Caso{Entradas: copia})
+		claves = append(claves, cl)
+	}
+	if len(casos) == 0 {
+		return
+	}
+	ctx, cancelar := context.WithTimeout(r.ctx, 20*time.Second)
+	defer cancelar()
+	var rs []nucleo.ResultadoCaso
+	if rr, err := r.b.Probar(ctx, casos, nucleo.OpcionesProbar{}); err == nil && len(rr) > 0 {
+		rs = repAlinear(rr[0], len(casos))
+	}
+	for i, cl := range claves {
+		r.conocido[cl] = true
+		if i < len(rs) {
+			x := rs[i]
+			if x.Ejecutado && x.Panico == "" && !x.Caida && !x.Agotado && !x.SinCombustible && !x.NoDeterminista && len(x.Obtenido) > 0 {
+				r.salidas[cl] = x.Obtenido
+			}
+		}
+	}
+}
+
+// oraculo is the reference's output for in (an error where it is undefined).
+func (r *repCajaRef) oraculo(in []nucleo.Valor) ([]nucleo.Valor, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cl := repClave(in)
+	if !r.conocido[cl] && r.sueltas < maxSueltasRef {
+		r.sueltas++
+		r.correrSinCerrojo([][]nucleo.Valor{in})
+	}
+	v, ok := r.salidas[cl]
+	if !ok {
+		return nil, errReferenciaIndefinida
+	}
+	out := make([]nucleo.Valor, len(v))
+	for i, x := range v {
+		out[i] = nucleo.Copiar(x)
+	}
+	return out, nil
+}
+
+func (r *repCajaRef) cerrar() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.b != nil {
+		r.b.Cerrar()
+		r.b = nil
+	}
 }
 
 // ---- running ----
 
 // repCorrerCasos builds fuente with the spec's properties and runs the cases. The caller closes the binary.
-func (c *Cerebro) repCorrerCasos(k *tarea, nodo *nucleo.Nodo, titulo, fuente string, e *repEspec, casos []nucleo.Caso) (nucleo.Binario, []nucleo.ResultadoCaso, error) {
+// permiso is PermisoUsuario only after the user confirmed the risks (ejcPermiso).
+func (c *Cerebro) repCorrerCasos(k *tarea, nodo *nucleo.Nodo, titulo, fuente string, e *repEspec, casos []nucleo.Caso, permiso nucleo.Permiso) (nucleo.Binario, []nucleo.ResultadoCaso, error) {
 	n := nodo.Sub(nucleo.PasoPrueba, "%s", titulo)
-	b, _, err := c.preparar(k, n, nucleo.Preparacion{Variantes: []string{fuente}, Firma: e.f, Props: e.todasProps(), Instr: nucleo.InstrNormal, Permiso: nucleo.PermisoAuto})
+	b, _, err := c.preparar(k, n, nucleo.Preparacion{Variantes: []string{fuente}, Firma: e.f, Props: e.todasProps(), Instr: nucleo.InstrNormal, Permiso: permiso})
 	if err != nil {
 		n.Mal("No lo pude probar")
 		return nil, nil, err
@@ -885,7 +1109,7 @@ func (c *Cerebro) repDesempatar(k *tarea, e *repEspec, amb *reparar.Ambiguedad) 
 	if len(opciones) < 2 {
 		return -1, nucleo.Caso{}, false
 	}
-	texto := fmt.Sprintf("Hay dos arreglos que dan distinto con %s: ¿esperas %s?", repEntradas(e.f, amb.Entrada), strings.Join(opciones, " o "))
+	texto := fmt.Sprintf("Hay %d arreglos que dan distinto con %s: ¿esperas %s?", len(opciones), repEntradas(e.f, amb.Entrada), strings.Join(opciones, " o "))
 	var valores []nucleo.Valor
 	if len(e.f.Res) == 1 {
 		v, _, ok := c.preguntarValor(k, texto, opciones, e.f.Res[0])
@@ -1052,21 +1276,31 @@ func repSinCaja(k *tarea, base, actual string, errores []string, cambios []repar
 	return r
 }
 
-// repPrograma: a program without functions to test: it is run once (stdin from the request) when the
-// safety check allows it automatically.
+// repPrograma: a program without functions to test: it is run once (stdin from the request or "con
+// entrada 5" in its text) when the safety check allows it, or after the user confirmed the risks.
 func (c *Cerebro) repPrograma(k *tarea, base, actual string, errores []string, cambios []reparar.Cambio, suposiciones, notas []string) nucleo.Respuesta {
 	r := repRespuestaCompila(base, actual, errores, cambios, suposiciones)
 	r.Parrafos = append(r.Parrafos, notas...)
 	if !reFuncMain.MatchString(actual) {
 		return r
 	}
+	permiso := nucleo.PermisoAuto
 	if v := c.ej.Revisar(actual, nucleo.PermisoAuto); len(v) > 0 {
-		k.raiz.Sub(nucleo.PasoNota, "No lo ejecuto sin tu permiso: %s", v[0].Que).Info("")
-		r.Parrafos = append(r.Parrafos, "No lo ejecuto sin tu permiso porque "+v[0].Que+". Pulsa «Ejecutar» si quieres ejecutarlo.")
-		return r
+		pr, ok := c.ejcPermiso(k, actual, v, "ejecutarlo")
+		if !ok {
+			r.Parrafos = append(append(r.Parrafos, pr.Texto), pr.Parrafos...)
+			r.Riesgos = pr.Riesgos
+			return r
+		}
+		permiso = nucleo.PermisoUsuario
 	}
 	caso := nucleo.CasoPrograma{Entrada: k.p.Entrada, Args: k.p.Args}
-	ej, err := c.repCorrerPrograma(k, k.raiz, actual, caso, nucleo.PermisoAuto)
+	if caso.Entrada == "" {
+		if pedida := ejcEntradaExplicita(k); pedida != "" {
+			caso.Entrada = pedida + "\n"
+		}
+	}
+	ej, err := c.repCorrerPrograma(k, k.raiz, actual, caso, permiso)
 	if err != nil {
 		r.Parrafos = append(r.Parrafos, "No pude ejecutarlo: "+mensajeError(err)+".")
 		return r
@@ -1076,11 +1310,25 @@ func (c *Cerebro) repPrograma(k *tarea, base, actual string, errores []string, c
 	if cp != nil {
 		r.Comprobaciones = []nucleo.Comprobacion{*cp}
 		r.Nivel = cp.Nivel
-	} else {
-		r.Comprobaciones = []nucleo.Comprobacion{{Nivel: nucleo.NivelFallo, Pasan: 0, Total: 1, Texto: "Al ejecutarlo falla"}}
-		r.Nivel = nucleo.NivelFallo
-		r.Exito = false
+		return r
+	}
+	falla := "Al ejecutarlo falla"
+	if caso.Entrada == "" {
+		falla = "Al ejecutarlo sin entrada falla"
+	}
+	r.Comprobaciones = []nucleo.Comprobacion{{Nivel: nucleo.NivelFallo, Pasan: 0, Total: 1, Texto: falla, Comando: ej.Comando}}
+	r.Nivel = nucleo.NivelFallo
+	r.Exito = false
+	switch {
+	case len(cambios) > 0:
 		r.Texto = "Ahora compila, pero al ejecutarlo falla."
+	case caso.Entrada == "":
+		r.Texto = "Compila, pero al ejecutarlo sin entrada falla."
+	default:
+		r.Texto = "Compila, pero al ejecutarlo falla."
+	}
+	if caso.Entrada == "" && ejcLeeEntrada(actual) {
+		r.Parrafos = append(r.Parrafos, "Ojo: el programa lee datos y no me diste ninguno, así que puede que el fallo sea eso. Dime con qué entrada lo pruebo, por ejemplo «arréglalo con entrada 5».")
 	}
 	return r
 }
@@ -1152,8 +1400,8 @@ func repResultadoPrograma(ej nucleo.Ejecucion, entrada string) (*nucleo.Comproba
 		frase += ". Lo cortó el sistema (" + ej.Senal + ")."
 	case ej.Codigo != 0:
 		frase += fmt.Sprintf(". Terminó con código de error %d.", ej.Codigo)
-		if s := strings.TrimSpace(ej.ErrSalida); s != "" {
-			frase += " Escribió en la salida de errores: «" + recortar(primeraLinea(s), 200) + "»."
+		if s := repUltimaLinea(ej.ErrSalida); s != "" {
+			frase += " Escribió en la salida de errores: «" + recortar(s, 200) + "»."
 		}
 	default:
 		frase += "."
@@ -1166,6 +1414,18 @@ func repResultadoPrograma(ej nucleo.Ejecucion, entrada string) (*nucleo.Comproba
 		texto = "Lo ejecuté (sin entrada) y terminó sin errores"
 	}
 	return &nucleo.Comprobacion{Nivel: nucleo.NivelSinFallos, Pasan: 1, Total: 1, Texto: texto, Comando: ej.Comando}, frase
+}
+
+// repUltimaLinea is the last non-empty line: the error a program prints when it gives up comes after
+// its prompts ("Escribe un número entero (n):").
+func repUltimaLinea(s string) string {
+	ls := strings.Split(strings.TrimSpace(s), "\n")
+	for i := len(ls) - 1; i >= 0; i-- {
+		if l := strings.TrimSpace(ls[i]); l != "" {
+			return l
+		}
+	}
+	return ""
 }
 
 // repParrafosCambios: the compiler errors explained and every change with its reason.

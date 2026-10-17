@@ -235,15 +235,44 @@ func lemaVerbo(w string) (string, bool) {
 	return "", false
 }
 
-// infinitivoProbable guesses the infinitive of an unknown verb: troca → trocar, bebe → beber.
+// infinitivoProbable guesses the infinitive of an unknown verb: troca → trocar, bebe → beber, and
+// stem-changing forms trueca → trocar, cierra → cerrar.
 func infinitivoProbable(w string) string {
 	for _, c := range []struct{ suf, inf string }{{"aron", "ar"}, {"ieron", "er"}, {"an", "ar"}, {"en", "er"},
 		{"a", "ar"}, {"e", "er"}, {"o", "ar"}} {
 		if strings.HasSuffix(w, c.suf) && len(w) > len(c.suf)+1 {
-			return w[:len(w)-len(c.suf)] + c.inf
+			return sinDiptongo(w[:len(w)-len(c.suf)]) + c.inf
 		}
 	}
 	return w
+}
+
+// sinDiptongo undoes the stressed diphthong of a one-syllable stem (truec → troc, cierr → cerr). Stems
+// with more than one vowel group are left alone (frecuent, cuestion).
+func sinDiptongo(raiz string) string {
+	grupos, inicio, fin := 0, -1, -1
+	enVocal := false
+	for i, r := range raiz {
+		v := strings.ContainsRune("aeiouáéíóú", r)
+		if v && !enVocal {
+			grupos++
+			inicio = i
+		}
+		if !v && enVocal {
+			fin = i
+		}
+		enVocal = v
+	}
+	if grupos != 1 || inicio <= 0 || enVocal || fin < 0 {
+		return raiz
+	}
+	switch raiz[inicio:fin] {
+	case "ue":
+		return raiz[:inicio] + "o" + raiz[fin:]
+	case "ie":
+		return raiz[:inicio] + "e" + raiz[fin:]
+	}
+	return raiz
 }
 
 // efectoDe looks a verb up: learned effects first, then the base table.

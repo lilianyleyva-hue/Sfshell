@@ -9,8 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"nyxcodigo/internal/analisis"
 	"nyxcodigo/internal/nucleo"
 	"nyxcodigo/internal/nucleo/nucleotest"
+	"nyxcodigo/internal/reparar"
 )
 
 // cerebroConGo is the exam's Cerebro (real arenero, real memoria, fake web); it skips without Go.
@@ -182,5 +184,119 @@ func TestRepararPreguntaCuandoHayDosArreglos(t *testing.T) {
 	}
 	if codigos[0] == codigos[1] {
 		t.Errorf("cada respuesta debería elegir un arreglo distinto:\n%s", codigos[0])
+	}
+}
+
+// Regression (review): the question counts the distinct outputs ("Hay 3 arreglos…"), not always "dos".
+func TestRepararDesempatarCuentaArreglos(t *testing.T) {
+	c := nuevoCerebroPrueba(t, nil)
+	inf, _ := analisis.Analizar("package solucion\n\nfunc F(xs []int) int {\n\treturn 0\n}\n")
+	if len(inf.Funciones) != 1 || inf.Funciones[0].Firma == nil {
+		t.Fatalf("%+v", inf)
+	}
+	f := *inf.Funciones[0].Firma
+	val := func(s string, tp nucleo.Tipo) nucleo.Valor {
+		v, err := nucleo.ParseValor(s, tp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	preguntado := ""
+	tr := nucleo.NuevaTraza(nil, func(ctx context.Context, p nucleo.PreguntaUsuario) (string, error) {
+		preguntado = p.Texto
+		return "1", nil
+	})
+	k := c.nuevaTarea(context.Background(), nucleo.Peticion{Sesion: "desempate"}, c.sesion("desempate"), tr)
+	k.q = &nucleo.Pregunta{}
+	amb := &reparar.Ambiguedad{
+		Entrada: []nucleo.Valor{val("[3,1]", f.Entradas()[0])},
+		Parches: []int{0, 1, 2},
+		Salidas: [][]nucleo.Valor{{val("3", f.Res[0])}, {val("1", f.Res[0])}, {val("5", f.Res[0])}},
+	}
+	j, caso, ok := c.repDesempatar(k, &repEspec{f: f}, amb)
+	if !ok || j != 1 || len(caso.Esperado) != 1 {
+		t.Errorf("j=%d ok=%v caso=%+v", j, ok, caso)
+	}
+	if !strings.Contains(preguntado, "Hay 3 arreglos") || strings.Contains(preguntado, "dos") {
+		t.Errorf("pregunta: %q", preguntado)
+	}
+}
+
+// Regression (review): a stored function without DSL (from a recipe) is the EspReferencia oracle, built in
+// the sandbox: "comparo con «Maximo», que ya conozco".
+func TestRepararReferenciaSinDSL(t *testing.T) {
+	c := cerebroConGo(t)
+	ref := "package solucion\n\nfunc Maximo(xs []int) int {\n\tm := xs[0]\n\tfor _, x := range xs[1:] {\n\t\tif x > m {\n\t\t\tm = x\n\t\t}\n\t}\n\treturn m\n}\n"
+	inf, _ := analisis.Analizar(ref)
+	if len(inf.Funciones) != 1 || inf.Funciones[0].Firma == nil {
+		t.Fatalf("%+v", inf)
+	}
+	nombre, err := c.mem.GuardarFuncion(nucleo.FuncionAprendida{Nombre: "Maximo", Firma: *inf.Funciones[0].Firma, Codigo: ref,
+		Descripcion: "devuelve el máximo de una lista de números", Conceptos: []string{"maximo", "lista", "numeros"},
+		Palabras: []string{"maximo", "lista", "numero"}, Nivel: nucleo.NivelEntendido, Origen: "receta"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join("testdata", "rotos", "max_mal.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, tr := pedir(t, c, nucleo.Peticion{Texto: "debería dar el máximo pero con [3,1,2] da 1", Codigo: string(b)})
+	if !strings.Contains(strings.Join(r.Justificacion, "\n"), "Comparé con «"+nombre+"»") {
+		t.Errorf("no usó «%s» como referencia: %s [%s]\n%s\n%s", nombre, r.Texto, r.Nivel, strings.Join(r.Justificacion, "\n"), titulos(tr))
+	}
+	referencia := false
+	for _, cp := range r.Comprobaciones {
+		if cp.Nivel == nucleo.NivelEntendido {
+			referencia = true
+		}
+	}
+	if !r.Exito || !strings.Contains(r.Codigo, "x > m") || !referencia {
+		t.Errorf("%s [%s] %+v\n%s\n%s", r.Texto, r.Nivel, r.Comprobaciones, r.Codigo, titulos(tr))
+	}
+}
+
+const tamConArchivo = "package solucion\n\nimport \"os\"\n\nfunc Tam(n int) int {\n\tb, _ := os.ReadFile(\"x\")\n\treturn n + len(b)\n}\n"
+
+// Regression (review): reparar honours p.Confirmado: unconfirmed it returns the risks (and the code the
+// dialog sends back), confirmed it tests the function with PermisoUsuario.
+func TestRepararConfirmado(t *testing.T) {
+	c := cerebroConGo(t)
+	r, tr := pedir(t, c, nucleo.Peticion{Texto: "arréglalo: con 3 debería dar 3", Codigo: tamConArchivo})
+	if len(r.Riesgos) == 0 || r.Codigo == "" || !contiene(r, "necesito tu permiso") || contiene(r, "Pulsa «Ejecutar»") || r.Nivel != nucleo.NivelSinComprobar {
+		t.Errorf("sin permiso: %s [%s] %+v\n%s\n%s", r.Texto, r.Nivel, r.Riesgos, strings.Join(r.Parrafos, "\n"), titulos(tr))
+	}
+	r, tr = pedir(t, c, nucleo.Peticion{Texto: "arréglalo: con 3 debería dar 3", Codigo: tamConArchivo, Confirmado: true})
+	if !r.Exito || r.Nivel != nucleo.NivelTusEjemplos || len(r.Riesgos) != 0 || !strings.Contains(titulos(tr), "Me diste permiso") {
+		t.Errorf("con permiso: %s [%s]\n%s\n%s", r.Texto, r.Nivel, strings.Join(r.Parrafos, "\n"), titulos(tr))
+	}
+	// confirmed but failing: the failure is shown honestly (no automatic repair of such code yet)
+	r, tr = pedir(t, c, nucleo.Peticion{Texto: "arréglalo: con 3 debería dar 4", Codigo: tamConArchivo, Confirmado: true})
+	if r.Exito || r.Nivel != nucleo.NivelFallo || !contiene(r, "Lo probé con tu permiso y falla") {
+		t.Errorf("con permiso y fallo: %s [%s]\n%s\n%s", r.Texto, r.Nivel, strings.Join(r.Parrafos, "\n"), titulos(tr))
+	}
+}
+
+// Regression (review): reparar of a whole program reads "con entrada 5" from the text, and without input
+// it does not say "Ahora compila" when nothing changed.
+func TestRepararProgramaConEntrada(t *testing.T) {
+	c := cerebroConGo(t)
+	codigo := "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tvar n int\n\tfmt.Scan(&n)\n\tfmt.Println(10 / n)\n}\n"
+	r, tr := pedir(t, c, nucleo.Peticion{Texto: "arregla esto con entrada 5", Codigo: codigo})
+	if !r.Exito || r.Nivel != nucleo.NivelSinFallos || !contiene(r, "«2»") {
+		t.Errorf("con entrada: %s [%s]\n%s\n%s", r.Texto, r.Nivel, strings.Join(r.Parrafos, "\n"), titulos(tr))
+	}
+	r, tr = pedir(t, c, nucleo.Peticion{Texto: "arregla esto", Codigo: codigo})
+	if r.Nivel != nucleo.NivelFallo || strings.Contains(r.Texto, "Ahora compila") || !strings.Contains(r.Texto, "sin entrada") || !contiene(r, "lee datos") {
+		t.Errorf("sin entrada: %s [%s] %+v\n%s\n%s", r.Texto, r.Nivel, r.Comprobaciones, strings.Join(r.Parrafos, "\n"), titulos(tr))
+	}
+}
+
+// Regression (review): a failed run quotes the error (the last stderr line), not the input prompt.
+func TestRepResultadoProgramaUltimaLinea(t *testing.T) {
+	cp, frase := repResultadoPrograma(nucleo.Ejecucion{Codigo: 1, ErrSalida: "Escribe un número entero (n):\nNo entiendo n: no hay más datos\n"}, "")
+	if cp != nil || !strings.Contains(frase, "«No entiendo n: no hay más datos»") || strings.Contains(frase, "Escribe un número") {
+		t.Errorf("%v %q", cp, frase)
 	}
 }

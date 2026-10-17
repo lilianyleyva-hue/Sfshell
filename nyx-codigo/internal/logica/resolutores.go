@@ -272,9 +272,14 @@ func (rp *resProposicional) Resolver(ctx context.Context, p *nucleo.Pregunta, n 
 		if err != nil {
 			return nucleo.Respuesta{}, err
 		}
-		var texto string
+		var texto, reglaOpuesta string
 		if opuesta {
 			texto = fmt.Sprintf("No: de las premisas se sigue lo contrario, %s.", Mostrar(negar(arg.Conclusion), arg.Atomos))
+			// name the rule that gives the opposite ("si estudio apruebo; no apruebo. ¿estudio?" is a
+			// modus tollens), as §1 #12 asks
+			if reglaOpuesta = NombreRegla(arg.Premisas, negar(arg.Conclusion)); reglaOpuesta != "" {
+				texto = fmt.Sprintf("No: de las premisas se sigue lo contrario, %s (es un %s).", Mostrar(negar(arg.Conclusion), arg.Atomos), reglaOpuesta)
+			}
 		} else {
 			texto = fmt.Sprintf("No se sigue: %s no se deduce de las premisas.", concl)
 		}
@@ -284,6 +289,9 @@ func (rp *resProposicional) Resolver(ctx context.Context, p *nucleo.Pregunta, n 
 		}
 		out = respuestaCalculo(texto, "dpll", comp)
 		out.Parrafos = append(out.Parrafos, "Contraejemplo: si "+desc+", las premisas son verdad y la conclusión es falsa.")
+		if reglaOpuesta != "" {
+			out.Parrafos = append(out.Parrafos, ExplicarRegla(reglaOpuesta))
+		}
 		if falacia != "" {
 			out.Parrafos = append(out.Parrafos, ExplicarRegla(falacia))
 		}

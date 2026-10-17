@@ -172,3 +172,87 @@ func TestBuscarSinInternet(t *testing.T) {
 		t.Errorf("queda pendiente para estudiar: %+v", pend)
 	}
 }
+
+// Regression (§0): web code that was run and failed is never shown as "Sin comprobar · compila" with
+// "no lo he ejecutado". A failing program alone is offered with a fallo badge and says that it fails.
+func TestBuscarProgramaQueFallaNoSeVendeComoCompila(t *testing.T) {
+	explicarNecesitaGo(t)
+	pagina := "<html><head><title>Índices</title></head><body><pre>package main\n\nimport \"fmt\"\n\nfunc main() {\n\tvar xs []int\n\tfmt.Println(xs[3])\n}</pre></body></html>"
+	c := cerebroConWeb(t, webDePrueba(t, map[string]string{"/web/prog": pagina}), true)
+	r, tr := preguntar(t, c, "s", "busca cómo leer el cuarto elemento en Go", nil)
+	todo := todoElTexto(r)
+	if strings.Contains(todo, "no lo he ejecutado") || strings.Contains(todo, "no sé con qué datos llamarlo") {
+		t.Errorf("dice que no lo ejecutó, pero lo ejecutó y falló:\n%s\n%s", todo, titulos(tr))
+	}
+	if _, ok := badge(r, "Sin comprobar · compila"); ok {
+		t.Errorf("un programa que falla no lleva «Sin comprobar · compila»: %+v", r.Comprobaciones)
+	}
+	if !strings.Contains(r.Codigo, "xs[3]") {
+		t.Fatalf("sin otra cosa que enseñar, muestra el código que falla: %+v\n%s", r, titulos(tr))
+	}
+	if r.Nivel != nucleo.NivelFallo || r.Exito || !strings.Contains(todo, "falla") {
+		t.Errorf("lo enseña como fallo: nivel %s éxito %v\n%s", r.Nivel, r.Exito, todo)
+	}
+	if cp, ok := badge(r, "Lo ejecuté y falla"); !ok || cp.Nivel != nucleo.NivelFallo || !strings.Contains(cp.Detalle, "index out of range") {
+		t.Errorf("insignia de fallo con el motivo: %+v", r.Comprobaciones)
+	}
+}
+
+// Regression (§0): a web function that fails some generated cases is not offered next to good passages,
+// and the answer says that it was run and fails.
+func TestBuscarFuncionQueFallaNoSeOfrece(t *testing.T) {
+	explicarNecesitaGo(t)
+	pagina := `<html><head><title>First element of a slice in Go</title></head><body>
+<p>To get the first element of a slice in Go index it with zero, but check that the slice is not empty first.</p>
+<pre>func Primero(xs []int) int {
+	return xs[0]
+}</pre></body></html>`
+	c := cerebroConWeb(t, webDePrueba(t, map[string]string{"/web/primero": pagina}), true)
+	r, tr := preguntar(t, c, "s", "busca cómo obtener el primer elemento de un slice en Go", nil)
+	todo := todoElTexto(r)
+	if !strings.Contains(titulos(tr), "fallan") {
+		t.Fatalf("la función se prueba y falla con la lista vacía:\n%s", titulos(tr))
+	}
+	if strings.Contains(todo, "no lo he ejecutado") || strings.Contains(todo, "falló al probarlo") {
+		t.Errorf("contradice lo que hizo:\n%s", todo)
+	}
+	if _, ok := badge(r, "Sin comprobar · compila"); ok {
+		t.Errorf("una función que falla no lleva «Sin comprobar · compila»: %+v", r.Comprobaciones)
+	}
+	if strings.Contains(r.Codigo, "func Primero") {
+		t.Errorf("con frases buenas no ofrece código que falla: %q", r.Codigo)
+	}
+	if !strings.Contains(todo, "lo probé y falla") || !strings.Contains(todo, "falla en") {
+		t.Errorf("dice que lo probó y falla:\n%s", todo)
+	}
+	if r.Nivel != nucleo.NivelFuente || !r.Exito {
+		t.Errorf("las frases siguen valiendo como fuente: %s %v", r.Nivel, r.Exito)
+	}
+}
+
+func TestCuantasConcuerda(t *testing.T) {
+	if got := cuantas(1, "fuente", "fuentes"); got != "1 fuente" {
+		t.Errorf("singular: %q", got)
+	}
+	if got := cuantas(0, "página", "páginas"); got != "0 páginas" {
+		t.Errorf("cero: %q", got)
+	}
+	if got := cuantas(3, "intento", "intentos"); got != "3 intentos" {
+		t.Errorf("plural: %q", got)
+	}
+	if got := buscarMejores(1); got != "la mejor página" {
+		t.Errorf("mejores: %q", got)
+	}
+}
+
+// Regression: with one source the badge reads "Según 1 fuente de la web".
+func TestBuscarUnaFuenteEnSingular(t *testing.T) {
+	c := cerebroConWeb(t, webDePrueba(t, map[string]string{"/web/cadena": paginaCadena}), false)
+	r, _ := preguntar(t, c, "s", "busca cómo invertir una cadena en Go", nil)
+	if len(r.Fuentes) != 1 {
+		t.Skipf("esta página da %d fuentes", len(r.Fuentes))
+	}
+	if _, ok := badge(r, "Según 1 fuente de la web"); !ok {
+		t.Errorf("insignia en singular: %+v", r.Comprobaciones)
+	}
+}

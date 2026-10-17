@@ -2,6 +2,7 @@ package cerebro
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"go/format"
 	"go/parser"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"nyxcodigo/internal/analisis"
 	"nyxcodigo/internal/nucleo"
@@ -34,6 +36,12 @@ const (
 	explicarAzar          = 200
 	explicarLimiteResumen = 1500 * time.Millisecond
 	explicarMinMedir      = 4 * time.Second // budget left needed to measure the growth
+	explicarMaxMedir      = 6 * time.Second // the longest a growth measurement may take
+	explicarReservaMedir  = 2 * time.Second // budget kept for the answer after measuring
+	explicarMicrosMedir   = 1000            // the slowest time must reach 1 ms to tell how it grows
+	explicarMicrosPunto   = 100             // a time under 0.1 ms is mostly noise: not used to classify
+	explicarTiempoCaso    = 2 * time.Second // per-run watchdog when timing a rewrite
+	explicarTamMedir      = 10000           // first input size when timing a rewrite
 )
 
 func pipeExplicar(c *Cerebro, k *tarea) nucleo.Respuesta {
@@ -91,7 +99,8 @@ type explicacion struct {
 	numAzar     int
 	medida      string // measured growth class
 	medidas     []analisis.Medida
-	notaMedida  string
+	notaMedida  string // why there is no measured class
+	notaParo    string // the measurement stopped early (it still gave a class)
 	comprobados []nucleo.Comprobacion
 }
 
@@ -441,11 +450,14 @@ func (x *explicacion) resumidor() analisis.Resumidor {
 	}
 }
 
-// medir measures the growth when the static estimate is at least O(n) and an input can grow.
+// medir measures the growth when the static estimate is at least O(n) and an input can grow. The
+// measurement has its own time limit (explicarMaxMedir), and a class is only reported when the times are
+// large enough to mean something (explicarClasificarMedidas).
 func (x *explicacion) medir(n *nucleo.Nodo, fuente string, f nucleo.Firma) {
 	k, c := x.k, x.c
-	maxN := explicarMaxN(x.fn.OGrande)
+	maxN, nota := explicarMaxN(x.fn.OGrande)
 	if maxN == 0 {
+		x.notaMedida = nota
 		return
 	}
 	gen := explicarGenerador(f, maxN)
@@ -464,12 +476,90 @@ func (x *explicacion) medir(n *nucleo.Nodo, fuente string, f nucleo.Firma) {
 		return
 	}
 	defer b.Cerrar()
-	clase, ms, err := analisis.Crecimiento(k.ctx, b, gen, n)
+	lim := explicarLimiteMedir(k)
+	cctx, cancelar := context.WithTimeout(k.ctx, lim)
+	_, ms, err := analisis.Crecimiento(cctx, b, gen, n)
+	agotado := cctx.Err() != nil && k.ctx.Err() == nil
+	cancelar()
+	x.medidas = ms
 	if err != nil {
-		x.notaMedida = "no conseguí medidas suficientes"
+		switch {
+		case agotado:
+			paro := "paré de medir a los " + explicarTiempo(lim.Microseconds()) + ": tardaba demasiado"
+			if cl, _ := explicarClasificarMedidas(ms); cl != "" {
+				x.medida, x.notaParo = cl, paro
+				n.Nota("Con las medidas que tengo: crece de forma %s (%s)", cl, paro)
+				return
+			}
+			x.notaMedida = "con entradas grandes tardaba demasiado y paré de medir a los " + explicarTiempo(lim.Microseconds())
+			n.Nota("Paro de medir: tarda demasiado")
+		case k.ctx.Err() != nil:
+			x.notaMedida = "se me acabó el tiempo antes de terminar de medirlo"
+		default:
+			x.notaMedida = "no conseguí medidas suficientes"
+		}
 		return
 	}
-	x.medida, x.medidas = clase, ms
+	cl, nota := explicarClasificarMedidas(ms)
+	if cl == "" {
+		x.notaMedida = nota
+		n.Nota("No me fío de esa medida: %s", nota)
+		return
+	}
+	x.medida = cl
+}
+
+// explicarLimiteMedir is the time a measurement may take: explicarMaxMedir, keeping explicarReservaMedir
+// of the budget for the answer.
+func explicarLimiteMedir(k *tarea) time.Duration {
+	lim := explicarMaxMedir
+	if r := k.restante() - explicarReservaMedir; r < lim {
+		lim = r
+	}
+	if lim < time.Second {
+		lim = time.Second
+	}
+	return lim
+}
+
+// explicarClasificarMedidas says how the time grows, or why the timings cannot tell (nota). Times under
+// explicarMicrosPunto are noise and are left out; when even the slowest run is under explicarMicrosMedir,
+// or fewer than two times remain, there is no class: a sub-millisecond fit is not a measurement.
+func explicarClasificarMedidas(ms []analisis.Medida) (clase, nota string) {
+	if len(ms) == 0 {
+		return "", "no conseguí medidas"
+	}
+	mayor := ms[0]
+	var fiables []analisis.Medida
+	for _, m := range ms {
+		if m.Micros > mayor.Micros {
+			mayor = m
+		}
+		if m.Micros >= explicarMicrosPunto {
+			fiables = append(fiables, m)
+		}
+	}
+	if mayor.Micros < explicarMicrosMedir {
+		u := ms[len(ms)-1]
+		return "", fmt.Sprintf("va tan rápido que no puedo medir cómo crece (con n = %d tarda %s)", u.N, explicarTiempo(u.Micros))
+	}
+	if len(fiables) < 2 {
+		return "", fmt.Sprintf("solo con n = %d tarda lo bastante para medirlo, y con una sola medida no se ve cómo crece", mayor.N)
+	}
+	return analisis.ClasificarCrecimiento(fiables), ""
+}
+
+// explicarTiempo writes a time in µs for people: "178 µs", "1,5 ms", "2,25 s".
+func explicarTiempo(us int64) string {
+	switch {
+	case us < 1000:
+		return strconv.FormatInt(us, 10) + " µs"
+	case us < 1_000_000:
+		return strings.Replace(strconv.FormatFloat(float64(us)/1000, 'f', 1, 64), ".", ",", 1) + " ms"
+	}
+	t := strconv.FormatFloat(float64(us)/1e6, 'f', 2, 64)
+	t = strings.TrimSuffix(strings.TrimSuffix(t, "0"), ".0")
+	return strings.Replace(t, ".", ",", 1) + " s"
 }
 
 // fraseComplejidad: "Estimé O(n²) (cuadrática) mirando el código: …; midiendo parece cuadrática."
@@ -479,21 +569,29 @@ func (x *explicacion) fraseComplejidad() string {
 		return ""
 	}
 	s := "Estimé " + o
-	if cl := explicarClase(o); cl != "" {
-		s += " (" + cl + ")"
+	est := explicarClase(o)
+	if est != "" {
+		s += " (" + est + ")"
 	}
 	s += " mirando el código"
 	if x.fn.Motivo != "" {
 		s += ": " + strings.TrimRight(x.fn.Motivo, ".")
 	}
 	if x.medida != "" {
-		switch est := explicarClase(o); {
+		switch cmp := explicarComparar(o, x.medida); {
 		case est == x.medida:
 			s += "; midiendo parece " + x.medida
 		case explicarCoinciden(est, x.medida):
 			s += "; midiendo parece lineal o n·log n (al medir casi no se distinguen)"
+		case cmp == 0:
+			s += "; midiendo crece de forma parecida (parece " + x.medida + ", y al medir no se distinguen)"
+		case cmp > 0:
+			s += "; pero midiendo parece " + x.medida + ", así que no coinciden: crece más deprisa de lo que estimé"
 		default:
-			s += "; pero midiendo parece " + x.medida + ", así que no coinciden (puede que con mis entradas termine antes, o que el tiempo de arrancar tape la diferencia)"
+			s += "; pero midiendo parece " + x.medida + ", así que no coinciden (puede que con mis entradas termine antes de recorrerlo todo)"
+		}
+		if x.notaParo != "" {
+			s += " (" + x.notaParo + ")"
 		}
 	} else if x.notaMedida != "" {
 		s += " (no lo he medido: " + x.notaMedida + ")"
@@ -585,15 +683,34 @@ func (x *explicacion) optimizarCodigo() nucleo.Respuesta {
 		r.Parrafos = append(r.Parrafos, mayusculaInicial(strings.TrimRight(rw.Hallazgo.Consejo, "."))+".")
 	}
 	if len(rws) > 1 {
-		r.Parrafos = append(r.Parrafos, fmt.Sprintf("Hay %d cambios posibles más; pídemelo otra vez cuando apliques este.", len(rws)-1))
+		if len(rws) == 2 {
+			r.Parrafos = append(r.Parrafos, "Hay 1 cambio posible más; pídemelo otra vez cuando apliques este.")
+		} else {
+			r.Parrafos = append(r.Parrafos, fmt.Sprintf("Hay %d cambios posibles más; pídemelo otra vez cuando apliques este.", len(rws)-1))
+		}
 	}
 
 	comp, diferencia, motivo := x.compararReescritura(rw.Fuente)
+	medido := false
 	switch {
 	case comp != nil:
-		r.Texto = "Lo hago más rápido: " + cambio + "."
+		// same results is checked; "faster" is only said when the timing shows it (§0)
 		r.Comprobaciones = append(r.Comprobaciones, *comp)
-		r.Parrafos = append([]string{fmt.Sprintf("Lo comparé con tu código en %d pruebas y da lo mismo.", comp.Total)}, r.Parrafos...)
+		tiempo, rapido, porque := x.medirReescritura(rw.Fuente)
+		medido = tiempo != ""
+		switch {
+		case rapido:
+			r.Texto = "Lo hago más rápido: " + cambio + "."
+		case medido:
+			r.Texto = "Este cambio da lo mismo que tu código (" + cambio + "), pero al medirlo no he visto que vaya más rápido."
+		default:
+			r.Texto = "Creo que esto va más rápido: " + cambio + " (no he podido medirlo: " + porque + ")."
+		}
+		pre := []string{fmt.Sprintf("Lo comparé con tu código en %d pruebas y da lo mismo.", comp.Total)}
+		if medido {
+			pre = append(pre, tiempo)
+		}
+		r.Parrafos = append(pre, r.Parrafos...)
 	case diferencia != "":
 		r.Texto = "Encontré un cambio posible (" + cambio + "), pero no te lo propongo: " + diferencia + "."
 		r.Codigo, r.Diff = "", ""
@@ -608,9 +725,140 @@ func (x *explicacion) optimizarCodigo() nucleo.Respuesta {
 	}
 	r.Justificacion = []string{"Busqué patrones lentos conocidos (concatenar textos en un bucle, buscar en una lista dentro de un bucle, append sin capacidad).",
 		"Antes de proponer el cambio comparo el código nuevo con el tuyo en las mismas entradas."}
+	if medido {
+		r.Justificacion = append(r.Justificacion, "Medí los dos con la misma entrada grande en una versión sin instrumentar (mediana de 3 ejecuciones).")
+	}
 	r.Sugerencias = []string{"Explícalo", "Hazle pruebas"}
 	k.turno.Metodo = "optimizar"
 	return r
+}
+
+// medirReescritura times the original and the rewrite on the same large input (uninstrumented build,
+// median of 3 runs each): first with n = 10000, then with n = 100000 when that was too fast to tell and
+// the estimate allows it. frase gives the times ("" when it could not measure, porque says why);
+// rapido is true only when the rewrite is clearly faster.
+func (x *explicacion) medirReescritura(nueva string) (frase string, rapido bool, porque string) {
+	k, c := x.k, x.c
+	if x.fn.Firma == nil || c.ej == nil {
+		return "", false, "no lo puedo ejecutar"
+	}
+	f := *x.fn.Firma
+	maxN, _ := explicarMaxN(x.fn.OGrande)
+	if maxN < explicarTamMedir {
+		maxN = explicarTamMedir
+	}
+	gen := explicarGenerador(f, maxN)
+	if gen == nil {
+		return "", false, "no sé fabricar entradas grandes de estos tipos"
+	}
+	if k.restante() < explicarMinMedir {
+		return "", false, "no me quedaba tiempo"
+	}
+	orig, _, err := explicarFuente(x.codigo, x.fn.Nombre, x.fn.Desde)
+	if err != nil {
+		return "", false, mensajeError(err)
+	}
+	nuevo, _, err := explicarFuente(nueva, x.fn.Nombre, 0)
+	if err != nil {
+		return "", false, mensajeError(err)
+	}
+	n := k.raiz.Sub(nucleo.PasoPrueba, "Mido cuánto tardan los dos")
+	b, _, err := c.preparar(k, n, nucleo.Preparacion{Variantes: []string{orig, nuevo}, Firma: f, Instr: nucleo.OpcionesInstr{}, Permiso: nucleo.PermisoAuto})
+	if err != nil {
+		n.Mal("")
+		return "", false, "no pude compilar la versión para medir"
+	}
+	defer b.Cerrar()
+	ctx, cancelar := context.WithTimeout(k.ctx, explicarLimiteMedir(k))
+	defer cancelar()
+	for tam := explicarTamMedir; tam <= maxN; tam *= 10 {
+		caso, ok := gen(tam)
+		if !ok {
+			break
+		}
+		tNuevo, err := explicarCronometrar(ctx, b, 1, caso)
+		if err != nil || tNuevo < 0 {
+			break
+		}
+		inicio := time.Now()
+		tOrig, err := explicarCronometrar(ctx, b, 0, caso)
+		cortado := false
+		switch {
+		case err != nil && ctx.Err() != nil && k.ctx.Err() == nil:
+			// the original had not finished when the time to measure ran out: it took at least this long
+			tOrig, cortado = time.Since(inicio).Microseconds(), true
+		case err != nil:
+			tOrig = -1
+		case tOrig < 0:
+			tOrig, cortado = explicarTiempoCaso.Microseconds(), true // the watchdog stopped it
+		}
+		if tOrig < 0 {
+			break
+		}
+		frase, rapido = explicarVeredictoTiempo(tam, tOrig, tNuevo, cortado)
+		if cortado || tOrig >= explicarMicrosMedir || tam*10 > maxN {
+			break
+		}
+		n.Progreso("con n = %d tardan muy poco: pruebo más grande", tam)
+	}
+	switch {
+	case frase == "":
+		n.Mal("")
+		return "", false, "no pude terminar de medirlo"
+	case rapido:
+		n.Bien("%s", frase)
+	default:
+		n.Info("%s", frase)
+	}
+	return frase, rapido, ""
+}
+
+// explicarCronometrar is the median time (µs) of 3 runs of one variant on caso; -1 when it did not finish
+// within explicarTiempoCaso (it stops at the first run that does not).
+func explicarCronometrar(ctx context.Context, b nucleo.Binario, v int, caso nucleo.Caso) (int64, error) {
+	rs, err := b.Probar(ctx, []nucleo.Caso{caso, caso, caso}, nucleo.OpcionesProbar{Variantes: []int{v}, TiempoCaso: explicarTiempoCaso, PararAlFallar: true})
+	if err != nil {
+		return 0, err
+	}
+	if v >= len(rs) {
+		return 0, errors.New("el arenero no devolvió resultados")
+	}
+	var ts []int64
+	for _, r := range rs[v] {
+		switch {
+		case r.Agotado || r.SinCombustible:
+			return -1, nil
+		case r.Ejecutado && r.OK:
+			ts = append(ts, r.Micros)
+		}
+	}
+	if len(ts) == 0 {
+		return 0, errors.New("falló al medirlo")
+	}
+	sort.Slice(ts, func(i, j int) bool { return ts[i] < ts[j] })
+	return ts[len(ts)/2], nil
+}
+
+// explicarVeredictoTiempo compares the original's time with the rewrite's on one input of size n
+// (cortado: the original was stopped after orig µs without finishing). The rewrite is "faster" only when
+// the original took at least 1 ms and the rewrite at most 80 % of it.
+func explicarVeredictoTiempo(n int, orig, nuevo int64, cortado bool) (string, bool) {
+	rapido := orig >= explicarMicrosMedir && nuevo*10 <= orig*8
+	if cortado {
+		s := fmt.Sprintf("Lo medí con n = %d: tu código seguía sin terminar a los %s (no esperé más) y el nuevo tarda %s", n, explicarTiempo(orig), explicarTiempo(nuevo))
+		if !rapido {
+			return s + ", así que no sé cuál va más rápido.", false
+		}
+		return s + ".", true
+	}
+	base := fmt.Sprintf("Lo medí con n = %d: tu código tarda %s y el nuevo %s", n, explicarTiempo(orig), explicarTiempo(nuevo))
+	if rapido {
+		return base + ".", true
+	}
+	if orig < explicarMicrosMedir {
+		return base + ", demasiado poco para notar la diferencia.", false
+	}
+	return base + ", así que con este tamaño no he visto que vaya más rápido.", false
 }
 
 // compararReescritura runs the original and the rewrite on the same generated cases. It returns a
@@ -969,18 +1217,145 @@ func explicarClase(o string) string {
 	case "O(2ⁿ)":
 		return "exponencial"
 	}
-	return ""
+	grado, logs, exp, ok := explicarOrden(o)
+	switch {
+	case !ok:
+		return ""
+	case exp:
+		return "exponencial"
+	case grado != float64(int(grado)):
+		return "entre " + explicarNombreGrado(int(grado)) + " y " + explicarNombreGrado(int(grado)+1)
+	case logs > 0 && grado >= 1:
+		return "algo más que " + explicarNombreGrado(int(grado))
+	case logs > 0:
+		return "logarítmica"
+	}
+	return explicarNombreGrado(int(grado))
 }
 
-// explicarMaxN is the largest input size to measure for a static estimate (0: do not measure).
-func explicarMaxN(o string) int {
-	switch o {
-	case "O(n)", "O(n log n)":
-		return 100000
-	case "O(n²)":
-		return 10000
-	case "O(n³)":
-		return 1000
+func explicarNombreGrado(k int) string {
+	switch k {
+	case 0:
+		return "constante"
+	case 1:
+		return "lineal"
+	case 2:
+		return "cuadrática"
+	case 3:
+		return "cúbica"
+	}
+	return "polinómica de grado " + strconv.Itoa(k)
+}
+
+// explicarOrden reads an estimate of analisis ("O(n² log n)", "O(n√n)", "O(log² n)", "O(2ⁿ)?") as its
+// polynomial degree and its number of log factors; exp is true for an exponential estimate.
+func explicarOrden(o string) (grado float64, logs int, exp, ok bool) {
+	s := strings.TrimSuffix(strings.TrimSpace(o), "?")
+	if !strings.HasPrefix(s, "O(") || !strings.HasSuffix(s, ")") {
+		return 0, 0, false, false
+	}
+	s = strings.TrimSpace(s[2 : len(s)-1])
+	switch {
+	case s == "1":
+		return 0, 0, false, true
+	case strings.Contains(s, "ⁿ"):
+		return 0, 0, true, true
+	}
+	for {
+		i := strings.Index(s, "log")
+		if i < 0 {
+			break
+		}
+		resto := s[i+len("log"):]
+		k, w := explicarSuperindice(resto)
+		if k == 0 {
+			k = 1
+		}
+		resto = strings.TrimSpace(resto[w:])
+		if !strings.HasPrefix(resto, "n") {
+			return 0, 0, false, false
+		}
+		logs += k
+		s = strings.TrimSpace(s[:i] + resto[1:])
+	}
+	if strings.HasSuffix(s, "√n") {
+		grado += 0.5
+		s = strings.TrimSuffix(s, "√n")
+	}
+	if s != "" {
+		if s[0] != 'n' {
+			return 0, 0, false, false
+		}
+		k, w := explicarSuperindice(s[1:])
+		if w != len(s)-1 {
+			return 0, 0, false, false
+		}
+		if k == 0 {
+			k = 1
+		}
+		grado += float64(k)
+	}
+	return grado, logs, false, true
+}
+
+// explicarSuperindice reads leading superscript digits ("²", "¹⁰"): their value and their byte width.
+func explicarSuperindice(s string) (int, int) {
+	const digitos = "⁰¹²³⁴⁵⁶⁷⁸⁹"
+	v, w := 0, 0
+	for _, r := range s {
+		d := strings.IndexRune(digitos, r)
+		if d < 0 {
+			break
+		}
+		v = v*10 + utf8.RuneCountInString(digitos[:d])
+		w += utf8.RuneLen(r)
+	}
+	return v, w
+}
+
+// explicarMaxN is the largest input size to measure for a static estimate. 0 means do not measure, and
+// nota says why when the estimate is at least O(n) (below O(n) the growth is not measured, §4.14.2).
+func explicarMaxN(o string) (int, string) {
+	grado, _, exp, ok := explicarOrden(o)
+	switch {
+	case !ok:
+		return 0, "no sé qué tamaños usar con esa estimación"
+	case exp:
+		return 0, "crece tan deprisa que con entradas grandes tardaría demasiado"
+	case grado < 1:
+		return 0, ""
+	case grado < 2:
+		return 100000, ""
+	case grado < 3:
+		return 10000, ""
+	case grado < 4:
+		return 1000, ""
+	}
+	return 0, "crece tan deprisa que con entradas grandes tardaría demasiado"
+}
+
+// explicarComparar places a measured class against the static estimate: 0 when the measured growth is
+// what the estimate gives at the measured sizes, 1 when it grows faster, -1 when slower. The bands are
+// those of analisis.ClasificarCrecimiento (slope of log t over log n).
+func explicarComparar(o, medida string) int {
+	bandas := map[string][2]float64{
+		"constante": {0, 0.25}, "lineal": {0.25, 1.3}, "n·log n": {0.25, 1.3},
+		"cuadrática": {1.3, 2.4}, "cúbica": {2.4, 3.4}, "explosiva": {3.4, 1e9},
+	}
+	b, ok := bandas[medida]
+	grado, logs, exp, okO := explicarOrden(o)
+	if !ok || !okO {
+		return -1
+	}
+	if exp {
+		grado = 1e8
+	}
+	g := grado + 0.1*float64(logs) // a log factor adds a little to the slope
+	switch {
+	case g < b[0]:
+		return 1
+	case g >= b[1]:
+		return -1
 	}
 	return 0
 }

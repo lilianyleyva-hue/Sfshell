@@ -225,7 +225,7 @@ func init() {
 	})
 	p(`^cannot use _ as value$`, fija("`_` no se puede leer: solo sirve para descartar valores."))
 	p(`^break is not in a loop, switch, or select$`, fija("`break` solo se puede usar dentro de un bucle o un switch."))
-	p(`^function main is undeclared in the main package$`, fija("El paquete `main` necesita una función `main`."))
+	p(`^(?:runtime\.main_main·f: )?function main is undeclared in the main package$`, fija("El paquete `main` necesita una función `main`."))
 	p(`^missing function body$`, fija("La función no tiene cuerpo: faltan las llaves `{ … }`."))
 	// syntax (go/parser and cmd/compile)
 	p(`^expected declaration, found (.+)$`, func(m []string, _ string) string {

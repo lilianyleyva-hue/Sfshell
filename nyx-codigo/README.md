@@ -28,8 +28,10 @@ No necesita nada más: ni bases de datos, ni librerías de fuera, ni cuenta en n
 ## Instalar y abrir
 
 ```sh
-cd ~/Sfshell/nyx-codigo && go build && ./nyx-codigo
+cd ~/Sfshell/nyx-codigo && go build -o nyx-codigo && ./nyx-codigo
 ```
+
+El `-o nyx-codigo` le pone nombre al programa (sin él, Go lo llamaría `nyxcodigo`).
 
 Se abre una pestaña en tu navegador. En la terminal verás algo así:
 
@@ -38,7 +40,14 @@ Nyx Código está en http://127.0.0.1:8765/#t=… — si cierras la pestaña, vu
 ```
 
 Si cierras la pestaña, vuelve a ejecutar `./nyx-codigo`: abre otra vez la misma ventana (no arranca un
-segundo programa). Para cerrarlo del todo, pulsa **Ctrl+C** en la terminal. Al cerrarse guarda la memoria.
+segundo programa). Para cerrarlo del todo, pulsa **Ctrl+C** en la terminal. Si lo abriste desde el menú
+de aplicaciones (ahí no hay terminal), ciérralo con:
+
+```sh
+pkill nyx-codigo
+```
+
+Al cerrarse guarda la memoria.
 
 La primera vez que compila código puede tardar entre 5 y 30 segundos, porque Go prepara su caché.
 Después va mucho más rápido.
@@ -49,13 +58,15 @@ Si quieres tenerlo en el menú de aplicaciones:
 ./nyx-codigo -instalar
 ```
 
+El acceso directo apunta a este archivo: si lo mueves o lo borras, vuelve a ejecutar `-instalar`.
+
 ## Opciones
 
 | Opción | Qué hace |
 |---|---|
 | `-puerto 8765` | El puerto local. Si está ocupado, usa otro libre. Con `0` elige uno cualquiera. |
-| `-datos carpeta` | Dónde guarda su memoria (mira «Dónde guarda sus datos»). |
-| `-sin-internet` | No usa internet para nada. |
+| `-datos carpeta` | Dónde guarda su memoria (mira «Dónde guarda sus datos»). Tiene que ser una carpeta nueva, vacía o que ya sea de Nyx Código: si tiene otros archivos, no la usa. |
+| `-sin-internet` | No usa internet para nada (ni búsquedas, ni documentación, ni la comprobación de go.dev). |
 | `-sin-navegador` | No abre el navegador; solo escribe la dirección en la terminal. |
 | `-preguntar "…"` | Modo terminal: responde una sola pregunta, enseña cómo pensó y termina. |
 | `-codigo archivo.go` | Junto con `-preguntar`: el código sobre el que preguntas. |
@@ -71,7 +82,16 @@ Ejemplos del modo terminal:
 ```
 
 Si en el modo terminal te hace una pregunta, contesta escribiendo el número de una opción (o tu
-respuesta) y pulsa Intro. El programa termina con código 0 si lo consiguió y con 1 si no.
+respuesta) y pulsa Intro. Si el código hace algo arriesgado (leer archivos, ejecutar otros programas…),
+te explica los riesgos y te pregunta «¿Lo ejecuto en la caja segura?»: contesta `1` (sí) o `2` (no).
+El programa termina con código 0 si lo consiguió y con 1 si no.
+
+Debajo de la respuesta salen las comprobaciones: `✔` si comprobó el resultado (tus ejemplos, sus
+propiedades, el cálculo), `✘` si algo falla y `·` si no lo comprobó o lo sacó de una fuente.
+
+Mientras Nyx Código está abierto en el navegador, el modo terminal no usa la misma carpeta de datos
+(los dos guardarían la memoria a la vez y uno borraría lo del otro): te lo dice y termina. Pregúntaselo
+en el navegador, ciérralo antes, o usa otra carpeta con `-datos`.
 
 ## Qué sabe hacer
 
@@ -133,7 +153,8 @@ respuesta) y pulsa Intro. El programa termina con código 0 si lo consiguió y c
 ## Dónde guarda sus datos
 
 En `~/.local/share/nyx-codigo/` (o en `$XDG_DATA_HOME/nyx-codigo/` si tienes esa variable), con
-permisos solo para tu usuario (0700). Con `-datos` puedes elegir otra carpeta. Dentro hay:
+permisos solo para tu usuario (0700). Con `-datos` puedes elegir otra carpeta, nueva o vacía (no usa
+una carpeta que ya tenga otros archivos, para no tocarlos). Dentro hay:
 
 - `biblioteca.json`: las funciones que ha aprendido,
 - `hechos.jsonl`, `reglas.jsonl`: lo que le has contado,
@@ -145,11 +166,13 @@ permisos solo para tu usuario (0700). Con `-datos` puedes elegir otra carpeta. D
 - `cache/go-build/`: la caché de Go para compilar,
 - `tmp/`: carpetas temporales (se vacían al cerrar),
 - `registro.log`: el registro del programa (para buscar fallos),
-- `instancia.json`: existe solo mientras el programa está abierto.
+- `instancia.json`: existe solo mientras el programa está abierto,
+- `bloqueo`: evita que dos Nyx Código usen la misma carpeta a la vez,
+- `version`: dice que la carpeta es de Nyx Código.
 
 ## Cómo empezar de cero
 
-Cierra Nyx Código (Ctrl+C) y borra su carpeta:
+Cierra Nyx Código (Ctrl+C, o `pkill nyx-codigo`) y borra su carpeta:
 
 ```sh
 rm -rf ~/.local/share/nyx-codigo
@@ -162,9 +185,15 @@ quitar funciones, hechos y palabras, o pedírselo: «olvida SumaPares».
 
 - **Todo pasa en tu ordenador.** El programa solo escucha en `127.0.0.1`: nadie más de tu red puede
   entrar. Cada vez que arranca crea una clave nueva, y sin esa clave no responde.
-- **Nada se envía ni se sube a ningún sitio.** Tus preguntas, tu código y su memoria se quedan en la
-  carpeta de datos.
-- **Internet solo se usa para buscar**: cuando le pides buscar algo, para leer documentación de Go
-  (go.dev, pkg.go.dev, gobyexample.com, Wikipedia) y en el modo «Estudiar». Solo descarga páginas; nunca
-  ejecuta código de internet con permisos especiales.
-- **Puedes quitar internet del todo** con `-sin-internet`. Todo lo demás sigue funcionando.
+- **Tu código, tus archivos y su memoria no se suben a ningún sitio.** Se quedan en la carpeta de datos.
+- **Sí usa internet en estos casos** (si no lo quitas):
+  - al arrancar, y de vez en cuando, abre `go.dev` para saber si hay internet;
+  - cuando le pides buscar algo («busca cómo invertir un mapa en Go»);
+  - para leer documentación de Go (go.dev, pkg.go.dev, gobyexample.com, Wikipedia) cuando preguntas por Go,
+    y en el modo «Estudiar»;
+  - **por su cuenta** cuando le pides crear una función o un programa y no lo consigue con sus recetas
+    ni con su síntesis: entonces manda a **DuckDuckGo** una búsqueda en inglés hecha con las palabras de
+    tu petición (por ejemplo «golang reverse map»). Manda esas palabras, no tu código.
+- Solo descarga páginas; nunca ejecuta código de internet con permisos especiales.
+- **Puedes quitar internet del todo** con `-sin-internet`. Entonces no hace ninguna de esas cosas, y
+  todo lo demás sigue funcionando.

@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"nyxcodigo/internal/memoria"
 	"nyxcodigo/internal/nucleo"
 	"nyxcodigo/internal/nucleo/nucleotest"
+	"nyxcodigo/internal/pruebas"
 	"nyxcodigo/internal/recetas"
 	"nyxcodigo/internal/saber"
 	"nyxcodigo/internal/sintesis"
@@ -416,10 +418,9 @@ func TestProgramaPlantillaPregunta(t *testing.T) {
 	}
 }
 
-// TestCrearWeb: synthesis cannot build base64; the web (an httptest fake) has a function that does, it is
-// adapted, run on the user's example and kept with its source.
-func TestCrearWeb(t *testing.T) {
-	necesitaGo(t)
+// webBase64 is a fake web (httptest) whose search finds one page with a Go function that encodes base64.
+func webBase64(t *testing.T, goBin string) *saber.Web {
+	t.Helper()
 	var srv *httptest.Server
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -442,13 +443,20 @@ func ToBase64(s string) string {
 			fmt.Fprint(w, "<html><body>ok</body></html>")
 		}
 	}))
-	defer srv.Close()
-	goBin, _ := exec.LookPath("go")
-	web := saber.NuevaWeb(saber.Config{
+	t.Cleanup(srv.Close)
+	return saber.NuevaWeb(saber.Config{
 		PermitirLocal: true, BaseDDG: srv.URL + "/ddg/", BaseGoByExample: srv.URL + "/gobyexample/",
 		BasePkgGoDev: srv.URL + "/pkg/", BaseGoDev: srv.URL + "/godev/", BaseWikipedia: srv.URL + "/wiki/%s/",
 		Dormir: func(time.Duration) {}, GoBin: goBin, DirCache: t.TempDir(),
 	})
+}
+
+// TestCrearWeb: synthesis cannot build base64; the web (an httptest fake) has a function that does, it is
+// adapted, run on the user's example and kept with its source.
+func TestCrearWeb(t *testing.T) {
+	necesitaGo(t)
+	goBin, _ := exec.LookPath("go")
+	web := webBase64(t, goBin)
 	cache := ""
 	if dir, err := os.UserCacheDir(); err == nil {
 		cache = filepath.Join(dir, "nyx-codigo-pruebas", "go-build")
@@ -477,5 +485,430 @@ func ToBase64(s string) string {
 	}
 	if fs := mem.Funciones(); len(fs) == 0 || fs[0].Origen != "web" || fs[0].Fuente == "" {
 		t.Errorf("debía guardarla con su origen web: %+v", fs)
+	}
+}
+
+// ---- regression tests of the review fixes ----
+
+// flujoPuro builds a crearFlujo for texto with no sandbox (c.ej nil): synthesis runs, codegen is not
+// checked (sinComprobar), so it needs no Go.
+func flujoPuro(t *testing.T, texto string, resp nucleo.Responder, presupuesto time.Duration) *crearFlujo {
+	t.Helper()
+	mem, err := memoria.Abrir(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { mem.Cerrar() })
+	c, err := Nuevo(Config{Semilla: 7}, Dependencias{Mem: mem})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp == nil {
+		resp = nucleotest.RespuestasFijas()
+	}
+	k := &tarea{q: analizarCrear(texto), s: &sesion{id: "x"}, t: nucleo.NuevaTraza(nil, resp), turno: &Turno{},
+		presupuesto: presupuesto, semilla: 7}
+	k.raiz = k.t.Raiz()
+	k.ctx, k.ctxPadre = context.Background(), context.Background()
+	cf := &crearFlujo{c: c, k: k}
+	if _, ok := cf.entender(); !ok {
+		t.Fatalf("no entendió %q", texto)
+	}
+	return cf
+}
+
+var reListaPregunta = regexp.MustCompile(`\(\[([^\]]*)\]\)`)
+
+// sumaMenosLargo answers "¿Qué debe dar Funcion([…])?" with sum(nums) − len(nums).
+func sumaMenosLargo(texto string) (string, bool) {
+	m := reListaPregunta.FindStringSubmatch(texto)
+	if m == nil {
+		return "", false
+	}
+	suma, n := 0, 0
+	for _, s := range strings.Split(m[1], ",") {
+		if strings.TrimSpace(s) == "" {
+			continue
+		}
+		x, err := strconv.Atoi(strings.TrimSpace(s))
+		if err != nil {
+			return "", false
+		}
+		suma += x
+		n++
+	}
+	return strconv.Itoa(suma - n), true
+}
+
+// TestCrearPreguntaPausaSintesis: the synthesis clock does not run while the user thinks. The first
+// answer comes after the clock (lim+1 s) would have run out and matches none of the offered outputs, so
+// synthesis runs again and must still find sum − len.
+func TestCrearPreguntaPausaSintesis(t *testing.T) {
+	if testing.Short() {
+		t.Skip("espera unos segundos: se salta con -short")
+	}
+	var mu sync.Mutex
+	preguntas := 0
+	resp := func(ctx context.Context, p nucleo.PreguntaUsuario) (string, error) {
+		s, ok := sumaMenosLargo(p.Texto)
+		if !ok {
+			return "", nucleo.ErrSinRespuesta
+		}
+		mu.Lock()
+		preguntas++
+		primera := preguntas == 1
+		mu.Unlock()
+		if primera {
+			select {
+			case <-time.After(3500 * time.Millisecond):
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+		}
+		return s, nil
+	}
+	cf := flujoPuro(t, "[3,1,2] -> 3", resp, 4*time.Second) // lim = 1.8 s, the clock 2.8 s
+	h, ok := cf.sintesis()
+	if !ok || !h.sinComprobar {
+		t.Fatalf("no encontró el programa tras pensar el usuario 3,5 s (%d preguntas): %+v\n%s", preguntas, h.resp, titulos(cf.k.t))
+	}
+	todo := strings.Join(h.resp.Parrafos, "\n")
+	if !strings.Contains(todo, "suma") || !strings.Contains(todo, "largo") {
+		t.Errorf("debía ser suma − largo: %q", todo)
+	}
+	if cf.relojSint != nil {
+		t.Error("el reloj de la síntesis debe quedar suelto al terminar")
+	}
+}
+
+// TestCrearPreguntaSalidaPausaReloj: preguntarSalida pauses the synthesis clock.
+func TestCrearPreguntaSalidaPausaReloj(t *testing.T) {
+	resp := func(ctx context.Context, p nucleo.PreguntaUsuario) (string, error) {
+		time.Sleep(300 * time.Millisecond)
+		return "0", nil
+	}
+	cf := flujoPuro(t, "[3,1,2] -> 3", resp, 4*time.Second)
+	r := nuevoReloj(context.Background(), 150*time.Millisecond)
+	defer r.Cancelar()
+	cf.relojSint = r
+	v, como := cf.preguntarSalida([]nucleo.Valor{[]nucleo.Valor{0}}, []nucleo.Valor{1, 0})
+	if como != salidaValor || !nucleo.Igual(v, 0) {
+		t.Fatalf("respuesta %v (%d)", v, como)
+	}
+	if r.Err() != nil {
+		t.Errorf("el reloj de la síntesis corrió mientras el usuario pensaba: %v", r.Err())
+	}
+}
+
+// TestCrearOtraCosa: «Otra cosa» is not "no answer": Nyx asks for the value as free text; if none comes,
+// no program that gives one of the rejected outputs is shown, and there is no «Había otra forma…».
+func TestCrearOtraCosa(t *testing.T) {
+	type pregunta struct {
+		texto    string
+		opciones []string
+	}
+	var mu sync.Mutex
+	var hechas []pregunta
+	resp := func(ctx context.Context, p nucleo.PreguntaUsuario) (string, error) {
+		mu.Lock()
+		hechas = append(hechas, pregunta{p.Texto, p.Opciones})
+		mu.Unlock()
+		if strings.HasPrefix(p.Texto, "¿Qué debe dar") {
+			return "Otra cosa", nil
+		}
+		return "", nucleo.ErrSinRespuesta
+	}
+	cf := flujoPuro(t, "[3,1,2] -> 3", resp, 4*time.Second)
+	h, ok := cf.sintesis()
+	if len(hechas) < 2 || !strings.HasPrefix(hechas[1].texto, "Escribe qué debe dar") {
+		t.Fatalf("tras «Otra cosa» debía pedir el valor escribiendo: %+v", hechas)
+	}
+	for _, d := range cf.dudas {
+		if strings.Contains(d, "Había otra forma") {
+			t.Errorf("tras «Otra cosa» no vale «%s»", d)
+		}
+	}
+	if !ok {
+		return // no other program: the honest failure follows
+	}
+	prog := programaDe(h.resp)
+	if prog == "" {
+		for _, p := range h.resp.Parrafos {
+			if strings.HasPrefix(p, "Mi programa: ") {
+				prog = strings.TrimPrefix(p, "Mi programa: ")
+			}
+		}
+	}
+	e, err := sintesis.Parse(prog, cf.c.registro(), cf.f)
+	if err != nil {
+		t.Fatalf("programa %q: %v", prog, err)
+	}
+	m := reListaPregunta.FindStringSubmatch(hechas[0].texto)
+	ent, err := nucleo.ParseValor("["+m[1]+"]", cf.f.Entradas()[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := sintesis.Oraculo(e)([]nucleo.Valor{ent})
+	if err != nil || len(out) != 1 {
+		t.Fatalf("%s con %v: %v %v", prog, ent, out, err)
+	}
+	for _, o := range hechas[0].opciones {
+		if o == nucleo.FormatoHumano(out[0], cf.f.Res[0]) {
+			t.Errorf("%s da %s con %v, que el usuario rechazó con «Otra cosa»", prog, o, ent)
+		}
+	}
+}
+
+// TestCrearOtraCosaEscrita: «Otra cosa» then a typed value makes it a user example.
+func TestCrearOtraCosaEscrita(t *testing.T) {
+	resp := func(ctx context.Context, p nucleo.PreguntaUsuario) (string, error) {
+		if strings.HasPrefix(p.Texto, "¿Qué debe dar") {
+			return "Otra cosa", nil
+		}
+		if s, ok := sumaMenosLargo(p.Texto); ok {
+			return s, nil
+		}
+		return "", nucleo.ErrSinRespuesta
+	}
+	cf := flujoPuro(t, "[3,1,2] -> 3", resp, 4*time.Second)
+	v, como := cf.preguntarSalida([]nucleo.Valor{[]nucleo.Valor{0}}, []nucleo.Valor{1, 0})
+	if como != salidaValor || !nucleo.Igual(v, -1) {
+		t.Fatalf("debía tomar el valor escrito -1: %v (%d)", v, como)
+	}
+	// A text result: «Otra cosa» is never taken as the value "Otra cosa".
+	cf2 := flujoPuro(t, `"hola" -> "HOLA"`, func(ctx context.Context, p nucleo.PreguntaUsuario) (string, error) {
+		if strings.HasPrefix(p.Texto, "¿Qué debe dar") {
+			return "Otra cosa", nil
+		}
+		return "", nucleo.ErrSinRespuesta
+	}, 4*time.Second)
+	if _, como := cf2.preguntarSalida([]nucleo.Valor{"a"}, []nucleo.Valor{"A", "a"}); como != salidaOtraCosa {
+		t.Errorf("«Otra cosa» sin valor: %d", como)
+	}
+}
+
+// TestCrearEtiquetasMemoria: stored cases of a function kept with less than entendido, and its own
+// outputs, only count as "da lo mismo que cuando la guardé" (sin_fallos), never as entendido.
+func TestCrearEtiquetasMemoria(t *testing.T) {
+	caso := func(nota string) nucleo.Caso {
+		return nucleo.Caso{Entradas: []nucleo.Valor{"a"}, Esperado: []nucleo.Valor{"YQ=="}, Expectativa: nucleo.EspReferencia, Nota: nota}
+	}
+	web := []nucleo.Caso{caso(crearNotaGuardada), caso("otra fuente")}
+	crearEtiquetarGuardados(web, nucleo.NivelSinFallos)
+	for _, c := range web {
+		if c.Nota != crearNotaGuardada {
+			t.Errorf("función sin_fallos: %q", c.Nota)
+		}
+	}
+	buena := []nucleo.Caso{caso(crearNotaGuardada), caso("lo que entendí")}
+	crearEtiquetarGuardados(buena, nucleo.NivelEntendido)
+	if buena[0].Nota != crearNotaGuardada || buena[1].Nota != crearNotaMemoria {
+		t.Errorf("función entendido: %q %q", buena[0].Nota, buena[1].Nota)
+	}
+	rs := []nucleo.ResultadoCaso{{Caso: 0, Ejecutado: true, OK: true, Obtenido: []nucleo.Valor{"YQ=="}},
+		{Caso: 1, Ejecutado: true, OK: true, Obtenido: []nucleo.Valor{"YQ=="}}}
+	v := verificacion{Casos: web, Resultados: rs}
+	v.Comprobaciones = pruebas.Comprobaciones(web, rs, nil, 0)
+	v = crearRebajarRegresion(v)
+	if v.Nivel != nucleo.NivelSinFallos || len(v.Comprobaciones) != 1 || !strings.Contains(v.Comprobaciones[0].Texto, "dan lo mismo que cuando la guardé") {
+		t.Errorf("nivel %s %+v", v.Nivel, v.Comprobaciones)
+	}
+}
+
+// TestCrearRespuestaWebSinConsenso: a web answer at sin_fallos (no example, no other source) is not
+// stored, says what it does only with «Creo que», and never stores the request as its description.
+func TestCrearRespuestaWebSinConsenso(t *testing.T) {
+	cf := flujoPuro(t, `"hola" -> "aG9sYQ=="`, nil, 4*time.Second)
+	v := verificacion{Nivel: nucleo.NivelSinFallos, Comprobaciones: []nucleo.Comprobacion{{Nivel: nucleo.NivelSinFallos, Pasan: 5, Total: 5, Texto: "5 casos sin errores"}}}
+	fuente := "package solucion\n\nfunc Funcion(texto string) string { return texto }\n"
+	h := cf.respuesta("web", "Aquí tienes `Funcion`.", fuente, cf.f, v, nil, "devuelve el texto", nil)
+	if h.resp.Aprendido != "" || len(cf.c.mem.Funciones()) != 0 {
+		t.Errorf("guardó una función web sin consenso: %q", h.resp.Aprendido)
+	}
+	if !contieneParrafo(h.resp.Parrafos, "Creo que hace esto: devuelve el texto.") {
+		t.Errorf("lo no comprobado empieza por «Creo que»: %q", h.resp.Parrafos)
+	}
+	cf.webConsenso = true
+	v.Nivel = nucleo.NivelEntendido
+	v.Comprobaciones = []nucleo.Comprobacion{{Nivel: nucleo.NivelEntendido, Pasan: 5, Total: 5, Texto: "5/5 pruebas comparando con otra fuente"}}
+	h = cf.respuesta("web", "Aquí tienes `Funcion`.", fuente, cf.f, v, nil, "", nil)
+	fs := cf.c.mem.Funciones()
+	if h.resp.Aprendido == "" || len(fs) != 1 {
+		t.Fatalf("con consenso se guarda: %q %d", h.resp.Aprendido, len(fs))
+	}
+	if fs[0].Descripcion != "" {
+		t.Errorf("la descripción guardada no puede ser la petición: %q", fs[0].Descripcion)
+	}
+}
+
+// TestCrearMemoriaWebNoSubeNivel: a web function stored at sin_fallos, with cases that are only its own
+// outputs, comes back from memoria at sin_fallos, with no «comprobé que el código hace lo que entendí»
+// and without the request shown as "Lo que hace".
+func TestCrearMemoriaWebNoSubeNivel(t *testing.T) {
+	necesitaGo(t)
+	c := cerebroExamen(t)
+	texto := "haz una función que pase un texto a base64"
+	q := analizarCrear(texto)
+	f := nucleo.Firma{Nombre: "TextoBase64", Params: []nucleo.Param{{Nombre: "texto", Tipo: nucleo.TString}}, Res: []nucleo.Tipo{nucleo.TString}}
+	if q.Firma != nil {
+		f.Params = q.Firma.Params
+	}
+	var casos []nucleo.Caso
+	for _, x := range [][2]string{{"", ""}, {"a", "YQ=="}, {"hola", "aG9sYQ=="}, {"Go", "R28="}} {
+		casos = append(casos, nucleo.Caso{Entradas: []nucleo.Valor{x[0]}, Esperado: []nucleo.Valor{x[1]},
+			Expectativa: nucleo.EspReferencia, Origen: nucleo.OrigenBorde, Nota: crearNotaGuardada})
+	}
+	gs, err := nucleo.GuardarCasos(f, casos)
+	if err != nil {
+		t.Fatal(err)
+	}
+	param := f.Params[0].Nombre
+	_, err = c.mem.GuardarFuncion(nucleo.FuncionAprendida{
+		Nombre: f.Nombre, Firma: f, Descripcion: texto, Nivel: nucleo.NivelSinFallos, Origen: "web",
+		Codigo: "package solucion\n\nimport \"encoding/base64\"\n\nfunc TextoBase64(" + param + " string) string {\n\treturn base64.StdEncoding.EncodeToString([]byte(" + param + "))\n}\n",
+		Casos:  gs, Conceptos: q.Conceptos, Palabras: lemasDe(q), Creada: time.Now(), Usada: time.Now(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, tr := preguntarCrear(c, "m", texto, nil)
+	if r.Metodo != "memoria" {
+		t.Fatalf("no la tomó de la memoria (%s): %s", r.Metodo, titulos(tr))
+	}
+	todo := todoElTexto(r)
+	if r.Nivel != nucleo.NivelSinFallos || hayNivel(r.Comprobaciones, nucleo.NivelEntendido) {
+		t.Errorf("nivel %s, debía ser sin_fallos:\n%s", r.Nivel, todo)
+	}
+	if strings.Contains(todo, FraseSinEjemplos) || strings.Contains(todo, "Lo que hace: haz una") {
+		t.Errorf("afirma lo que no comprobó:\n%s", todo)
+	}
+	if !strings.Contains(todo, "dan lo mismo que cuando la guardé") {
+		t.Errorf("falta la comprobación de regresión:\n%s", todo)
+	}
+}
+
+// TestCrearFalloReducido: the failure shows the minimized failing case (pruebas.Minimizar on the same
+// binary, with the program's oracle for the smaller inputs), not the first big one.
+func TestCrearFalloReducido(t *testing.T) {
+	necesitaGo(t)
+	c := cerebroExamen(t)
+	k := &tarea{q: analizarCrear("suma los números de una lista"), s: &sesion{id: "r"}, t: nucleo.NuevaTraza(nil, nucleotest.RespuestasFijas()),
+		turno: &Turno{}, presupuesto: 30 * time.Second, semilla: 42}
+	k.raiz = k.t.Raiz()
+	k.ctx, k.ctxPadre = context.Background(), context.Background()
+	f := nucleo.Firma{Nombre: "Suma", Params: []nucleo.Param{{Nombre: "nums", Tipo: nucleo.ListaDe(nucleo.TInt)}}, Res: []nucleo.Tipo{nucleo.TInt}}
+	cf := &crearFlujo{c: c, k: k, f: f}
+	e, err := sintesis.Parse("(suma nums)", c.registro(), f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oraculo := sintesis.Oraculo(e)
+	fuente := "package solucion\n\nfunc Suma(nums []int) int {\n\tt := 0\n\tfor i, n := range nums {\n\t\tif i < 3 {\n\t\t\tt += n\n\t\t}\n\t}\n\treturn t\n}\n"
+	casos := cf.generados(f, oraculo, 64, 200)
+	v, err := cf.comprobar("Compruebo", fuente, f, casos, nil, map[string]crearOraculo{"lo que entendí": oraculo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Fallos) == 0 {
+		t.Fatal("el código roto pasó")
+	}
+	cf.anotarIntento(fuente, f, v)
+	primero := crearFrasefallo(f, v.Casos[v.Fallos[0]], v.Resultados[v.Fallos[0]])
+	contra := cf.mejor.contra
+	m := regexp.MustCompile(`^Falla con \[([^\]]*)\]: esperaba (-?\d+), da (-?\d+)\.$`).FindStringSubmatch(contra)
+	if m == nil {
+		t.Fatalf("frase %q (la primera era %q)", contra, primero)
+	}
+	if n := len(strings.Split(m[1], ",")); n != 4 {
+		t.Errorf("el fallo reducido debe tener 4 números (falla desde el cuarto): %q (la primera: %q)", contra, primero)
+	}
+	if r := cf.fallo().resp; !contieneParrafo(r.Parrafos, contra) {
+		t.Errorf("la respuesta de fallo no muestra el caso reducido: %q", r.Parrafos)
+	}
+}
+
+// ejecutorConPlazo records how much time the contexts of Preparar and Probar allow.
+type ejecutorConPlazo struct {
+	nucleo.Ejecutor
+	mu     sync.Mutex
+	plazos []time.Duration // -1: no deadline
+}
+
+func (e *ejecutorConPlazo) anotar(ctx context.Context) {
+	d := time.Duration(-1)
+	if dl, ok := ctx.Deadline(); ok {
+		d = time.Until(dl)
+	}
+	e.mu.Lock()
+	e.plazos = append(e.plazos, d)
+	e.mu.Unlock()
+}
+
+func (e *ejecutorConPlazo) Preparar(ctx context.Context, p nucleo.Preparacion) (nucleo.Binario, nucleo.Compilacion, error) {
+	e.anotar(ctx)
+	b, comp, err := e.Ejecutor.Preparar(ctx, p)
+	if b != nil {
+		b = binarioConPlazo{b, e}
+	}
+	return b, comp, err
+}
+
+type binarioConPlazo struct {
+	nucleo.Binario
+	e *ejecutorConPlazo
+}
+
+func (b binarioConPlazo) Probar(ctx context.Context, casos []nucleo.Caso, op nucleo.OpcionesProbar) ([][]nucleo.ResultadoCaso, error) {
+	b.e.anotar(ctx)
+	return b.Binario.Probar(ctx, casos, op)
+}
+
+// TestCrearWebDentroDeSuPresupuesto: building, running and checking web code stay within the web
+// stage's 35 % of the budget.
+func TestCrearWebDentroDeSuPresupuesto(t *testing.T) {
+	necesitaGo(t)
+	goBin, _ := exec.LookPath("go")
+	cache := ""
+	if dir, err := os.UserCacheDir(); err == nil {
+		cache = filepath.Join(dir, "nyx-codigo-pruebas", "go-build")
+	}
+	a, err := arenero.Nuevo(arenero.Config{DirDatos: t.TempDir(), DirCache: cache, GoBin: goBin})
+	if err != nil {
+		t.Skipf("sin arenero: %v", err)
+	}
+	defer a.Cerrar()
+	mem, err := memoria.Abrir(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mem.Cerrar()
+	ej := &ejecutorConPlazo{Ejecutor: a}
+	c, err := Nuevo(Config{Semilla: 42}, Dependencias{Ej: ej, Mem: mem, Web: webBase64(t, goBin), GoBin: goBin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	presupuesto := 40 * time.Second
+	k := &tarea{q: analizarCrear("codifica en base64: hola -> aG9sYQ=="), s: &sesion{id: "w"}, t: nucleo.NuevaTraza(nil, nucleotest.RespuestasFijas()),
+		turno: &Turno{}, presupuesto: presupuesto, semilla: 42}
+	k.raiz = k.t.Raiz()
+	k.ctx, k.ctxPadre = context.Background(), context.Background()
+	cf := &crearFlujo{c: c, k: k}
+	if _, ok := cf.entender(); !ok {
+		t.Fatal("no entendió")
+	}
+	cf.web()
+	if k.ctx != context.Background() {
+		t.Error("web debe devolver k.ctx como estaba")
+	}
+	ej.mu.Lock()
+	defer ej.mu.Unlock()
+	if len(ej.plazos) == 0 {
+		t.Fatalf("no compiló nada de la web:\n%s", titulos(k.t))
+	}
+	tope := presupuesto*35/100 + 100*time.Millisecond
+	for i, d := range ej.plazos {
+		if d < 0 || d > tope {
+			t.Errorf("llamada %d al arenero con plazo %v (tope %v)", i, d, tope)
+		}
 	}
 }
