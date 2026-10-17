@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"nyxcodigo/internal/arenero"
 	"nyxcodigo/internal/cerebro"
 	"nyxcodigo/internal/nucleo"
 	"nyxcodigo/internal/servidor"
@@ -266,7 +267,7 @@ func TestImpresoraArbol(t *testing.T) {
 func TestLectorResponder(t *testing.T) {
 	var b bytes.Buffer
 	imp := nuevaImpresora(&b)
-	lec := nuevoLector(strings.NewReader("2\n\n13\notra cosa\n"))
+	lec := nuevoLector(strings.NewReader("b\n\n13\notra cosa\n"))
 	tr := nucleo.NuevaTraza(imp.Evento, lec.Responder(imp))
 	ctx := context.Background()
 	casos := []struct {
@@ -286,16 +287,10 @@ func TestLectorResponder(t *testing.T) {
 			t.Fatalf("%s: %q, %v; quiero %q (sin respuesta: %v)", c.p.ID, s, err, c.quiero, c.sinResp)
 		}
 	}
-	if !strings.Contains(b.String(), "? ¿Qué debe dar con [-2]?\n    1) 4\n    2) 0\n    3) otra cosa\n") ||
+	if !strings.Contains(b.String(), "? ¿Qué debe dar con [-2]?\n    A) 4\n    B) 0\n    C) otra cosa\n") ||
 		!strings.Contains(b.String(), "(Intro = «sí»)") || !strings.Contains(b.String(), "(sin respuesta)") ||
-		!strings.Contains(b.String(), "o tu respuesta: 2\n") { // piped answers are echoed
+		!strings.Contains(b.String(), "Escribe la letra de una opción o tu respuesta: b\n") { // piped answers are echoed
 		t.Fatalf("salida de las preguntas:\n%s", b.String())
-	}
-	// A number that is itself an option is taken literally.
-	lec = nuevoLector(strings.NewReader("1\n"))
-	tr = nucleo.NuevaTraza(imp.Evento, lec.Responder(imp))
-	if s, _ := tr.Preguntar(ctx, nucleo.PreguntaUsuario{Opciones: []string{"2", "1"}}); s != "1" {
-		t.Fatalf("opción numérica: %q", s)
 	}
 	// A cancelled context gives no answer.
 	lec = nuevoLector(&lectorBloqueado{})
@@ -304,6 +299,73 @@ func TestLectorResponder(t *testing.T) {
 	cancelar()
 	if s, err := tr.Preguntar(cctx, nucleo.PreguntaUsuario{PorDefecto: "x"}); s != "x" || !errors.Is(err, nucleo.ErrSinRespuesta) {
 		t.Fatalf("contexto cancelado: %q %v", s, err)
+	}
+}
+
+// preguntarCon asks p once with entrada as stdin and returns the answer and what was printed.
+func preguntarCon(t *testing.T, p nucleo.PreguntaUsuario, entrada string) (string, error, string) {
+	t.Helper()
+	var b bytes.Buffer
+	imp := nuevaImpresora(&b)
+	lec := nuevoLector(strings.NewReader(entrada))
+	s, err := nucleo.NuevaTraza(imp.Evento, lec.Responder(imp)).Preguntar(context.Background(), p)
+	return s, err, b.String()
+}
+
+// TestLectorOpcionesNumericas is the regression test for options that are numbers: the options are
+// labelled A) B) C) (§1), so typing 1 means the value 1 and every option can be chosen by its label.
+// Before, with "1) 10 2) 4 3) 1", typing 1 gave «1» and option 1 («10») could never be chosen by number.
+func TestLectorOpcionesNumericas(t *testing.T) {
+	p := nucleo.PreguntaUsuario{Texto: "¿Qué debe dar Suma([1, 2, 3, 4])?", Opciones: []string{"10", "4", "1", "Otra cosa"}, Libre: true}
+	for entrada, quiero := range map[string]string{
+		"a\n": "10", "A\n": "10", "b)\n": "4", "(c)\n": "1", "d\n": "Otra cosa",
+		"1\n": "1", "4\n": "4", "10\n": "10", "7\n": "7", "otra cosa\n": "Otra cosa",
+	} {
+		if s, err, _ := preguntarCon(t, p, entrada); s != quiero || err != nil {
+			t.Errorf("con %q: %q %v; quiero %q", entrada, s, err, quiero)
+		}
+	}
+	_, _, salida := preguntarCon(t, p, "a\n")
+	if !strings.Contains(salida, "    A) 10\n    B) 4\n    C) 1\n    D) Otra cosa\n") || !strings.Contains(salida, "Escribe la letra de una opción o tu respuesta") {
+		t.Fatalf("salida:\n%s", salida)
+	}
+
+	// Options that are letters: numbered labels, and the letter typed is the value.
+	p = nucleo.PreguntaUsuario{Texto: "¿Qué letra?", Opciones: []string{"a", "b"}, Libre: true}
+	for entrada, quiero := range map[string]string{"1\n": "a", "2\n": "b", "b\n": "b", "a\n": "a"} {
+		if s, _, salida := preguntarCon(t, p, entrada); s != quiero || !strings.Contains(salida, "    1) a\n    2) b\n") {
+			t.Errorf("letras, con %q: %q; quiero %q\n%s", entrada, s, quiero, salida)
+		}
+	}
+	// Letters and numbers both clash: no labels, each option is typed as it is.
+	p = nucleo.PreguntaUsuario{Texto: "¿Cuál?", Opciones: []string{"a", "1", "b", "2"}, Libre: true}
+	if s, _, salida := preguntarCon(t, p, "1\n"); s != "1" || !strings.Contains(salida, "    - a\n    - 1\n") || !strings.Contains(salida, "Escribe una de las opciones o tu respuesta") {
+		t.Errorf("sin etiquetas: %q\n%s", s, salida)
+	}
+	for _, ops := range [][]string{{"10", "4", "1"}, {"sí", "no"}, {"A", "x"}, {"a", "1"}, {"b", "2", "c", "3", "4"}} {
+		et := etiquetasOpciones(ops)
+		for i, op := range ops {
+			for j, e := range et {
+				if i != j && strings.EqualFold(op, e) {
+					t.Errorf("%v: la etiqueta %s se lee como la opción %q", ops, e, op)
+				}
+			}
+		}
+	}
+
+	// A closed question: the start of an option is enough, and anything else is asked again.
+	p = nucleo.PreguntaUsuario{Texto: "¿Lo ejecuto en la caja segura?", Opciones: []string{"sí", "no"}, PorDefecto: "no"}
+	for entrada, quiero := range map[string]string{"s\n": "sí", "si\n": "sí", "a\n": "sí", "B\n": "no", "No\n": "no", "\n": "no"} {
+		if s, err, _ := preguntarCon(t, p, entrada); s != quiero || err != nil {
+			t.Errorf("cerrada, con %q: %q %v; quiero %q", entrada, s, err, quiero)
+		}
+	}
+	s, err, salida := preguntarCon(t, p, "1\nquizá\na\n")
+	if s != "sí" || err != nil || !strings.Contains(salida, "«1» no es una de las opciones.") || !strings.Contains(salida, "«quizá» no es una de las opciones.") {
+		t.Errorf("repregunta: %q %v\n%s", s, err, salida)
+	}
+	if s, err, _ := preguntarCon(t, p, "x\ny\nz\na\n"); s != "no" || !errors.Is(err, nucleo.ErrSinRespuesta) {
+		t.Errorf("tres respuestas que no valen: %q %v", s, err)
 	}
 }
 
@@ -351,10 +413,52 @@ func TestImprimirRespuesta(t *testing.T) {
 		"\n✔ Cumple las propiedades\n", // already marked: not marked twice
 		"Fuente: go.dev — https://go.dev/doc",
 		"Lo he guardado en mi memoria como F",
-		"Puedes seguir con: ¿Por qué?",
+		"En el navegador puedes seguir con: ¿Por qué?",
 	} {
 		if !strings.Contains(s, quiero) {
 			t.Errorf("falta %q en:\n%s", quiero, s)
+		}
+	}
+}
+
+// TestImprimirRespuestaTerminal is the regression test for web-only texts and double plan numbers in the
+// terminal: there is no «No es eso» button and no conversation (each -preguntar is a new session), so the
+// sentence is adapted and the follow-ups are offered for the browser; the justification the web app shows
+// under «¿Por qué?» is printed; plan steps that carry their numbers (puzles) are not numbered again.
+func TestImprimirRespuestaTerminal(t *testing.T) {
+	var b bytes.Buffer
+	imprimirRespuesta(&b, nucleo.Respuesta{
+		Texto:         "`SumaPares` hace esto: la suma de los números pares de nums.",
+		Parrafos:      []string{cerebro.FraseSinEjemplos, "Se acabó el tiempo. Pulsa «Pensar más» para darme el doble de tiempo."},
+		Plan:          []string{"1. llena la jarra de 5 l → (0, 5)", "2. vierte la jarra de 5 l en la jarra de 3 l → (3, 2)"},
+		Justificacion: []string{"1. llena la jarra de 5 l → (0, 5)", "Busqué el camino más corto (BFS)"},
+		Comprobaciones: []nucleo.Comprobacion{{Nivel: nucleo.NivelEntendido, Texto: "47/47 según lo que entendí"}},
+		Sugerencias:    []string{"Pruébala con otros datos", "Explícala"},
+	})
+	s := b.String()
+	for _, malo := range []string{"pulsa «No es eso»", "Pulsa «Pensar más»", "1. 1.", "2. 2.", "\nPuedes seguir con"} {
+		if strings.Contains(s, malo) {
+			t.Errorf("sobra %q en:\n%s", malo, s)
+		}
+	}
+	for _, quiero := range []string{
+		"comprobé que el código hace lo que entendí. Si no es eso, vuelve a preguntar con otras palabras o con ejemplos (entrada -> salida).\n",
+		"En el navegador, «Pensar más» me da el doble de tiempo.",
+		"\n1. llena la jarra de 5 l → (0, 5)\n2. vierte la jarra de 5 l en la jarra de 3 l → (3, 2)\n",
+		"\n¿Por qué?\n  Busqué el camino más corto (BFS)\n", // the step already shown in the plan is not repeated
+		"En el navegador puedes seguir con: Pruébala con otros datos · Explícala\n",
+	} {
+		if !strings.Contains(s, quiero) {
+			t.Errorf("falta %q en:\n%s", quiero, s)
+		}
+	}
+	if strings.Count(s, "llena la jarra") != 1 {
+		t.Errorf("el paso del plan sale repetido:\n%s", s)
+	}
+	// Every sentence of cerebro that names a web-only button is adapted.
+	for _, frase := range []string{cerebro.FraseSinEjemplos, cerebro.FraseSinEjemplosNiAcaso} {
+		if paraTerminal.Replace(frase) == frase {
+			t.Errorf("no se adapta: %q", frase)
 		}
 	}
 }
@@ -602,16 +706,16 @@ func TestEscritorio(t *testing.T) {
 }
 
 func TestOpcionesYVersion(t *testing.T) {
-	o, err := leerOpciones(nil, io.Discard)
+	o, err := leerOpciones(nil, io.Discard, io.Discard)
 	if err != nil || o.puerto != puertoPorDefecto || o.sinInternet || o.sinNavegador || o.preguntar != "" {
 		t.Fatalf("por defecto: %+v %v", o, err)
 	}
-	o, err = leerOpciones([]string{"-puerto", "0", "-sin-internet", "-sin-navegador", "-preguntar", "hola", "-datos", "/tmp/x"}, io.Discard)
+	o, err = leerOpciones([]string{"-puerto", "0", "-sin-internet", "-sin-navegador", "-preguntar", "hola", "-datos", "/tmp/x"}, io.Discard, io.Discard)
 	if err != nil || o.puerto != 0 || !o.sinInternet || !o.sinNavegador || o.preguntar != "hola" || o.datos != "/tmp/x" {
 		t.Fatalf("opciones: %+v %v", o, err)
 	}
 	for _, malos := range [][]string{{"-puerto", "70000"}, {"hola"}, {"-codigo", "x.go"}, {"-nada"}} {
-		if _, err := leerOpciones(malos, io.Discard); err == nil {
+		if _, err := leerOpciones(malos, io.Discard, io.Discard); err == nil {
 			t.Errorf("%v debía fallar", malos)
 		}
 	}
@@ -624,6 +728,125 @@ func TestOpcionesYVersion(t *testing.T) {
 	}
 	if c := correr([]string{"sobra"}, strings.NewReader(""), io.Discard, io.Discard); c != 2 {
 		t.Fatalf("argumento de más: %d", c)
+	}
+}
+
+// TestOpcionesEnEspanol is the regression test for the help and the flag errors, which the flag package
+// writes in English ("(default 8765)", "invalid value … parse error", "flag provided but not defined").
+func TestOpcionesEnEspanol(t *testing.T) {
+	ingles := regexp.MustCompile(`default|invalid|flag |parse error|provided|needs an argument|\bint\b|\bstring\b|Usage`)
+	var sal, salErr bytes.Buffer
+	if c := correr([]string{"-h"}, strings.NewReader(""), &sal, &salErr); c != 0 || salErr.Len() != 0 {
+		t.Fatalf("-h: %d %q", c, salErr.String())
+	}
+	ayuda := sal.String()
+	if m := ingles.FindString(ayuda); m != "" {
+		t.Errorf("la ayuda tiene %q en inglés:\n%s", m, ayuda)
+	}
+	for _, quiero := range []string{"Uso: nyx-codigo [opciones]", "-puerto número", "por defecto 8765", "-datos carpeta",
+		"-preguntar \"pregunta\"", "-codigo archivo.go", "-sin-internet", "-sin-navegador", "-instalar", "-version"} {
+		if !strings.Contains(ayuda, quiero) {
+			t.Errorf("la ayuda no dice %q:\n%s", quiero, ayuda)
+		}
+	}
+	for _, c := range []struct {
+		args   []string
+		quiero string
+	}{
+		{[]string{"-puerto", "abc"}, "«abc» no es un puerto: usa un número entre 0 y 65535."},
+		{[]string{"-nada"}, "No conozco la opción -nada."},
+		{[]string{"-puerto"}, "A la opción -puerto le falta su valor: escribe -puerto número."},
+		{[]string{"-datos"}, "A la opción -datos le falta su valor: escribe -datos carpeta."},
+		{[]string{"-sin-internet=quizá"}, "La opción -sin-internet no lleva valor: escribe solo -sin-internet."},
+		{[]string{"---x"}, "No entiendo «---x»."},
+		{[]string{"-puerto", "-1"}, "El puerto -1 no vale"},
+	} {
+		sal.Reset()
+		salErr.Reset()
+		if code := correr(c.args, strings.NewReader(""), &sal, &salErr); code != 2 || sal.Len() != 0 {
+			t.Errorf("%v: salida %d, %q", c.args, code, sal.String())
+		}
+		e := salErr.String()
+		if !strings.Contains(e, c.quiero) || !strings.Contains(e, "Escribe «nyx-codigo -h» para ver las opciones.") {
+			t.Errorf("%v: %q; quiero %q", c.args, e, c.quiero)
+		}
+		if m := ingles.FindString(e); m != "" {
+			t.Errorf("%v: %q en inglés: %q", c.args, m, e)
+		}
+	}
+}
+
+// TestPreguntaVacia is the regression test for -preguntar "": it is a mistake, not "no question" (which
+// started the server and opened the browser, and blocked a script that ran -preguntar "$Q").
+func TestPreguntaVacia(t *testing.T) {
+	datos := filepath.Join(t.TempDir(), "datos")
+	for _, q := range []string{"", "   "} {
+		hecho := make(chan int, 1)
+		var sal, salErr bytes.Buffer
+		go func() {
+			hecho <- correr([]string{"-sin-internet", "-sin-navegador", "-puerto", "0", "-datos", datos, "-preguntar", q}, strings.NewReader(""), &sal, &salErr)
+		}()
+		select {
+		case c := <-hecho:
+			if c != 2 || !strings.Contains(salErr.String(), "La pregunta está vacía") || strings.Contains(sal.String(), "Nyx Código está en") {
+				t.Fatalf("-preguntar %q: %d\n%s\n%s", q, c, sal.String(), salErr.String())
+			}
+		case <-time.After(20 * time.Second):
+			t.Fatalf("-preguntar %q arrancó el servidor", q)
+		}
+	}
+	if _, err := os.Stat(datos); err == nil {
+		t.Fatal("con una pregunta vacía no debe crear la carpeta de datos")
+	}
+	if _, err := leerOpciones([]string{"-preguntar", "hola", "-codigo", ""}, io.Discard, io.Discard); err == nil {
+		t.Fatal("-codigo \"\" debía fallar")
+	}
+}
+
+// TestLeerCodigo is the regression test for -codigo without a size limit (/dev/zero filled the memory):
+// it reads at most 1 MiB, like the web app's request bodies, and says what is wrong in Spanish.
+func TestLeerCodigo(t *testing.T) {
+	dir := t.TempDir()
+	bueno := filepath.Join(dir, "bueno.go")
+	os.WriteFile(bueno, []byte("package main\n"), 0o644)
+	if s, err := leerCodigo(bueno); err != nil || s != "package main\n" {
+		t.Fatalf("archivo bueno: %q %v", s, err)
+	}
+	grande := filepath.Join(dir, "grande.go")
+	os.WriteFile(grande, bytes.Repeat([]byte("a"), maxCodigo+1), 0o644)
+	justo := filepath.Join(dir, "justo.go")
+	os.WriteFile(justo, bytes.Repeat([]byte("a"), maxCodigo), 0o644)
+	binario := filepath.Join(dir, "binario")
+	os.WriteFile(binario, []byte{0xff, 0xfe, 0x00}, 0o644)
+	for ruta, quiero := range map[string]string{
+		grande: "es demasiado grande (el máximo es 1 MiB)", dir: "es una carpeta, no un archivo",
+		binario: "no es un archivo de texto", filepath.Join(dir, "no.go"): "no existe",
+	} {
+		if _, err := leerCodigo(ruta); err == nil || motivoError(err) != quiero {
+			t.Errorf("%s: %v; quiero %q", filepath.Base(ruta), err, quiero)
+		}
+	}
+	if _, err := leerCodigo(justo); err != nil {
+		t.Errorf("1 MiB justo: %v", err)
+	}
+	if _, err := os.Stat("/dev/zero"); err == nil {
+		inicio := time.Now()
+		if _, err := leerCodigo("/dev/zero"); !errors.Is(err, errCodigoGrande) {
+			t.Errorf("/dev/zero: %v", err)
+		}
+		if d := time.Since(inicio); d > 10*time.Second {
+			t.Errorf("/dev/zero tardó %v", d)
+		}
+	}
+	// Through correr: the message, and nothing is created.
+	datos := filepath.Join(dir, "datos")
+	var salErr bytes.Buffer
+	if c := correr([]string{"-sin-internet", "-datos", datos, "-preguntar", "explica esto", "-codigo", grande}, strings.NewReader(""), io.Discard, &salErr); c != 1 ||
+		salErr.String() != "No puedo leer "+grande+": es demasiado grande (el máximo es 1 MiB).\n" {
+		t.Fatalf("correr: %d %q", c, salErr.String())
+	}
+	if _, err := os.Stat(datos); err == nil {
+		t.Fatal("con un archivo que no vale no debe crear la carpeta de datos")
 	}
 }
 
@@ -684,7 +907,7 @@ func TestPeticionConfirmable(t *testing.T) {
 	}
 }
 
-// TestModoPreguntaConfirma runs risky code in the terminal mode: it asks, and with "1" (sí) runs it.
+// TestModoPreguntaConfirma runs risky code in the terminal mode: it asks, and with "a" (sí) runs it.
 func TestModoPreguntaConfirma(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("no hay Go instalado")
@@ -696,13 +919,7 @@ func TestModoPreguntaConfirma(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Share the build cache between test runs (a cold cache takes long).
-	if c, err := os.UserCacheDir(); err == nil {
-		comun := filepath.Join(c, "nyx-codigo-pruebas", "go-build")
-		if os.MkdirAll(comun, 0o700) == nil && os.MkdirAll(filepath.Join(datos, "cache"), 0o700) == nil {
-			os.Symlink(comun, filepath.Join(datos, "cache", "go-build"))
-		}
-	}
+	compartirCache(datos)
 	lee := filepath.Join(t.TempDir(), "lee.go")
 	os.WriteFile(lee, []byte("package main\n\nimport (\n\t\"fmt\"\n\t\"os\"\n)\n\nfunc main() {\n\t_, err := os.ReadFile(\"/no/existe/nada.txt\")\n\tfmt.Println(\"leído:\", err != nil)\n}\n"), 0o644)
 	run := func(entrada string) (int, string) {
@@ -710,11 +927,11 @@ func TestModoPreguntaConfirma(t *testing.T) {
 		c := correr([]string{"-sin-internet", "-datos", datos, "-preguntar", "ejecuta esto", "-codigo", lee}, strings.NewReader(entrada), &sal, &salErr)
 		return c, sal.String() + salErr.String()
 	}
-	c, s := run("2\n")
+	c, s := run("b\n")
 	if c != 1 || !strings.Contains(s, "? ¿Lo ejecuto en la caja segura?") || !strings.Contains(s, "No lo ejecuto.") || strings.Contains(s, "leído: true") {
 		t.Fatalf("con «no»: %d\n%s", c, s)
 	}
-	c, s = run("1\n")
+	c, s = run("a\n")
 	if c != 0 || !strings.Contains(s, "? ¿Lo ejecuto en la caja segura?") || !strings.Contains(s, "leído: true") {
 		t.Fatalf("con «sí»: %d\n%s", c, s)
 	}
@@ -737,6 +954,32 @@ func TestReadme(t *testing.T) {
 	if regexp.MustCompile(`go build( &&|\n|$)`).MatchString(s) {
 		t.Error("README.md tiene un «go build» sin -o nyx-codigo")
 	}
+	// Regression: the privacy section must not name a site the app never contacts. Wikipedia is only read
+	// if cerebro calls saber's Web.Wikipedia.
+	if strings.Contains(s, "Wikipedia") && !cerebroLlama(t, ".Wikipedia(") {
+		t.Error("README.md dice que lee Wikipedia, pero cerebro nunca llama a Web.Wikipedia")
+	}
+	if strings.Contains(s, "Puedes seguir con") || !strings.Contains(s, "contesta `a` (sí) o `b` (no)") {
+		t.Error("README.md debe explicar las respuestas con letra del modo terminal")
+	}
+}
+
+// cerebroLlama reports whether a non-test file of internal/cerebro contains llamada.
+func cerebroLlama(t *testing.T, llamada string) bool {
+	t.Helper()
+	rutas, err := filepath.Glob(filepath.Join("internal", "cerebro", "*.go"))
+	if err != nil || len(rutas) == 0 {
+		t.Fatalf("no encuentro internal/cerebro: %v", err)
+	}
+	for _, r := range rutas {
+		if strings.HasSuffix(r, "_test.go") {
+			continue
+		}
+		if b, err := os.ReadFile(r); err == nil && strings.Contains(string(b), llamada) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestRegistroRota(t *testing.T) {
@@ -753,5 +996,161 @@ func TestRegistroRota(t *testing.T) {
 	}
 	if _, err := os.Stat(ruta + ".1"); err != nil {
 		t.Fatalf("copia vieja: %v", err)
+	}
+}
+
+// compartirCache points <datos>/cache/go-build at a build cache shared between test runs (a cold cache
+// takes long).
+func compartirCache(datos string) {
+	if c, err := os.UserCacheDir(); err == nil {
+		comun := filepath.Join(c, "nyx-codigo-pruebas", "go-build")
+		if os.MkdirAll(comun, 0o700) == nil && os.MkdirAll(filepath.Join(datos, "cache"), 0o700) == nil {
+			os.Symlink(comun, filepath.Join(datos, "cache", "go-build"))
+		}
+	}
+}
+
+// romperAprendizaje puts a non-empty folder where memoria writes its learning counters, so that writing
+// them fails (rename onto a non-empty directory).
+func romperAprendizaje(t *testing.T, datos string) {
+	t.Helper()
+	ruta := filepath.Join(datos, "aprendizaje.json")
+	if err := os.RemoveAll(ruta); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(ruta, "x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestMotorCerrarError: cerrar returns what memoria could not save, also when it is called again
+// (memoria.Cerrar itself returns nil the second time).
+func TestMotorCerrarError(t *testing.T) {
+	if testing.Short() {
+		t.Skip("abre la memoria y la caja de arena")
+	}
+	datos, err := carpetaDatos(filepath.Join(t.TempDir(), "datos"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := construir(opciones{sinInternet: true}, datos, arenero.Config{DirDatos: t.TempDir(), DirCache: filepath.Join(t.TempDir(), "cache")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	romperAprendizaje(t, datos)
+	m.mem.Contador().Exito("estrategia:prueba", true)
+	err = m.cerrar()
+	if err == nil {
+		t.Fatal("cerrar no avisó de que no pudo guardar aprendizaje.json")
+	}
+	if txt := textoErrorCierre(err); txt != "no pude guardar aprendizaje.json (ya hay algo con ese nombre que no puedo reemplazar)" &&
+		txt != "no pude guardar aprendizaje.json (en su lugar hay una carpeta)" {
+		t.Errorf("textoErrorCierre = %q", txt)
+	}
+	if err2 := m.cerrar(); err2 != err {
+		t.Errorf("la segunda llamada devolvió %v", err2)
+	}
+}
+
+// TestCierreAvisaSiNoGuarda is the regression test for the shutdown message (§0): when memoria cannot
+// write its pending counters, the server must not say «Tu memoria está guardada» nor exit 0.
+func TestCierreAvisaSiNoGuarda(t *testing.T) {
+	if testing.Short() {
+		t.Skip("arranca el servidor")
+	}
+	// Not t.TempDir: the background warm-up may still be writing to the build cache for a moment.
+	base, err := os.MkdirTemp("", "nyx-codigo-cierre-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for i := 0; i < 20 && os.RemoveAll(base) != nil; i++ {
+			time.Sleep(100 * time.Millisecond)
+		}
+	})
+	datos, err := carpetaDatos(filepath.Join(base, "datos"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	compartirCache(datos)
+
+	ctx, parar := context.WithCancel(context.Background())
+	defer parar()
+	antes := contextoSenales
+	contextoSenales = func() (context.Context, context.CancelFunc) { return context.WithCancel(ctx) }
+	defer func() { contextoSenales = antes }()
+
+	var sal, salErr bytes.Buffer
+	hecho := make(chan int, 1)
+	go func() {
+		hecho <- correr([]string{"-sin-internet", "-sin-navegador", "-puerto", "0", "-datos", datos}, strings.NewReader(""), &sal, &salErr)
+	}()
+	var inst instancia
+	for limite := time.Now().Add(90 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		if i, ok := leerInstancia(datos); ok {
+			inst = i
+			break
+		}
+		select {
+		case c := <-hecho:
+			t.Fatalf("el servidor terminó antes de tiempo: %d\n%s\n%s", c, sal.String(), salErr.String())
+		default:
+		}
+		if time.Now().After(limite) {
+			parar()
+			<-hecho
+			t.Fatal("el servidor no escribió instancia.json en 90 s")
+		}
+	}
+
+	// memoria is open; from now on its learning counters cannot be written.
+	romperAprendizaje(t, datos)
+	base1 := "http://127.0.0.1:" + strconv.Itoa(inst.Puerto)
+	req, _ := http.NewRequest(http.MethodPost, base1+"/api/preguntar", strings.NewReader(`{"sesion":"abc","texto":"resuelve 2x+3=11"}`))
+	req.Header.Set("X-Nyx-Token", inst.Token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := clienteLocal.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tarea struct {
+		Tarea string `json:"tarea"`
+	}
+	json.NewDecoder(resp.Body).Decode(&tarea)
+	resp.Body.Close()
+	if tarea.Tarea == "" {
+		t.Fatalf("POST /api/preguntar: %d", resp.StatusCode)
+	}
+	flujo, err := (&http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: 60 * time.Second}).Get(base1 + "/api/tareas/" + tarea.Tarea + "/eventos?t=" + inst.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sc := bufio.NewScanner(flujo.Body)
+	fin := false
+	for !fin && sc.Scan() {
+		fin = sc.Text() == "event: fin"
+	}
+	flujo.Body.Close()
+	if !fin {
+		t.Fatalf("la tarea no terminó: %v", sc.Err())
+	}
+
+	parar() // as SIGTERM does
+	select {
+	case c := <-hecho:
+		if c != 1 {
+			t.Errorf("salida %d, quiero 1", c)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("no se cerró en 30 s")
+	}
+	if strings.Contains(sal.String(), "Tu memoria está guardada") {
+		t.Errorf("dice que guardó la memoria sin haberlo hecho:\n%s", sal.String())
+	}
+	if !strings.Contains(salErr.String(), "Nyx Código se ha cerrado, pero no pude guardar aprendizaje.json (") {
+		t.Errorf("no avisa de lo que no pudo guardar:\n%s", salErr.String())
+	}
+	if _, err := os.Stat(filepath.Join(datos, archivoInstancia)); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("instancia.json sigue ahí (%v)", err)
 	}
 }

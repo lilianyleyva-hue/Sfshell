@@ -26,6 +26,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -33,6 +34,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -40,6 +42,7 @@ import (
 	"syscall"
 	"text/tabwriter"
 	"time"
+	"unicode/utf8"
 
 	"nyxcodigo/internal/arenero"
 	"nyxcodigo/internal/cerebro"
@@ -83,44 +86,213 @@ type opciones struct {
 	version      bool
 }
 
-func leerOpciones(args []string, salErr io.Writer) (opciones, error) {
+// ordenOpciones is the order of the options in the help text.
+var ordenOpciones = []string{"puerto", "datos", "sin-internet", "sin-navegador", "preguntar", "codigo", "instalar", "version"}
+
+// leerOpciones parses the flags. The flag package's own texts are in English, so it writes nothing:
+// the help (-h) goes to sal and every mistake is said in Spanish on salErr.
+func leerOpciones(args []string, sal, salErr io.Writer) (opciones, error) {
 	var o opciones
-	fs := flag.NewFlagSet("nyx-codigo", flag.ContinueOnError)
-	fs.SetOutput(salErr)
-	fs.IntVar(&o.puerto, "puerto", puertoPorDefecto, "puerto local (si está ocupado, uso otro libre; 0 = cualquiera)")
-	fs.StringVar(&o.datos, "datos", "", "carpeta de datos (por defecto $XDG_DATA_HOME/nyx-codigo o ~/.local/share/nyx-codigo)")
-	fs.BoolVar(&o.sinInternet, "sin-internet", false, "no usar internet para nada")
-	fs.BoolVar(&o.sinNavegador, "sin-navegador", false, "no abrir el navegador")
-	fs.StringVar(&o.preguntar, "preguntar", "", "modo terminal: responde una pregunta, enseña cómo pensó y termina")
-	fs.StringVar(&o.codigo, "codigo", "", "con -preguntar: archivo .go sobre el que preguntas")
-	fs.BoolVar(&o.instalar, "instalar", false, "crea el acceso directo del menú de aplicaciones y termina")
-	fs.BoolVar(&o.version, "version", false, "muestra la versión y termina")
-	fs.Usage = func() {
-		fmt.Fprintln(salErr, "Uso: nyx-codigo [opciones]")
-		fmt.Fprintln(salErr, "Abre Nyx Código en tu navegador (http://127.0.0.1:8765). Opciones:")
-		fs.PrintDefaults()
+	fl := flag.NewFlagSet("nyx-codigo", flag.ContinueOnError)
+	fl.SetOutput(io.Discard)
+	fl.Usage = func() {}
+	// The `quoted` word is the value's name in the help (flag.UnquoteUsage).
+	fl.IntVar(&o.puerto, "puerto", puertoPorDefecto, fmt.Sprintf("`número` del puerto local (por defecto %d; si está ocupado, uso otro libre; 0 = cualquiera)", puertoPorDefecto))
+	fl.StringVar(&o.datos, "datos", "", "`carpeta` donde guardo mi memoria (por defecto $XDG_DATA_HOME/nyx-codigo o ~/.local/share/nyx-codigo)")
+	fl.BoolVar(&o.sinInternet, "sin-internet", false, "no uso internet para nada")
+	fl.BoolVar(&o.sinNavegador, "sin-navegador", false, "no abro el navegador; solo escribo la dirección")
+	fl.StringVar(&o.preguntar, "preguntar", "", "modo terminal: respondo esa `\"pregunta\"`, enseño cómo pensé y termino")
+	fl.StringVar(&o.codigo, "codigo", "", "con -preguntar: el `archivo.go` sobre el que preguntas (máximo 1 MiB)")
+	fl.BoolVar(&o.instalar, "instalar", false, "creo el acceso directo del menú de aplicaciones y termino")
+	fl.BoolVar(&o.version, "version", false, "digo mi versión y termino")
+	mal := func(format string, a ...any) (opciones, error) {
+		msg := fmt.Sprintf(format, a...)
+		fmt.Fprintln(salErr, msg)
+		fmt.Fprintln(salErr, "Escribe «nyx-codigo -h» para ver las opciones.")
+		return o, errors.New(msg)
 	}
-	if err := fs.Parse(args); err != nil {
-		return o, err
+	if err := fl.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			ayuda(sal, fl)
+			return o, err
+		}
+		return mal("%s", errorOpcion(fl, err))
 	}
-	if fs.NArg() > 0 {
-		fmt.Fprintf(salErr, "No entiendo «%s». Si quieres preguntar algo, usa -preguntar \"tu pregunta\".\n", strings.Join(fs.Args(), " "))
-		return o, errors.New("argumentos de más")
+	if fl.NArg() > 0 {
+		return mal("No entiendo «%s». Si quieres preguntar algo, usa -preguntar \"tu pregunta\".", strings.Join(fl.Args(), " "))
 	}
 	if o.puerto < 0 || o.puerto > 65535 {
-		fmt.Fprintf(salErr, "El puerto %d no vale: usa un número entre 0 y 65535.\n", o.puerto)
-		return o, errors.New("puerto no válido")
+		return mal("El puerto %d no vale: usa un número entre 0 y 65535.", o.puerto)
 	}
-	if o.codigo != "" && o.preguntar == "" {
-		fmt.Fprintln(salErr, "-codigo solo sirve junto con -preguntar.")
-		return o, errors.New("-codigo sin -preguntar")
+	puestas := map[string]bool{}
+	fl.Visit(func(f *flag.Flag) { puestas[f.Name] = true })
+	// An empty question must not start the server (a script with -preguntar "$Q" and an empty $Q).
+	if puestas["preguntar"] && strings.TrimSpace(o.preguntar) == "" {
+		return mal("La pregunta está vacía: escribe algo después de -preguntar, por ejemplo -preguntar \"resuelve 2x+3=11\".")
+	}
+	if puestas["codigo"] && strings.TrimSpace(o.codigo) == "" {
+		return mal("Falta el nombre del archivo después de -codigo.")
+	}
+	if puestas["codigo"] && !puestas["preguntar"] {
+		return mal("-codigo solo sirve junto con -preguntar.")
 	}
 	return o, nil
 }
 
+// ayuda writes the Spanish help (-h).
+func ayuda(w io.Writer, fl *flag.FlagSet) {
+	fmt.Fprintln(w, "Uso: nyx-codigo [opciones]")
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "Sin opciones, abre Nyx Código en tu navegador (http://127.0.0.1:%d).\n", puertoPorDefecto)
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Opciones:")
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	for _, nombre := range ordenOpciones {
+		f := fl.Lookup(nombre)
+		if f == nil {
+			continue
+		}
+		valor, uso := flag.UnquoteUsage(f)
+		fmt.Fprintf(tw, "  -%s\t%s\n", strings.TrimSpace(nombre+" "+valor), uso)
+	}
+	tw.Flush()
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Ejemplos:")
+	fmt.Fprintln(w, "  nyx-codigo -preguntar \"resuelve 2x+3=11\"")
+	fmt.Fprintln(w, "  nyx-codigo -preguntar \"¿qué hace este código?\" -codigo main.go")
+}
+
+var (
+	reNoDefinida  = regexp.MustCompile(`^flag provided but not defined: -(.*)$`)
+	reSinValor    = regexp.MustCompile(`^flag needs an argument: -(.*)$`)
+	reValorMalo   = regexp.MustCompile(`^invalid value (".*") for flag -([^:]+): `)
+	reBoolMalo    = regexp.MustCompile(`^invalid boolean (?:value ".*" for -|flag )([^:]+): `)
+	reSintaxisMal = regexp.MustCompile(`^bad flag syntax: (.*)$`)
+)
+
+// errorOpcion says in Spanish what is wrong with the flags (err comes from flag.FlagSet.Parse, whose
+// messages are in English and stable).
+func errorOpcion(fl *flag.FlagSet, err error) string {
+	msg := err.Error()
+	conValor := func(nombre string) string {
+		if f := fl.Lookup(nombre); f != nil {
+			if v, _ := flag.UnquoteUsage(f); v != "" {
+				return "-" + nombre + " " + v
+			}
+		}
+		return "-" + nombre
+	}
+	if m := reNoDefinida.FindStringSubmatch(msg); m != nil {
+		return fmt.Sprintf("No conozco la opción -%s.", m[1])
+	}
+	if m := reSinValor.FindStringSubmatch(msg); m != nil {
+		return fmt.Sprintf("A la opción -%s le falta su valor: escribe %s.", m[1], conValor(m[1]))
+	}
+	if m := reValorMalo.FindStringSubmatch(msg); m != nil {
+		v, errQ := strconv.Unquote(m[1])
+		if errQ != nil {
+			v = m[1]
+		}
+		if m[2] == "puerto" {
+			return fmt.Sprintf("«%s» no es un puerto: usa un número entre 0 y 65535.", v)
+		}
+		return fmt.Sprintf("«%s» no vale para -%s: escribe %s.", v, m[2], conValor(m[2]))
+	}
+	if m := reBoolMalo.FindStringSubmatch(msg); m != nil {
+		return fmt.Sprintf("La opción -%s no lleva valor: escribe solo -%s.", m[1], m[1])
+	}
+	if m := reSintaxisMal.FindStringSubmatch(msg); m != nil {
+		return fmt.Sprintf("No entiendo «%s».", m[1])
+	}
+	return "No entiendo las opciones (" + msg + ")."
+}
+
+// maxCodigo caps the -codigo file, as the web app caps request bodies (§5.1).
+const maxCodigo = 1 << 20
+
+var (
+	errCodigoGrande  = errors.New("es demasiado grande (el máximo es 1 MiB)")
+	errCodigoCarpeta = errors.New("es una carpeta, no un archivo")
+	errCodigoBinario = errors.New("no es un archivo de texto")
+)
+
+// leerCodigo reads the -codigo file, at most maxCodigo bytes, so /dev/zero or a huge file cannot fill the
+// memory. It runs before the signal handlers are installed: Ctrl+C still ends a read that blocks (a FIFO
+// with no writer).
+func leerCodigo(ruta string) (string, error) {
+	f, err := os.Open(ruta)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	if fi, err := f.Stat(); err == nil && fi.IsDir() {
+		return "", errCodigoCarpeta
+	}
+	b, err := io.ReadAll(io.LimitReader(f, maxCodigo+1))
+	if err != nil {
+		return "", err
+	}
+	if len(b) > maxCodigo {
+		return "", errCodigoGrande
+	}
+	if !utf8.Valid(b) {
+		return "", errCodigoBinario
+	}
+	return string(b), nil
+}
+
+// motivoError says a common file error in simple Spanish; other errors keep their text.
+func motivoError(err error) string {
+	switch {
+	case errors.Is(err, errCodigoGrande), errors.Is(err, errCodigoCarpeta), errors.Is(err, errCodigoBinario):
+		return err.Error()
+	case errors.Is(err, fs.ErrNotExist):
+		return "no existe"
+	case errors.Is(err, syscall.ENOSPC):
+		return "el disco está lleno"
+	case errors.Is(err, syscall.EROFS):
+		return "el disco es de solo lectura"
+	case errors.Is(err, fs.ErrPermission):
+		return "no tengo permiso"
+	case errors.Is(err, syscall.EISDIR), errors.Is(err, syscall.ENOTEMPTY):
+		return "en su lugar hay una carpeta"
+	case errors.Is(err, fs.ErrExist):
+		return "ya hay algo con ese nombre que no puedo reemplazar"
+	}
+	return err.Error()
+}
+
+// archivoDeError is the name of the file an error is about ("" when it does not say).
+func archivoDeError(err error) string {
+	var le *os.LinkError
+	if errors.As(err, &le) {
+		return filepath.Base(le.New)
+	}
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		return filepath.Base(pe.Path)
+	}
+	return ""
+}
+
+// textoErrorCierre says what could not be saved on closing.
+func textoErrorCierre(err error) string {
+	que := "parte de tu memoria"
+	if n := archivoDeError(err); n != "" && n != "." && n != string(filepath.Separator) {
+		que = n
+	}
+	return fmt.Sprintf("no pude guardar %s (%s)", que, motivoError(err))
+}
+
+// contextoSenales gives the context that SIGINT and SIGTERM cancel. A variable so tests can stop the
+// server without a signal.
+var contextoSenales = func() (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+}
+
 // correr is main without os.Exit, so tests can call it.
 func correr(args []string, entrada io.Reader, sal, salErr io.Writer) int {
-	o, err := leerOpciones(args, salErr)
+	o, err := leerOpciones(args, sal, salErr)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -140,6 +312,13 @@ func correr(args []string, entrada io.Reader, sal, salErr io.Writer) int {
 		fmt.Fprintf(sal, "Listo: he creado %s. Busca «Nyx Código» en el menú de aplicaciones.\n", ruta)
 		return 0
 	}
+	codigo := ""
+	if o.codigo != "" { // read first: a wrong file is said before anything else is touched
+		if codigo, err = leerCodigo(o.codigo); err != nil {
+			fmt.Fprintf(salErr, "No puedo leer %s: %s.\n", o.codigo, motivoError(err))
+			return 1
+		}
+	}
 	datos, err := carpetaDatos(o.datos)
 	if err != nil {
 		fmt.Fprintf(salErr, "No puedo usar la carpeta de datos: %v\n", err)
@@ -153,7 +332,7 @@ func correr(args []string, entrada io.Reader, sal, salErr io.Writer) int {
 		log.SetOutput(io.Discard)
 	}
 	if o.preguntar != "" {
-		return modoPregunta(o, datos, entrada, sal, salErr)
+		return modoPregunta(o, datos, codigo, entrada, sal, salErr)
 	}
 	return servir(o, datos, sal, salErr)
 }
@@ -449,6 +628,9 @@ type motor struct {
 	are *arenero.Arenero // nil when the sandbox could not be created
 	web *saber.Web       // nil with -sin-internet
 	cer *cerebro.Cerebro
+
+	cierre    sync.Once
+	errCierre error // what cerrar could not save
 }
 
 // construir opens memoria → arenero → saber → cerebro (§4.16 step 4).
@@ -499,22 +681,32 @@ func (m *motor) indexar(datos string) {
 	m.cer.PonerIndice(idx)
 }
 
-func (m *motor) cerrar() {
-	if m.cer != nil {
-		if err := m.cer.Cerrar(); err != nil { // the dictionary and the sentences read (habla.json)
-			log.Printf("cerebro.Cerrar: %v", err)
+// cerrar saves what is pending and closes everything, once (a second call returns the same result). It
+// returns what could not be saved, so the caller never says "Tu memoria está guardada" when it is not
+// (§0): memoria.Cerrar itself returns nil the second time.
+func (m *motor) cerrar() error {
+	m.cierre.Do(func() {
+		var errs []error
+		if m.cer != nil {
+			if err := m.cer.Cerrar(); err != nil { // the dictionary and the sentences read (habla.json)
+				log.Printf("cerebro.Cerrar: %v", err)
+				errs = append(errs, err)
+			}
 		}
-	}
-	if err := m.mem.Cerrar(); err != nil {
-		log.Printf("memoria.Cerrar: %v", err)
-	}
-	if m.are != nil {
-		m.are.Cerrar()
-	}
+		if err := m.mem.Cerrar(); err != nil { // the learning counters (aprendizaje.json)
+			log.Printf("memoria.Cerrar: %v", err)
+			errs = append(errs, err)
+		}
+		if m.are != nil {
+			m.are.Cerrar()
+		}
+		m.errCierre = errors.Join(errs...)
+	})
+	return m.errCierre
 }
 
 func servir(o opciones, datos string, sal, salErr io.Writer) int {
-	ctx, parar := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, parar := contextoSenales()
 	defer parar()
 
 	// Single instance: if another Nyx Código already serves this data directory, open it instead.
@@ -627,10 +819,14 @@ func servir(o opciones, datos string, sal, salErr io.Writer) int {
 	}
 	cancelar()
 	esperar(&wg, 3*time.Second)
-	m.cerrar()
+	errCierre := m.cerrar()
 	borrarInstancia(datos, yo)
 	vaciarTmp(datos)
 	bloqueo.Close()
+	if errCierre != nil {
+		fmt.Fprintf(salErr, "Nyx Código se ha cerrado, pero %s.\n", textoErrorCierre(errCierre))
+		return 1
+	}
 	fmt.Fprintln(sal, "Nyx Código se ha cerrado. Tu memoria está guardada.")
 	return salida
 }
@@ -657,8 +853,8 @@ func esperar(wg *sync.WaitGroup, d time.Duration) {
 // ---------------------------------------------------------------------------------------------
 // CLI mode (-preguntar)
 
-func modoPregunta(o opciones, datos string, entrada io.Reader, sal, salErr io.Writer) int {
-	ctx, parar := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+func modoPregunta(o opciones, datos, codigo string, entrada io.Reader, sal, salErr io.Writer) int {
+	ctx, parar := contextoSenales()
 	defer parar()
 
 	// One process per data folder: memoria has no lock of its own, and the last writer would win.
@@ -677,15 +873,6 @@ func modoPregunta(o opciones, datos string, entrada io.Reader, sal, salErr io.Wr
 	}
 	defer bloqueo.Close()
 
-	codigo := ""
-	if o.codigo != "" {
-		b, err := os.ReadFile(o.codigo)
-		if err != nil {
-			fmt.Fprintf(salErr, "No puedo leer %s: %v\n", o.codigo, err)
-			return 1
-		}
-		codigo = string(b)
-	}
 	// The sandbox gets its own temp folder, so a running server instance (which owns <datos>/tmp)
 	// is not disturbed; the build cache is shared.
 	tmpAre, err := os.MkdirTemp("", "nyx-codigo-cli-")
@@ -721,6 +908,10 @@ func modoPregunta(o opciones, datos string, entrada io.Reader, sal, salErr io.Wr
 	r := m.cer.Responder(ctx, p, tr)
 	imp.Vaciar()
 	imprimirRespuesta(sal, r)
+	salida := 1
+	if r.Exito {
+		salida = 0
+	}
 
 	// Code with risks: ask here, as the web app's dialog does, and run it again with permission.
 	if q, ok := peticionConfirmable(p, r); ok {
@@ -728,20 +919,26 @@ func modoPregunta(o opciones, datos string, entrada io.Reader, sal, salErr io.Wr
 			Texto: "¿Lo ejecuto en la caja segura?", Opciones: []string{"sí", "no"}, PorDefecto: "no"})
 		if err != nil || !esSi(resp) {
 			fmt.Fprintln(sal, "No lo ejecuto.")
-			return 1
+			salida = 1
+		} else {
+			id, _ := nuevoToken()
+			q.Tarea = "cli-" + id[:12]
+			imp = nuevaImpresora(sal)
+			tr = nucleo.NuevaTraza(imp.Evento, lec.Responder(imp))
+			r = m.cer.Responder(ctx, q, tr)
+			imp.Vaciar()
+			imprimirRespuesta(sal, r)
+			salida = 1
+			if r.Exito {
+				salida = 0
+			}
 		}
-		id, _ := nuevoToken()
-		q.Tarea = "cli-" + id[:12]
-		imp = nuevaImpresora(sal)
-		tr = nucleo.NuevaTraza(imp.Evento, lec.Responder(imp))
-		r = m.cer.Responder(ctx, q, tr)
-		imp.Vaciar()
-		imprimirRespuesta(sal, r)
 	}
-	if r.Exito {
-		return 0
+	if err := m.cerrar(); err != nil {
+		fmt.Fprintf(salErr, "Ojo: al terminar %s.\n", textoErrorCierre(err))
+		return 1
 	}
-	return 1
+	return salida
 }
 
 // peticionConfirmable returns the request to send again with Confirmado when the answer r asks for
@@ -918,85 +1115,215 @@ func (l *lector) esTerminal() bool {
 	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
 
-// Responder returns the nucleo.Responder: it shows the question and its options, and reads a line.
-// A number picks an option; an empty line takes the default; end of input means no answer.
+// Responder returns the nucleo.Responder: it shows the question with its options labelled A) B) C) (as
+// §1 writes them), and reads a line. A label or the option itself picks an option; any other text is the
+// answer when the question takes free text, and is asked again (twice at most) when it does not; an empty
+// line takes the default; end of input means no answer.
 func (l *lector) Responder(imp *impresora) nucleo.Responder {
 	return func(ctx context.Context, p nucleo.PreguntaUsuario) (string, error) {
+		et := etiquetasOpciones(p.Opciones)
+		pista := pistaPregunta(p, et)
 		imp.escribir(func(w io.Writer) {
 			fmt.Fprintf(w, "? %s\n", unaLinea(p.Texto))
 			for i, op := range p.Opciones {
-				fmt.Fprintf(w, "    %d) %s\n", i+1, op)
-			}
-			pista := "Escribe tu respuesta"
-			if len(p.Opciones) > 0 {
-				pista = "Escribe el número de una opción"
-				if p.Libre {
-					pista += " o tu respuesta"
+				if et != nil {
+					fmt.Fprintf(w, "    %s) %s\n", et[i], op)
+				} else {
+					fmt.Fprintf(w, "    - %s\n", op)
 				}
-			}
-			if p.PorDefecto != "" {
-				pista += fmt.Sprintf(" (Intro = «%s»)", p.PorDefecto)
 			}
 			fmt.Fprintf(w, "  %s: ", pista)
 		})
 		l.empezar()
-		var s string
-		var ok bool
-		select {
-		case s, ok = <-l.lineas:
-		case <-ctx.Done():
-			imp.escribir(func(w io.Writer) { fmt.Fprintln(w) })
-			return p.PorDefecto, nucleo.ErrSinRespuesta
-		}
-		if !ok {
-			imp.escribir(func(w io.Writer) { fmt.Fprintln(w, "(sin respuesta)") })
-			return p.PorDefecto, nucleo.ErrSinRespuesta
-		}
-		if !l.esTerminal() {
-			// piped input is not echoed by a terminal: show the answer so the next line starts clean
-			imp.escribir(func(w io.Writer) { fmt.Fprintln(w, s) })
-		}
-		s = strings.TrimSpace(s)
-		if s == "" {
-			if p.PorDefecto == "" {
-				return "", nucleo.ErrSinRespuesta
+		for intento := 1; ; intento++ {
+			var s string
+			var ok bool
+			select {
+			case s, ok = <-l.lineas:
+			case <-ctx.Done():
+				imp.escribir(func(w io.Writer) { fmt.Fprintln(w) })
+				return p.PorDefecto, nucleo.ErrSinRespuesta
 			}
-			return p.PorDefecto, nil
-		}
-		if n, err := strconv.Atoi(s); err == nil && n >= 1 && n <= len(p.Opciones) {
-			// A number names an option, unless the number itself is one of the options.
-			esOpcion := false
-			for _, op := range p.Opciones {
-				if op == s {
-					esOpcion = true
+			if !ok {
+				imp.escribir(func(w io.Writer) { fmt.Fprintln(w, "(sin respuesta)") })
+				return p.PorDefecto, nucleo.ErrSinRespuesta
+			}
+			if !l.esTerminal() {
+				// piped input is not echoed by a terminal: show the answer so the next line starts clean
+				imp.escribir(func(w io.Writer) { fmt.Fprintln(w, s) })
+			}
+			s = strings.TrimSpace(s)
+			if s == "" {
+				if p.PorDefecto == "" {
+					return "", nucleo.ErrSinRespuesta
 				}
+				return p.PorDefecto, nil
 			}
-			if !esOpcion {
-				return p.Opciones[n-1], nil
+			op, ok := elegirOpcion(s, p, et)
+			if ok || p.Libre || len(p.Opciones) == 0 {
+				return op, nil
 			}
+			if intento == 3 {
+				imp.escribir(func(w io.Writer) { fmt.Fprintln(w, "  (sin respuesta)") })
+				return p.PorDefecto, nucleo.ErrSinRespuesta
+			}
+			imp.escribir(func(w io.Writer) { fmt.Fprintf(w, "  «%s» no es una de las opciones. %s: ", unaLinea(s), pista) })
 		}
-		return s, nil
 	}
 }
+
+// etiquetasOpciones gives the labels shown before the options: letters (A, B, C…), so that a number typed
+// as an answer is never taken for an option's position. When an option is itself one of those letters,
+// numbers are used; when it is also one of those numbers, nil: each option is chosen by typing it.
+func etiquetasOpciones(ops []string) []string {
+	if len(ops) == 0 {
+		return nil
+	}
+	var letras []string
+	if len(ops) <= 26 {
+		for i := range ops {
+			letras = append(letras, string(rune('A'+i)))
+		}
+	}
+	numeros := make([]string, len(ops))
+	for i := range ops {
+		numeros[i] = strconv.Itoa(i + 1)
+	}
+	for _, et := range [][]string{letras, numeros} {
+		if et != nil && !chocan(ops, et) {
+			return et
+		}
+	}
+	return nil
+}
+
+// chocan reports whether an option reads like one of the labels.
+func chocan(ops, et []string) bool {
+	for _, op := range ops {
+		o := nucleo.Normalizar(op)
+		for _, e := range et {
+			if o == strings.ToLower(e) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// pistaPregunta is the line before the answer: "Escribe la letra de una opción o tu respuesta (Intro = «no»)".
+func pistaPregunta(p nucleo.PreguntaUsuario, et []string) string {
+	pista := "Escribe tu respuesta"
+	if len(p.Opciones) > 0 {
+		switch {
+		case et == nil:
+			pista = "Escribe una de las opciones"
+		case et[0] == "A":
+			pista = "Escribe la letra de una opción"
+		default:
+			pista = "Escribe el número de una opción"
+		}
+		if p.Libre {
+			pista += " o tu respuesta"
+		}
+	}
+	if p.PorDefecto != "" {
+		pista += fmt.Sprintf(" (Intro = «%s»)", p.PorDefecto)
+	}
+	return pista
+}
+
+// elegirOpcion maps a typed line to an option: the option itself (also ignoring case and accents), or its
+// label ("b", "B", "b)" or "(b)"); for a question without free text also the start of one option ("s" →
+// "sí"). The labels never read like an option (etiquetasOpciones), so the two cannot be confused.
+func elegirOpcion(s string, p nucleo.PreguntaUsuario, et []string) (string, bool) {
+	for _, op := range p.Opciones {
+		if s == op {
+			return op, true
+		}
+	}
+	marca := strings.TrimSuffix(strings.TrimSuffix(strings.TrimPrefix(s, "("), ")"), ".")
+	for i, e := range et {
+		if strings.EqualFold(marca, e) {
+			return p.Opciones[i], true
+		}
+	}
+	n := nucleo.Normalizar(s)
+	if n == "" {
+		return s, false
+	}
+	for _, op := range p.Opciones {
+		if nucleo.Normalizar(op) == n {
+			return op, true
+		}
+	}
+	if !p.Libre {
+		elegida, cuantas := "", 0
+		for _, op := range p.Opciones {
+			if strings.HasPrefix(nucleo.Normalizar(op), n) {
+				elegida, cuantas = op, cuantas+1
+			}
+		}
+		if cuantas == 1 {
+			return elegida, true
+		}
+	}
+	return s, false
+}
+
+// paraTerminal adapts the web app's wording to the terminal, which has no buttons and no conversation:
+// every -preguntar is a new process with a new session.
+var paraTerminal = strings.NewReplacer(
+	"Si no es eso, pulsa «No es eso».", "Si no es eso, vuelve a preguntar con otras palabras o con ejemplos (entrada -> salida).",
+	"Pulsa «Pensar más» para darme el doble de tiempo.", "En el navegador, «Pensar más» me da el doble de tiempo.",
+	"(botón «Estudiar Go»)", "(botón «Estudiar Go», en el navegador)",
+	"Mira la pestaña Memoria o", "Mira la pestaña Memoria en el navegador o",
+)
+
+// reNumerado: a plan step that already starts with its number ("1. llena la jarra de 5 l").
+var reNumerado = regexp.MustCompile(`^\d+[.)] `)
 
 // imprimirRespuesta prints the final answer below the trace.
 func imprimirRespuesta(w io.Writer, r nucleo.Respuesta) {
 	fmt.Fprintln(w, strings.Repeat("─", 40))
 	if t := strings.TrimSpace(r.Texto); t != "" {
-		fmt.Fprintln(w, t)
+		fmt.Fprintln(w, paraTerminal.Replace(t))
 	}
 	if r.Entendi != "" {
-		fmt.Fprintln(w, r.Entendi)
+		fmt.Fprintln(w, paraTerminal.Replace(r.Entendi))
 	}
+	visto := map[string]bool{}
 	for _, p := range r.Parrafos {
 		if strings.TrimSpace(p) != "" {
-			fmt.Fprintln(w, p)
+			fmt.Fprintln(w, paraTerminal.Replace(p))
+			visto[strings.TrimSpace(p)] = true
 		}
 	}
 	if len(r.Plan) > 0 {
 		fmt.Fprintln(w)
+		numerados := true
+		for _, s := range r.Plan {
+			numerados = numerados && reNumerado.MatchString(s)
+		}
 		for i, s := range r.Plan {
-			fmt.Fprintf(w, "%d. %s\n", i+1, s)
+			visto[strings.TrimSpace(s)] = true
+			if numerados {
+				fmt.Fprintln(w, s) // the steps carry their numbers already (puzles plans)
+			} else {
+				fmt.Fprintf(w, "%d. %s\n", i+1, s)
+			}
+		}
+	}
+	// The web app shows the justification under «¿Por qué?»; the follow-up "¿por qué?" cannot work here.
+	var porQue []string
+	for _, j := range r.Justificacion {
+		if j = strings.TrimSpace(j); j != "" && !visto[j] {
+			porQue = append(porQue, j)
+		}
+	}
+	if len(porQue) > 0 {
+		fmt.Fprintln(w, "\n¿Por qué?")
+		for _, j := range porQue {
+			fmt.Fprintf(w, "  %s\n", paraTerminal.Replace(j))
 		}
 	}
 	if r.Tablero != nil && len(r.Tablero.Celdas) > 0 {
@@ -1032,7 +1359,7 @@ func imprimirRespuesta(w io.Writer, r nucleo.Respuesta) {
 	if len(r.Comprobaciones) > 0 {
 		fmt.Fprintln(w)
 		for _, c := range r.Comprobaciones {
-			texto := c.Texto
+			texto := paraTerminal.Replace(c.Texto)
 			if texto == "" {
 				texto = string(c.Nivel)
 			}
@@ -1057,7 +1384,8 @@ func imprimirRespuesta(w io.Writer, r nucleo.Respuesta) {
 		fmt.Fprintln(w, r.Aprendido)
 	}
 	if len(r.Sugerencias) > 0 {
-		fmt.Fprintf(w, "Puedes seguir con: %s\n", strings.Join(r.Sugerencias, " · "))
+		// Follow-ups need the conversation, which only the web app keeps.
+		fmt.Fprintf(w, "En el navegador puedes seguir con: %s\n", strings.Join(r.Sugerencias, " · "))
 	}
 }
 
