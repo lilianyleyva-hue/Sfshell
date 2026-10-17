@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"nyxcodigo/internal/nucleo"
 )
@@ -180,4 +181,109 @@ func TestEjecutarSinDatosYConError(t *testing.T) {
 	if r.Exito || r.Nivel != nucleo.NivelFallo || !contiene(r, "«algo salió mal»") {
 		t.Errorf("con error: %s [%s]\n%s\n%s", r.Texto, r.Nivel, strings.Join(r.Parrafos, "\n"), titulos(tr))
 	}
+}
+
+// dialogo is what app.js sends when the user accepts the risk dialog: only the code, as "ejecutar", with
+// no text and confirmado:true, whatever the request was.
+func dialogo(sesion, codigo string) nucleo.Peticion {
+	return nucleo.Peticion{Sesion: sesion, Codigo: codigo, Accion: "ejecutar", Confirmado: true}
+}
+
+// Regression: the dialog's resend takes back the request that asked for permission, so "con entrada 5"
+// (also for a wrapped function, whose stdin is not the text) and the action (probar, reparar) are kept.
+func TestEjecutarDialogoRetomaLaPeticion(t *testing.T) {
+	c := cerebroConGo(t)
+
+	// chat: "ejecuta esto con entrada 5" + code that needs permission
+	codigo := "package main\n\nimport (\n\t\"fmt\"\n\t\"os\"\n)\n\nfunc main() {\n\tb, _ := os.ReadFile(\"no-existe\")\n\tvar n int\n\tfmt.Scan(&n)\n\tfmt.Println(n*2, len(b))\n}\n"
+	r, tr := pedir(t, c, nucleo.Peticion{Sesion: "dlg-prog", Texto: "ejecuta esto con entrada 5\n" + codigo})
+	if len(r.Riesgos) == 0 || r.Codigo == "" {
+		t.Fatalf("debería pedir permiso: %s %+v\n%s", r.Texto, r.Riesgos, titulos(tr))
+	}
+	r, tr = pedir(t, c, dialogo("dlg-prog", r.Codigo))
+	if !r.Exito || !contiene(r, "«10 0»") || !strings.Contains(titulos(tr), "Me diste permiso para lo que me pediste") {
+		t.Errorf("programa: %s [%s]\n%s\n%s", r.Texto, r.Nivel, strings.Join(r.Parrafos, "\n"), titulos(tr))
+	}
+
+	// a wrapped function: the dialog resends the wrapper, which reads "3 1 2", not "[3,1,2]"
+	suma := "import \"os\"\n\nfunc Suma(xs []int) int {\n\tb, _ := os.ReadFile(\"no-existe\")\n\tt := len(b)\n\tfor _, x := range xs {\n\t\tt += x\n\t}\n\treturn t\n}\n"
+	r, tr = pedir(t, c, nucleo.Peticion{Sesion: "dlg-func", Texto: "ejecútala con [3,1,2]", Codigo: suma})
+	if len(r.Riesgos) == 0 || !strings.Contains(r.Codigo, "func main()") {
+		t.Fatalf("debería pedir permiso con el programa envuelto: %s %+v\n%s", r.Texto, r.Riesgos, titulos(tr))
+	}
+	r, tr = pedir(t, c, dialogo("dlg-func", r.Codigo))
+	if !r.Exito || !contiene(r, "«6»") {
+		t.Errorf("función envuelta: %s [%s]\n%s\n%s", r.Texto, r.Nivel, strings.Join(r.Parrafos, "\n"), titulos(tr))
+	}
+
+	// "Probar" button: the dialog resends the user's code as "ejecutar"; it is tested, not run
+	r, tr = pedir(t, c, nucleo.Peticion{Sesion: "dlg-probar", Texto: "hazle pruebas: 3 -> 3", Codigo: tamConArchivo})
+	if len(r.Riesgos) == 0 {
+		t.Fatalf("probar debería pedir permiso: %s\n%s", r.Texto, titulos(tr))
+	}
+	r, tr = pedir(t, c, dialogo("dlg-probar", tamConArchivo))
+	if !r.Exito || r.Metodo != "pruebas" || !strings.Contains(r.Texto, "todas bien") || r.Nivel != nucleo.NivelTusEjemplos {
+		t.Errorf("probar: %s [%s] %s\n%s\n%s", r.Texto, r.Nivel, r.Metodo, strings.Join(r.Parrafos, "\n"), titulos(tr))
+	}
+	// the confirmed turn asked for nothing: a later confirmed "Ejecutar" on the same code just runs it
+	r, tr = pedir(t, c, dialogo("dlg-probar", tamConArchivo))
+	if r.Metodo != "ejecutar" || strings.Contains(titulos(tr), "Me diste permiso para lo que me pediste") {
+		t.Errorf("ejecutar después: %s [%s] %s\n%s", r.Texto, r.Nivel, r.Metodo, titulos(tr))
+	}
+
+	// reparar from the chat: the dialog resends the answer's code; the examples of the text are kept
+	r, tr = pedir(t, c, nucleo.Peticion{Sesion: "dlg-rep", Texto: "arréglalo: con 3 debería dar 3", Codigo: tamConArchivo})
+	if len(r.Riesgos) == 0 || r.Codigo == "" {
+		t.Fatalf("reparar debería pedir permiso: %s\n%s", r.Texto, titulos(tr))
+	}
+	r, tr = pedir(t, c, dialogo("dlg-rep", r.Codigo))
+	if !r.Exito || r.Metodo != "reparacion" || r.Nivel != nucleo.NivelTusEjemplos {
+		t.Errorf("reparar: %s [%s] %s\n%s\n%s", r.Texto, r.Nivel, r.Metodo, strings.Join(r.Parrafos, "\n"), titulos(tr))
+	}
+}
+
+// ejcRetomar only takes back the session's last turn, when it asked for permission for this same code
+// and is recent; anything with its own text is a new request.
+func TestEjcRetomarCondiciones(t *testing.T) {
+	c := nuevoCerebroPrueba(t, nil)
+	ahora := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	c.ahora = func() time.Time { return ahora }
+	codigo := "package main\n\nimport \"os\"\n\nfunc main() {\n\tos.Remove(\"x\")\n}\n"
+	turno := func(fecha time.Time) Turno {
+		return Turno{Intencion: nucleo.IProbar, Fecha: fecha, Texto: "hazle pruebas: 3 -> 3",
+			Peticion:  nucleo.Peticion{Texto: "hazle pruebas: 3 -> 3", Codigo: codigo},
+			Pregunta:  &nucleo.Pregunta{Texto: "hazle pruebas: 3 -> 3", Resto: "hazle pruebas: 3 -> 3"},
+			Respuesta: nucleo.Respuesta{Codigo: codigo, Riesgos: []nucleo.Violacion{{Que: "usa os.Remove"}}}}
+	}
+	prueba := func(nombre string, t0 Turno, p nucleo.Peticion, quiero bool) {
+		t.Helper()
+		s := c.sesion("ret-" + nombre)
+		s.mu.Lock()
+		s.turnos = []Turno{t0}
+		s.mu.Unlock()
+		k := &tarea{s: s, p: p, codigo: p.Codigo, q: &nucleo.Pregunta{}}
+		_, ok := c.ejcRetomar(k)
+		if ok != quiero {
+			t.Errorf("%s: %v, quiero %v", nombre, ok, quiero)
+		}
+		if ok && (k.p.Texto != "hazle pruebas: 3 -> 3" || k.q.Resto != "hazle pruebas: 3 -> 3") {
+			t.Errorf("%s: no recuperó la petición: %+v %+v", nombre, k.p, k.q)
+		}
+	}
+	prueba("ok", turno(ahora.Add(-time.Minute)), dialogo("", codigo), true)
+	prueba("formato", turno(ahora.Add(-time.Minute)), dialogo("", strings.ReplaceAll(codigo, "\t", "    ")), true)
+	prueba("otro-codigo", turno(ahora.Add(-time.Minute)), dialogo("", codigo+"\n// otro\n"), false)
+	prueba("viejo", turno(ahora.Add(-time.Hour)), dialogo("", codigo), false)
+	conTexto := dialogo("", codigo)
+	conTexto.Texto = "ejecútalo"
+	prueba("con-texto", turno(ahora.Add(-time.Minute)), conTexto, false)
+	sinConfirmar := dialogo("", codigo)
+	sinConfirmar.Confirmado = false
+	prueba("sin-confirmar", turno(ahora.Add(-time.Minute)), sinConfirmar, false)
+	sinRiesgos := turno(ahora.Add(-time.Minute))
+	sinRiesgos.Respuesta.Riesgos = nil
+	prueba("sin-riesgos", sinRiesgos, dialogo("", codigo), false)
+	explicar := turno(ahora.Add(-time.Minute))
+	explicar.Intencion = nucleo.IExplicar
+	prueba("explicar", explicar, dialogo("", codigo), false)
 }

@@ -14,9 +14,10 @@ import (
 )
 
 // Resolutores returns the reasoning resolvers of this package: "mates.calculo", "mates.ecuacion",
-// "mates.numeros" and "mates.problema". v (may be nil) stores the verbs learned in word problems.
+// "mates.numeros", "mates.problema", "mates.cadena" (chains of equalities) and "mates.recursos"
+// (resources that run out). v (may be nil) stores the verbs learned in word problems.
 func Resolutores(v Verbos) []nucleo.Resolutor {
-	return []nucleo.Resolutor{resCalculo{}, resEcuacion{}, resNumeros{}, &resProblema{v: v}}
+	return []nucleo.Resolutor{resCalculo{}, resEcuacion{}, resNumeros{}, &resProblema{v: v}, resCadena{}, resRecursos{}}
 }
 
 func textoDe(p *nucleo.Pregunta) string {
@@ -835,6 +836,9 @@ func (rp *resProblema) Reconoce(p *nucleo.Pregunta) nucleo.Reconocimiento {
 	if len(t) > 2000 || reTieneIgualdadSimbolos.MatchString(t) {
 		return nucleo.Reconocimiento{}
 	}
+	if (resRecursos{}).Reconoce(p).Puntos > 0 {
+		return nucleo.Reconocimiento{} // "tengo 90 litros y gasto 3 por hora": mates.recursos
+	}
 	pls, err := Plantear(p, rp.v)
 	if err != nil || len(pls) == 0 {
 		return nucleo.Reconocimiento{}
@@ -899,6 +903,10 @@ func efectoRespuesta(r string) (string, bool) {
 }
 
 func (rp *resProblema) Resolver(ctx context.Context, p *nucleo.Pregunta, n *nucleo.Nodo) (nucleo.Respuesta, error) {
+	if (resRecursos{}).Reconoce(p).Puntos > 0 {
+		// a stock that is spent per unit of time is not a sum of changes: "Hay -5 hora" would be wrong
+		return nucleo.Respuesta{}, fmt.Errorf("%w: es un problema de recursos que se gastan con el tiempo", nucleo.ErrNoEntiendo)
+	}
 	vm := &verbosMemoria{base: rp.v, m: map[string]string{}}
 	var pls []Planteamiento
 	var err error

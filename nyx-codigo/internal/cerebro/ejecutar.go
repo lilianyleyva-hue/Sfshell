@@ -4,6 +4,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	"nyxcodigo/internal/analisis"
@@ -16,8 +17,20 @@ import (
 // safety check runs at once; otherwise the answer carries the risks (Respuesta.Riesgos) and nothing runs
 // until the user confirms (p.Confirmado), grave violations never run, and web code never runs with more
 // than PermisoAuto. A function without main is wrapped into a program (recetas.Envolver); "con entrada 5"
-// becomes the stdin "5⏎".
+// becomes the stdin "5⏎". The confirmation dialog resends only the code (ejcRetomar): the request that
+// asked for permission is taken back, so its input and its action (probar, reparar) are not lost.
 func pipeEjecutar(c *Cerebro, k *tarea) nucleo.Respuesta {
+	if t, ok := c.ejcRetomar(k); ok {
+		que := strings.TrimSpace(primeraLinea(k.q.Resto))
+		if que == "" {
+			que = primeraLinea(t.Texto)
+		}
+		k.raiz.Sub(nucleo.PasoNota, "Me diste permiso para lo que me pediste: «%s»", recortar(que, 80)).Info("")
+		if t.Intencion == nucleo.IProbar || t.Intencion == nucleo.IReparar {
+			k.estrategia = string(t.Intencion)
+			return c.despachar(k, t.Intencion)
+		}
+	}
 	codigo := c.repCodigo(k, "Pega el código que quieres que ejecute")
 	if codigo == "" {
 		return repSinCodigo("ejecutarlo")
@@ -101,8 +114,12 @@ func pipeEjecutar(c *Cerebro, k *tarea) nucleo.Respuesta {
 		r, ok := c.ejcPermiso(k, programa, v, "ejecutarlo")
 		if !ok {
 			if len(r.Riesgos) > 0 {
-				// the dialog resends this code with confirmado:true (the chat has no other copy of it)
+				// the dialog resends this code with confirmado:true (the chat has no other copy of it);
+				// the turn keeps the stdin worked out here, which ejcRetomar gives back to the confirmed run
 				r.Codigo = programa
+				if k.p.Entrada == "" {
+					k.p.Entrada = caso.Entrada
+				}
 			} else if envuelto {
 				r.Codigo = programa
 			}
@@ -232,6 +249,58 @@ func (c *Cerebro) ejcPermiso(k *tarea, programa string, v []nucleo.Violacion, pa
 	}
 	k.raiz.Sub(nucleo.PasoNota, "Me diste permiso: lo ejecuto en la caja segura").Info("")
 	return nucleo.Respuesta{}, true
+}
+
+// ventanaRetomar is how long a request that stopped for the confirmation dialog can be taken back.
+const ventanaRetomar = 10 * time.Minute
+
+// ejcRetomar handles the confirmation dialog's resend. The UI (app.js) resends only the code, as
+// Accion "ejecutar" with no text and confirmado:true, whatever was asked. When the session's last turn
+// stopped to ask for permission (it carries Riesgos) for this same code, the confirmation is for that
+// request: its question, text, stdin and args are put back in k (so "con entrada 5" and the examples of
+// "hazle pruebas: 3 -> 3" are kept) and its turn is returned; the caller sends a probar or reparar
+// request back to its own pipeline. Every check still runs again (ejcPermiso: web code, grave
+// violations), so nothing gets more permission than a direct confirmed request would.
+func (c *Cerebro) ejcRetomar(k *tarea) (Turno, bool) {
+	if k.s == nil || !k.p.Confirmado || k.p.Accion != "ejecutar" || strings.TrimSpace(k.p.Texto) != "" ||
+		k.codigoPrevio || strings.TrimSpace(k.codigo) == "" {
+		return Turno{}, false
+	}
+	t, ok := k.s.ultimo()
+	if !ok || len(t.Respuesta.Riesgos) == 0 || t.Peticion.Confirmado {
+		return Turno{}, false
+	}
+	switch t.Intencion {
+	case nucleo.IEjecutar, nucleo.IProbar, nucleo.IReparar:
+	default:
+		return Turno{}, false
+	}
+	if c.ahora != nil && !t.Fecha.IsZero() && c.ahora().Sub(t.Fecha) > ventanaRetomar {
+		return Turno{}, false
+	}
+	yo := ejcCompactar(k.codigo)
+	mismo := false
+	for _, s := range []string{t.Respuesta.Codigo, t.Peticion.Codigo, t.Codigo} {
+		if s = ejcCompactar(s); s != "" && s == yo {
+			mismo = true
+		}
+	}
+	if !mismo {
+		return Turno{}, false
+	}
+	if t.Pregunta != nil {
+		q := *t.Pregunta
+		k.q = &q
+	}
+	k.p.Texto = t.Peticion.Texto
+	k.p.Accion = t.Peticion.Accion // the turn is recorded as the request it answers ("Pensar más" repeats that)
+	if k.p.Entrada == "" {
+		k.p.Entrada = t.Peticion.Entrada
+	}
+	if len(k.p.Args) == 0 {
+		k.p.Args = append([]string(nil), t.Peticion.Args...)
+	}
+	return t, true
 }
 
 // ejcDeLaWeb: the code came from the web (§7.1: it never runs with more than PermisoAuto). A session turn
