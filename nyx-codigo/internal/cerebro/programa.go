@@ -268,6 +268,10 @@ func programaFraseRun(pp programaPrueba) string {
 	if ok {
 		salida := strings.TrimSpace(r.ej.Salida)
 		if salida == "" {
+			if r.caso.Expectativa == nucleo.EspNinguna {
+				// nothing said what it should write: no «como debía»
+				return "Lo ejecuté " + programaCon(r.caso) + " y no escribió nada."
+			}
 			return "Lo ejecuté " + programaCon(r.caso) + " y no escribió nada (como debía)."
 		}
 		salida = strings.ReplaceAll(salida, "\n", " ⏎ ")
@@ -860,6 +864,11 @@ func programaWeb(c *Cerebro, k *tarea) (nucleo.Respuesta, bool) {
 	}
 	ctx, cancelar := context.WithTimeout(k.ctx, presupuesto)
 	defer cancelar()
+	// The whole web stage (search, build, vet and the run in programaProbar, which reads k.ctx) lives in
+	// its share of the budget.
+	ctxTarea := k.ctx
+	k.ctx = ctx
+	defer func() { k.ctx = ctxTarea }()
 	n := k.raiz.Sub(nucleo.PasoBusqueda, "Busco un programa en la web: «%s»", q.ConsultaWeb)
 	_, docs, err := c.web.BuscarDocumentos(ctx, q.ConsultaWeb)
 	if err != nil || len(docs) == 0 {
@@ -898,7 +907,11 @@ func programaWeb(c *Cerebro, k *tarea) (nucleo.Respuesta, bool) {
 			}
 			if !programaLeeEntrada(cand.Codigo) {
 				if pp, err := programaProbar(c, k, cand.Codigo, []nucleo.CasoPrograma{{Nota: "sin entrada"}}); err == nil && len(pp.runs) > 0 && pp.runs[0].ok {
-					r.Parrafos = append(r.Parrafos, "Lo ejecuté una vez y escribió «"+recortar(strings.TrimSpace(pp.runs[0].ej.Salida), 200)+"».")
+					if salida := strings.TrimSpace(pp.runs[0].ej.Salida); salida == "" {
+						r.Parrafos = append(r.Parrafos, "Lo ejecuté una vez y no escribió nada.")
+					} else {
+						r.Parrafos = append(r.Parrafos, "Lo ejecuté una vez y escribió «"+recortar(salida, 200)+"».")
+					}
 					r.Tablas = []nucleo.Tabla{pp.tabla}
 				}
 			}

@@ -402,20 +402,21 @@ func (cf *crearFlujo) memoria() (crearHecho, bool) {
 		}
 		c.mem.Usada(F.Nombre)
 		texto := fmt.Sprintf("Ya sé hacer esto (lo aprendí el %d/%d): `%s`.", F.Creada.Day(), int(F.Creada.Month()), F.Nombre)
-		g := F
-		k.turno.Funcion = &g
 		var programa *sintesis.Expr
 		if F.DSL != "" {
 			if e, err := sintesis.Parse(F.DSL, c.registro(), F.Firma); err == nil {
 				programa = e
 			}
 		}
-		// Only a description written from the program (sintesis.Describir) says what the code does; an
-		// older entry may hold the request's text instead.
+		// Only a description written from the program (sintesis.Describir) or a shipped recipe's says what
+		// the code does; an older entry may hold the request's text instead.
 		desc := ""
-		if programa != nil {
+		if programa != nil || F.Origen == "receta" {
 			desc = F.Descripcion
 		}
+		g := F
+		g.Descripcion = desc // "¿por qué?" shows it as «En resumen: …»
+		k.turno.Funcion = &g
 		h := cf.respuesta("memoria", texto, F.Codigo, F.Firma, v, programa, desc, nil)
 		if programa != nil {
 			k.programa = programa
@@ -1827,8 +1828,12 @@ func (cf *crearFlujo) respuesta(origen, texto, fuente string, f nucleo.Firma, v 
 	// Store (≥ entendido; web code with sin_fallos only when another source agrees). Descripcion is only
 	// what the program does (sintesis.Describir): the request's text would come back as a claim.
 	huella := crearHuella(f, v.Casos, v.Resultados)
+	descFuncion := strings.TrimSuffix(strings.TrimSpace(desc), ".")
+	if mejorComp == nil {
+		descFuncion = "" // unchecked: «¿por qué?» would show it as «En resumen: …» without «Creo que»
+	}
 	fa := nucleo.FuncionAprendida{
-		Nombre: f.Nombre, Firma: f, Codigo: fuente, Descripcion: strings.TrimSuffix(strings.TrimSpace(desc), "."),
+		Nombre: f.Nombre, Firma: f, Codigo: fuente, Descripcion: descFuncion,
 		Huella: huella, Nivel: v.Nivel, Origen: origen,
 	}
 	if len(fuentes) > 0 {

@@ -728,6 +728,9 @@ func TestCrearRespuestaWebSinConsenso(t *testing.T) {
 	if !contieneParrafo(h.resp.Parrafos, "Creo que hace esto: devuelve el texto.") {
 		t.Errorf("lo no comprobado empieza por «Creo que»: %q", h.resp.Parrafos)
 	}
+	if fn := cf.k.turno.Funcion; fn == nil || fn.Descripcion != "" {
+		t.Errorf("«¿por qué?» diría «En resumen: …» sin comprobarlo: %+v", fn)
+	}
 	cf.webConsenso = true
 	v.Nivel = nucleo.NivelEntendido
 	v.Comprobaciones = []nucleo.Comprobacion{{Nivel: nucleo.NivelEntendido, Pasan: 5, Total: 5, Texto: "5/5 pruebas comparando con otra fuente"}}
@@ -784,6 +787,11 @@ func TestCrearMemoriaWebNoSubeNivel(t *testing.T) {
 	}
 	if !strings.Contains(todo, "dan lo mismo que cuando la guardé") {
 		t.Errorf("falta la comprobación de regresión:\n%s", todo)
+	}
+	// The turn's function must not carry the stored request as its description: «¿por qué?» (porQue)
+	// would show it as «En resumen: haz una función …».
+	if u, ok := c.sesion("m").ultimo(); !ok || u.Funcion == nil || u.Funcion.Descripcion != "" {
+		t.Errorf("la función del turno lleva la petición como descripción: %+v", u.Funcion)
 	}
 }
 
