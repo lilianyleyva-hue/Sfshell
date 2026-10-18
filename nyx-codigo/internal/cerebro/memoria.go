@@ -6,7 +6,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
+	"nyxcodigo/internal/logica"
 	"nyxcodigo/internal/nucleo"
 )
 
@@ -99,7 +101,7 @@ func (c *Cerebro) plantillaCharla(k *tarea) nucleo.Respuesta {
 
 // queSeHacer is the capability list with clickable examples.
 func (c *Cerebro) queSeHacer() nucleo.Respuesta {
-	nf, nh, np := c.mem.Contar()
+	nf, nh, np := c.contar()
 	return plantilla("Sé escribir funciones y programas de Go, arreglarlos, explicarlos y probarlos, y resolver cuentas, ecuaciones, lógica y puzles.",
 		[]string{
 			"Programar: «haz una función que sume los números pares de una lista», ejemplos como «[1,2,3,4] -> 6; [] -> 0», o «haz un programa que pida dos números y los sume».",
@@ -113,7 +115,7 @@ func (c *Cerebro) queSeHacer() nucleo.Respuesta {
 
 // comoAprendo explains §9: memorization, statistics and composition, not generalization.
 func (c *Cerebro) comoAprendo() nucleo.Respuesta {
-	nf, nh, np := c.mem.Contar()
+	nf, nh, np := c.contar()
 	return plantilla("Aprendo memorizando, contando y combinando; no entiendo como una persona.",
 		[]string{
 			"Funciones: cuando una función pasa sus pruebas, la guardo y la reutilizo («Ya sé hacer esto»). También la uso como pieza para construir otras.",
@@ -160,7 +162,7 @@ func (c *Cerebro) plantillaMemoria(k *tarea) nucleo.Respuesta {
 	case reQueSabesDe.MatchString(n):
 		return c.queSeDe(strings.TrimSpace(reQueSabesDe.FindStringSubmatch(n)[2]))
 	}
-	nf, nh, np := c.mem.Contar()
+	nf, nh, np := c.contar()
 	return plantilla(fmt.Sprintf("Sé %d funciones, %d datos y %d palabras nuevas.", nf, nh, np),
 		[]string{"Pregúntame «¿qué funciones sabes?», «¿qué palabras sabes?» o «¿qué sabes de Toby?». Para borrar algo, dime «olvida …»."},
 		[]string{"¿Qué funciones sabes?", "¿Qué palabras sabes?"}, "memoria")
@@ -255,7 +257,7 @@ func fuenteHecho(h nucleo.Hecho) string {
 // confirmation with buttons and then forgets it.
 func (c *Cerebro) olvidarConfirmando(k *tarea, que string) nucleo.Respuesta {
 	que = strings.TrimSpace(strings.Trim(que, "\"'«» ."))
-	for _, pre := range []string{"la funcion ", "funcion ", "la palabra ", "palabra ", "el dato ", "el hecho "} {
+	for _, pre := range []string{"la funcion ", "funcion ", "la palabra ", "palabra ", "el dato ", "el hecho ", "la regla "} {
 		que = strings.TrimPrefix(que, pre)
 	}
 	if que == "" {
@@ -271,6 +273,11 @@ func (c *Cerebro) olvidarConfirmando(k *tarea, que string) nucleo.Respuesta {
 	if tipo == "" {
 		if _, ok := c.mem.Palabras()[que]; ok || c.hablaConoce(que) {
 			tipo, id, descripcion = "palabra", que, "la palabra «"+que+"»"
+		}
+	}
+	if tipo == "" {
+		if r, ok := c.buscarRegla(strings.TrimPrefix(que, "que ")); ok {
+			tipo, id, descripcion = "regla", r.ID, "la regla «"+logica.DescribirRegla(r)+"»"
 		}
 	}
 	if tipo == "" {
@@ -322,4 +329,106 @@ func etiquetaNivel(n nucleo.Nivel) string {
 		return "falla"
 	}
 	return "sin comprobar"
+}
+
+// contar is memoria's count with the rules among the data: the Memoria tab lists them with the facts.
+func (c *Cerebro) contar() (funciones, datos, palabras int) {
+	funciones, datos, palabras = c.mem.Contar()
+	return funciones, datos + len(c.mem.Reglas()), palabras
+}
+
+// hechoDeRegla shows a rule as a Hecho for the Memoria tab and GET /api/memoria/hechos. Its ID is the
+// rule's ("r1"): DELETE /api/memoria/hechos/r1 falls back to OlvidarRegla.
+func hechoDeRegla(r nucleo.Regla) nucleo.Hecho {
+	h := nucleo.Hecho{ID: r.ID, Relacion: "regla", Objeto: r.Entonces.Objeto, Negado: r.Entonces.Negado,
+		Texto: logica.DescribirRegla(r), Fuente: r.Fuente, Confianza: 1, Fecha: r.Fecha}
+	var si []string
+	for _, x := range r.Si {
+		si = append(si, x.Objeto)
+	}
+	h.Sujeto = strings.Join(si, ", ")
+	if h.Fuente == "" {
+		h.Fuente = "usuario"
+	}
+	return h
+}
+
+// vaciasRegla are the words of a rule's sentence that do not say which rule it is.
+var vaciasRegla = map[string]bool{"todo": true, "todos": true, "toda": true, "todas": true, "el": true, "la": true,
+	"los": true, "las": true, "un": true, "una": true, "unos": true, "unas": true, "es": true, "son": true,
+	"que": true, "si": true, "entonces": true, "y": true, "de": true, "del": true, "cada": true, "ningun": true,
+	"ninguno": true, "ninguna": true, "no": true, "regla": true}
+
+// raizRegla compares words of rules without number: "perros" = "perro", "animales" = "animal".
+func raizRegla(w string) string {
+	w = nucleo.Normalizar(w)
+	if n := len(w); n > 4 && strings.HasSuffix(w, "es") && !strings.ContainsRune("aeiou", rune(w[n-3])) {
+		return w[:n-2]
+	}
+	return strings.TrimSuffix(w, "s")
+}
+
+// palabrasRegla are the roots of the content words of a text.
+func palabrasRegla(texto string) map[string]bool {
+	out := map[string]bool{}
+	for _, w := range strings.FieldsFunc(nucleo.Normalizar(texto), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}) {
+		if !vaciasRegla[w] {
+			out[raizRegla(w)] = true
+		}
+	}
+	return out
+}
+
+// reglaMenciona: some content word of q is in the rule.
+func reglaMenciona(r nucleo.Regla, q string) bool {
+	de := palabrasRegla(logica.DescribirRegla(r) + " " + r.Entonces.Objeto + " " + hechoDeRegla(r).Sujeto)
+	for w := range palabrasRegla(q) {
+		if de[w] {
+			return true
+		}
+	}
+	return false
+}
+
+// negacionRegla: the text is a "ningún A es B" rule.
+var negacionRegla = regexp.MustCompile(`\b(ningun|ninguno|ninguna|no)\b`)
+
+// buscarRegla finds the rule a text states ("todos los perros son mamíferos"): every content word of
+// the text is in the rule, every class the rule names is in the text, and both say "ningún" or neither.
+func (c *Cerebro) buscarRegla(texto string) (nucleo.Regla, bool) {
+	quiero := palabrasRegla(texto)
+	if len(quiero) == 0 {
+		return nucleo.Regla{}, false
+	}
+	negada := negacionRegla.MatchString(nucleo.Normalizar(texto))
+	for _, r := range c.mem.Reglas() {
+		if r.Entonces.Negado != negada {
+			continue
+		}
+		clases := []string{r.Entonces.Objeto}
+		for _, x := range r.Si {
+			clases = append(clases, x.Objeto)
+		}
+		de := palabrasRegla(logica.DescribirRegla(r) + " " + strings.Join(clases, " "))
+		todas := true
+		for w := range quiero {
+			if !de[w] {
+				todas = false
+				break
+			}
+		}
+		for _, cl := range clases {
+			for w := range palabrasRegla(cl) {
+				if !quiero[w] {
+					todas = false
+				}
+			}
+		}
+		if todas {
+			return r, true
+		}
+	}
+	return nucleo.Regla{}, false
 }

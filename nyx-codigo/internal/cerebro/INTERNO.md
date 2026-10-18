@@ -58,6 +58,7 @@ e.g. `crearSintetizar`). Do not edit the core files (`cerebro.go`, `sesion.go`, 
 | `probarCon string`, `vacia bool` | probar_con input as typed ("[3,3]", may not parse: then generate cases), or run with the zero value |
 | `detalle int` | explicar narration: 0 default, 1 "más simple", 2 "con detalle" |
 | `comentarios`, `optimizar`, `envolver` | "ponle comentarios"; "hazlo más rápido"/optimizar; "hazlo programa" (wrap `k.codigo`'s function) |
+| `sinPlantillas` | crear_programa skips the templates and builds the function, then wraps it ("ahora con impares" after "hazlo programa") |
 | `programa *sintesis.Expr` | the DSL program of your answer: set it (or let `guardarFuncion` set it) so learning counts its components |
 | `pendiente string` | non-empty: the question goes to pendientes with this reason (`respuestaFallo` sets it) |
 

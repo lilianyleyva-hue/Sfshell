@@ -32,7 +32,7 @@ const (
 func pipeEstudiar(c *Cerebro, k *tarea) nucleo.Respuesta {
 	k.raiz.Sub(nucleo.PasoPlan, "Plan: 1) preparar la caja segura 2) leer los ejemplos de Go 3) estudiar en la web 4) reintentar las preguntas pendientes").Info("")
 	var aprendidas, notas, justif []string
-	resueltas := 0
+	resueltas, yaSabidas := 0, 0
 
 	// 1. warm the build cache
 	if a, ok := c.ej.(interface{ Calentar(context.Context) error }); ok && c.ej != nil {
@@ -94,6 +94,15 @@ func pipeEstudiar(c *Cerebro, k *tarea) nucleo.Respuesta {
 			n.Progreso("%d/%d", i+1, len(pend))
 			np := n.Sub(nucleo.PasoIntento, "Reintento «%s»", recortar(primeraLinea(estudiarTexto(p)), 80))
 			r, ok := c.estudiarReintentar(k, p)
+			if ok && r.Metodo == "memoria" {
+				// answered by a function already in memory: nothing was learned now, it only leaves the list
+				yaSabidas++
+				if err := c.mem.ResolverPendiente(p.ID); err != nil {
+					np.Detalle("No pude quitarla de pendientes: %s", mensajeError(err))
+				}
+				np.Bien("Ya la sabía resolver: %s", recortar(primeraLinea(r.Texto), 100))
+				continue
+			}
 			if ok {
 				resueltas++
 				if err := c.mem.ResolverPendiente(p.ID); err != nil {
@@ -107,6 +116,8 @@ func pipeEstudiar(c *Cerebro, k *tarea) nucleo.Respuesta {
 		}
 		if resueltas > 0 {
 			n.Bien("Resolví %d de %d", resueltas, intentadas)
+		} else if yaSabidas > 0 {
+			n.Info("No aprendí a resolver ninguna nueva (%s ya las sabía)", cuantas(yaSabidas, "pregunta", "preguntas"))
 		} else {
 			n.Info("No resolví ninguna (%s)", cuantas(intentadas, "intento", "intentos"))
 		}
@@ -130,6 +141,13 @@ func pipeEstudiar(c *Cerebro, k *tarea) nucleo.Respuesta {
 			pregs = "pregunta"
 		}
 		r.Parrafos = append(r.Parrafos, fmt.Sprintf("Aprendí a resolver %d %s que antes no sabía.", resueltas, pregs))
+	}
+	if yaSabidas > 0 {
+		r.Parrafos = append(r.Parrafos, fmt.Sprintf("%s de las pendientes ya la sabía resolver con lo que tengo en mi memoria: la quito de la lista.",
+			cuantas(yaSabidas, "pregunta", "preguntas")))
+		if yaSabidas > 1 {
+			r.Parrafos[len(r.Parrafos)-1] = fmt.Sprintf("%d preguntas de las pendientes ya las sabía resolver con lo que tengo en mi memoria: las quito de la lista.", yaSabidas)
+		}
 	}
 	r.Parrafos = append(r.Parrafos, notas...)
 	r.Justificacion = justif
@@ -230,6 +248,9 @@ func (c *Cerebro) estudiarWeb(k *tarea) (nuevo, justif, nota string) {
 				continue
 			}
 			if v := c.ej.Vet(ctx, cd.Codigo); !v.OK {
+				if ctx.Err() == nil {
+					c.contarDominio(cd.URL, false) // go vet rejects it
+				}
 				continue
 			}
 			vetados++
@@ -240,6 +261,7 @@ func (c *Cerebro) estudiarWeb(k *tarea) (nuevo, justif, nota string) {
 			if _, ok := c.estudiarCorrer(ctx, cd.Codigo); ok {
 				comprobados++
 				enPagina++
+				c.contarDominio(cd.URL, true)
 			}
 		}
 		if len(codigos) == 0 {

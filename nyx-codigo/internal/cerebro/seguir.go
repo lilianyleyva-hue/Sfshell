@@ -24,7 +24,7 @@ func (c *Cerebro) seguir(k *tarea, seg lengua.Seguimiento, prev Turno) (nucleo.R
 	deCodigo := nucleo.Familia(prev.Intencion) == "programar"
 	switch seg.Tipo {
 	case "esta_mal", "esta_bien", "por_que", "otra_forma", "mas_simple", "mas_detalle", "cambiar_numero":
-		if plantillas[prev.Respuesta.Metodo] {
+		if esPlantilla(prev) {
 			return nucleo.Respuesta{}, false // a greeting or a template has nothing to judge or redo
 		}
 	}
@@ -65,7 +65,11 @@ func (c *Cerebro) seguir(k *tarea, seg lengua.Seguimiento, prev Turno) (nucleo.R
 			k.excluir = excluidosDe(prev)
 			k.turno.Excluidos = append([]string(nil), k.excluir...)
 			k.raiz.Nota("Busco otra forma distinta de las %d que ya te enseñé", len(k.excluir))
-			return c.despachar(k, prev.Intencion), true
+			r := c.despachar(k, prev.Intencion)
+			if !otraFormaNueva(r, prev) {
+				return c.sinOtraForma(k, prev), true
+			}
+			return r, true
 		}
 		return nucleo.Respuesta{}, false
 	case "esta_mal":
@@ -73,18 +77,31 @@ func (c *Cerebro) seguir(k *tarea, seg lengua.Seguimiento, prev Turno) (nucleo.R
 	case "esta_bien":
 		return c.estaBien(k, prev), true
 	case "probar_con", "vacia":
-		k.probarCon = seg.Entrada
+		if seg.Tipo == "probar_con" && reOrdenEjecutar.MatchString(nucleo.Normalizar(seg.Texto)) {
+			// "ejecútalo con entrada 5" runs the code with that input (stdin "5⏎"); it is not a test
+			k.turno.Seguimiento = "ejecutar_eso"
+			return conCodigo(nucleo.IEjecutar)
+		}
+		k.probarCon = quitarPalabraEntrada(seg.Entrada)
 		k.vacia = seg.Tipo == "vacia"
 		return conCodigo(nucleo.IProbar)
 	case "modificar":
-		if esCreacion(prev.Intencion) && prev.Pregunta != nil {
-			nueva := c.analizar(k, k.p.Texto, "")
-			k.q = lengua.Fusionar(prev.Pregunta, nueva)
-			k.turno.Texto = k.q.Texto
-			k.raiz.Nota("Cambio la petición anterior: %s", seg.Texto)
-			return c.despachar(k, prev.Intencion), true
+		// "ahora con impares" changes the last request that created code, also after follow-ups about
+		// that code ("pruébala con [3,3]", "hazlo programa", "explícalo")
+		base, comoPrograma, ok := k.s.baseCreacion()
+		if !ok {
+			return nucleo.Respuesta{}, false
 		}
-		return nucleo.Respuesta{}, false
+		nueva := c.analizar(k, k.p.Texto, "")
+		k.q = lengua.Fusionar(base.Pregunta, nueva)
+		k.turno.Texto = k.q.Texto
+		k.raiz.Nota("Cambio la petición «%s»: %s", recortar(primeraLinea(base.Texto), 80), seg.Texto)
+		i := base.Intencion
+		if comoPrograma && i == nucleo.ICrearFuncion {
+			// it was turned into a program afterwards: the new version is a program too
+			i, k.sinPlantillas = nucleo.ICrearPrograma, true
+		}
+		return c.despachar(k, i), true
 	case "comentarios":
 		k.comentarios = true
 		return conCodigo(nucleo.IExplicar)
@@ -103,6 +120,59 @@ func (c *Cerebro) seguir(k *tarea, seg lengua.Seguimiento, prev Turno) (nucleo.R
 
 // plantillas are answers that follow-ups about "the previous answer" do not apply to.
 var plantillas = map[string]bool{"charla": true, "memoria": true, "no_entiendo": true, "respuesta": true, "error": true}
+
+// esPlantilla: the turn answered with a fixed template. A function reused from memory ("Ya sé hacer
+// esto") also has Metodo "memoria", but it is code the user can question, judge or redo.
+func esPlantilla(t Turno) bool {
+	m := t.Respuesta.Metodo
+	if m == "memoria" && nucleo.Familia(t.Intencion) == "programar" {
+		return false
+	}
+	return plantillas[m]
+}
+
+// reOrdenEjecutar: a probar_con follow-up that asks to run the code ("ejecútalo con entrada 5",
+// "córrela con [1,2]"), not to test it.
+var reOrdenEjecutar = regexp.MustCompile(`^(y )?(ejecutal[ao]|ejecuta|ejecutar|correl[ao]|corre|lanzal[ao])\b`)
+
+// quitarPalabraEntrada: "pruébala con entrada [3,3]" → "[3,3]".
+func quitarPalabraEntrada(s string) string {
+	t := strings.TrimSpace(s)
+	n := nucleo.Normalizar(t)
+	for _, pre := range []string{"la entrada ", "entrada ", "los datos ", "el valor "} {
+		if strings.HasPrefix(n, pre) && len(t) >= len(pre) {
+			return strings.TrimSpace(strings.TrimLeft(t[len(pre):], ":"))
+		}
+	}
+	return t
+}
+
+// otraFormaNueva: the re-run for "otra forma" produced something new: a success whose code differs
+// from the code already shown.
+func otraFormaNueva(r nucleo.Respuesta, prev Turno) bool {
+	if !r.Exito || r.Nivel == nucleo.NivelFallo {
+		return false
+	}
+	nuevo := ejcCompactar(r.Codigo)
+	return nuevo == "" || nuevo != ejcCompactar(prev.Respuesta.Codigo)
+}
+
+// sinOtraForma is the honest answer when "otra forma" finds nothing new: the previous answer was solved,
+// so this is not a failure, nothing goes to pendientes and no strategy loses points (a meta turn).
+func (c *Cerebro) sinOtraForma(k *tarea, prev Turno) nucleo.Respuesta {
+	c.meta(k, prev)
+	k.pendiente = ""
+	k.programa = nil
+	k.raiz.Sub(nucleo.PasoNota, "No encontré otra forma distinta de la que te enseñé").Info("")
+	return nucleo.Respuesta{
+		Texto: "No conozco otra forma de hacerlo: solo sé hacerlo como te mostré.",
+		Parrafos: []string{"Si quieres algo distinto, dime qué debe cambiar («ahora con …») o dame un ejemplo " +
+			"(entrada -> salida)."},
+		Comprobaciones: []nucleo.Comprobacion{},
+		Nivel:          nucleo.NivelSinComprobar,
+		Metodo:         "seguimiento",
+	}
+}
 
 // excluidosDe: the programs already shown in that line of turns (for "otra forma").
 func excluidosDe(prev Turno) []string {
@@ -336,6 +406,13 @@ func (c *Cerebro) estaBien(k *tarea, prev Turno) nucleo.Respuesta {
 // Without an example (code), it asks "¿Qué debería dar? Escribe un ejemplo: entrada -> salida".
 func (c *Cerebro) estaMal(k *tarea, seg lengua.Seguimiento, prev Turno) nucleo.Respuesta {
 	k.raiz.Sub(nucleo.PasoNota, "Me dices que la respuesta anterior está mal").Info("")
+	if prev.Seguimiento != "" && !esCreacion(prev.Intencion) && prev.Intencion != nucleo.IReparar && nucleo.Familia(prev.Intencion) == "programar" {
+		// after "explícalo" or "pruébala con …", "está mal" is about the function the app wrote
+		if base, _, ok := k.s.baseCreacion(); ok {
+			prev = base
+			k.previo = &base
+		}
+	}
 	f, conceptos, conFirma := firmaDeTurno(prev)
 	deCodigo := nucleo.Familia(prev.Intencion) == "programar"
 	var caso *nucleo.Caso

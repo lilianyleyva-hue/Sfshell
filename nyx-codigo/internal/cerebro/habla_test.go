@@ -96,28 +96,25 @@ func TestHablaDecir(t *testing.T) {
 	preguntar(t, c, "s", "lee esto: Una función es un bloque de código con nombre que hace algo. Las funciones sirven para no repetir código. "+
 		"Puedes usar una función muchas veces. Una función puede devolver un valor.", nil)
 	r, tr := preguntar(t, c, "s", "háblame de las funciones", nil)
-	const prefijo = "Con mis propias palabras (no lo he comprobado): Creo que "
-	if !strings.HasPrefix(r.Texto, prefijo) || r.Nivel != nucleo.NivelSinComprobar || !r.Exito || r.Metodo != "habla" ||
-		!strings.Contains(nucleo.Normalizar(r.Texto), "funcion") {
+	if !strings.HasPrefix(r.Texto, "Esto es lo que sé de «funciones»") || !r.Exito || r.Metodo != "habla" {
 		t.Fatalf("%+v\n%s", r, titulos(tr))
 	}
-	if len(r.Comprobaciones) != 1 || r.Comprobaciones[0].Nivel != nucleo.NivelSinComprobar || len(r.Justificacion) == 0 {
+	// what it knows comes with its source: the Go note (a source) and the dictionary
+	if r.Nivel != nucleo.NivelFuente || len(r.Comprobaciones) != 1 || r.Comprobaciones[0].Texto != "Según mis notas de Go" || len(r.Justificacion) == 0 {
 		t.Errorf("sello y justificación: %+v", r)
 	}
 	if !strings.Contains(strings.Join(r.Parrafos, " "), "«función»: un bloque de código") {
 		t.Errorf("debe decir también qué significa el tema: %v", r.Parrafos)
 	}
-	// every content word of the sentence has a meaning
-	frase := strings.TrimSuffix(strings.TrimPrefix(r.Texto, prefijo), ".")
-	if des := c.habla.Desconocidas(frase); len(des) > 0 {
-		t.Errorf("la frase usa palabras que no conozco: %v (%q)", des, frase)
+	if strings.Contains(todoElTexto(r), "propias palabras") {
+		t.Errorf("no forma frases propias: %v", r.Parrafos)
 	}
 	r, _ = preguntar(t, c, "s", "¿por qué?", nil)
-	if !strings.Contains(todoElTexto(r), "Probé") {
+	if !strings.Contains(todoElTexto(r), "notas de Go") {
 		t.Errorf("¿por qué?: %+v", r)
 	}
 	r, _ = preguntar(t, c, "s2", "háblame de los ornitorrincos", nil)
-	if !strings.HasPrefix(r.Texto, "Todavía no sé decir nada sobre «ornitorrincos»: léeme algo o enséñame qué significa.") || r.Exito {
+	if !strings.HasPrefix(r.Texto, "Todavía no sé nada de «ornitorrincos»: léeme algo o enséñame qué significa.") || r.Exito {
 		t.Errorf("%+v", r)
 	}
 }

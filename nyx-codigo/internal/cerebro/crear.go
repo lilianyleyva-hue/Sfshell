@@ -165,6 +165,11 @@ func (cf *crearFlujo) entender() (nucleo.Respuesta, bool) {
 	default:
 		f = lengua.FirmaProbable(q.Marco, q.ParesTexto)
 	}
+	if nombrada, ok := cf.funcionNombrada(); ok && (f == nil || reUsaFuncion.MatchString(q.Texto)) {
+		// "usa SumaPares para [1,2,3,4]": the stored function's signature (memoria matches it by name)
+		g := nombrada.Firma
+		f = &g
+	}
 	if f == nil && (k.seguimiento != nil || k.previo != nil) {
 		if ctx := k.s.contexto(); ctx.Firma != nil {
 			g := *ctx.Firma
@@ -350,6 +355,54 @@ func crearClaveEntradas(vs []nucleo.Valor) string {
 
 var reIdentificador = regexp.MustCompile(`\b[A-Z][A-Za-z0-9_]*\b`)
 
+// reUsaFuncion: "usa SumaPares para [1,2,3,4]", "aplica Maximo a 3 y 5": a stored function named to be
+// used, and what to use it on (may be empty or a description).
+var reUsaFuncion = regexp.MustCompile(`(?i)^\s*(?:usa|utiliza|emplea|aplica|llama a)\s+(?:la\s+funci[oó]n\s+)?([A-Za-z_][A-Za-z0-9_]*)\b\s*(?:(?:para|con|sobre|a|en)\b\s*(.*?))?\s*[.!?]*\s*$`)
+
+// funcionNombrada is a stored function whose exact name appears in the request.
+func (cf *crearFlujo) funcionNombrada() (nucleo.FuncionAprendida, bool) {
+	texto := cf.k.q.Texto
+	if m := reUsaFuncion.FindStringSubmatch(texto); m != nil {
+		if g, ok := cf.c.mem.Funcion(m[1]); ok && g.Codigo != "" {
+			return g, true
+		}
+	}
+	for _, w := range reIdentificador.FindAllString(texto, -1) {
+		if g, ok := cf.c.mem.Funcion(w); ok && g.Codigo != "" {
+			return g, true
+		}
+	}
+	return nucleo.FuncionAprendida{}, false
+}
+
+// reLiteral finds the values written in a request: lists, quoted texts and numbers.
+var reLiteral = regexp.MustCompile(`\[[^\]]*\]|"[^"]*"|«[^»]*»|-?\d+(?:\.\d+)?`)
+
+// crearEntradaPedida reads what "usa F para …" asks F to run on: "[1,2,3,4]", "3 y 5", "la lista
+// [1,2]". ok=false when the request gives no input of f's types.
+func crearEntradaPedida(texto string, f nucleo.Firma) ([]nucleo.Valor, bool) {
+	m := reUsaFuncion.FindStringSubmatch(texto)
+	if m == nil || strings.TrimSpace(m[2]) == "" {
+		return nil, false
+	}
+	resto := strings.TrimSpace(m[2])
+	intentos := []string{resto, strings.ReplaceAll(resto, " y ", ", ")}
+	if ls := reLiteral.FindAllString(resto, -1); len(ls) > 0 {
+		for i, l := range ls {
+			if strings.HasPrefix(l, "«") {
+				ls[i] = `"` + strings.TrimSuffix(strings.TrimPrefix(l, "«"), "»") + `"`
+			}
+		}
+		intentos = append(intentos, strings.Join(ls, ", "))
+	}
+	for _, x := range intentos {
+		if ent, ok := repLeerEntradas(x, f); ok {
+			return ent, true
+		}
+	}
+	return nil, false
+}
+
 func (cf *crearFlujo) memoria() (crearHecho, bool) {
 	c, k, q := cf.c, cf.k, cf.k.q
 	type candidata struct {
@@ -387,6 +440,13 @@ func (cf *crearFlujo) memoria() (crearHecho, bool) {
 		crearEtiquetarGuardados(guardados, F.Nivel)
 		casos := append(append([]nucleo.Caso(nil), cf.usuario...), guardados...)
 		casos = append(casos, cf.sondas(F.Firma, nil)...)
+		pedida := -1 // "usa SumaPares para [1,2,3,4]": run it on that input too
+		if cd.exacta {
+			if ent, ok := crearEntradaPedida(q.Texto, F.Firma); ok {
+				pedida = len(casos)
+				casos = append(casos, nucleo.Caso{Entradas: ent, Origen: nucleo.OrigenUsuario, Nota: "tu entrada"})
+			}
+		}
 		v, err := cf.comprobar("Compruebo "+F.Nombre+", que ya tengo en mi memoria", F.Codigo, F.Firma, casos, nil, nil)
 		v = crearRebajarRegresion(v)
 		if err != nil {
@@ -403,6 +463,17 @@ func (cf *crearFlujo) memoria() (crearHecho, bool) {
 		}
 		c.mem.Usada(F.Nombre)
 		texto := fmt.Sprintf("Ya sé hacer esto (lo aprendí el %d/%d): `%s`.", F.Creada.Day(), int(F.Creada.Month()), F.Nombre)
+		uso := ""
+		if pedida >= 0 && pedida < len(v.Resultados) {
+			// what the stored code gives on the input asked for (observed in the run that checked it)
+			res := v.Resultados[pedida]
+			if crearTerminado(res) && len(res.Obtenido) == len(F.Firma.Res) {
+				uso = fmt.Sprintf("`%s` = %s.", crearLlamada(F.Firma, casos[pedida].Entradas), crearValores(F.Firma.Res, res.Obtenido))
+			} else {
+				uso = prbFraseEntrada(F.Firma, casos[pedida], res)
+			}
+			k.raiz.Sub(nucleo.PasoResultado, "%s", uso).Info("")
+		}
 		var programa *sintesis.Expr
 		if F.DSL != "" {
 			if e, err := sintesis.Parse(F.DSL, c.registro(), F.Firma); err == nil {
@@ -419,6 +490,10 @@ func (cf *crearFlujo) memoria() (crearHecho, bool) {
 		g.Descripcion = desc // "¿por qué?" shows it as «En resumen: …»
 		k.turno.Funcion = &g
 		h := cf.respuesta("memoria", texto, F.Codigo, F.Firma, v, programa, desc, nil)
+		if uso != "" {
+			h.resp.Texto = uso
+			h.resp.Parrafos = append([]string{texto + " La he vuelto a comprobar antes de usarla."}, h.resp.Parrafos...)
+		}
 		if programa != nil {
 			k.programa = programa
 			k.turno.Expr = programa.String()
@@ -1313,7 +1388,7 @@ func (cf *crearFlujo) web() (crearHecho, bool) {
 	k.ctx = ctx
 	defer func() { k.ctx = ctxTarea }()
 	n := k.raiz.Sub(nucleo.PasoBusqueda, "Busco en la web: «%s»", q.ConsultaWeb)
-	_, docs, err := c.web.BuscarDocumentos(ctx, q.ConsultaWeb)
+	docs, err := c.buscarDocumentos(ctx, q.ConsultaWeb)
 	if err != nil || len(docs) == 0 {
 		if err != nil {
 			n.Mal("No encontré nada útil: %s", mensajeError(err))
@@ -1404,6 +1479,14 @@ func (cf *crearFlujo) web() (crearHecho, bool) {
 			}
 		}
 	}
+	juicios := make([]crearJuicioWeb, 0, len(notas))
+	for _, nt := range notas {
+		// verified: it passed the user's examples (or agrees with another source) without crashing;
+		// rejected: it did not compile, crashed, broke a property or failed an example
+		juicios = append(juicios, crearJuicioWeb{url: vs[nt.i].url,
+			verificado: nt.limpio && nt.usuario == nu && (nu > 0 || nt.acuerdo > 0), rechazado: !nt.limpio || nt.usuario < nu})
+	}
+	cf.c.contarDominios(juicios)
 	sort.SliceStable(notas, func(a, b int) bool {
 		x, y := notas[a], notas[b]
 		if x.usuario != y.usuario {
@@ -1414,6 +1497,9 @@ func (cf *crearFlujo) web() (crearHecho, bool) {
 		}
 		if x.acuerdo != y.acuerdo {
 			return x.acuerdo > y.acuerdo
+		}
+		if dx, dy := c.confianzaDominio(vs[x.i].url), c.confianzaDominio(vs[y.i].url); dx != dy {
+			return dx > dy // sites whose code worked before go first
 		}
 		if vs[x.i].votos != vs[y.i].votos {
 			return vs[x.i].votos > vs[y.i].votos
@@ -1499,6 +1585,38 @@ func (cf *crearFlujo) web() (crearHecho, bool) {
 		h.resp.Parrafos = append(h.resp.Parrafos, "Lo adapté así: "+strings.Join(elegida.pasos, "; ")+".")
 	}
 	return h, true
+}
+
+// crearJuicioWeb is what the checks said of one web snippet (neither: it ran but nothing judged it).
+type crearJuicioWeb struct {
+	url                   string
+	verificado, rechazado bool
+}
+
+// contarDominios moves each page's "dominio:" counter once per request: verified when one of its
+// snippets was verified, rejected when none was and one was rejected.
+func (c *Cerebro) contarDominios(js []crearJuicioWeb) {
+	visto, bien, mal := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	var orden []string
+	for _, j := range js {
+		if !visto[j.url] {
+			visto[j.url] = true
+			orden = append(orden, j.url)
+		}
+		if j.verificado {
+			bien[j.url] = true
+		} else if j.rechazado {
+			mal[j.url] = true
+		}
+	}
+	for _, url := range orden {
+		switch {
+		case bien[url]:
+			c.contarDominio(url, true)
+		case mal[url]:
+			c.contarDominio(url, false)
+		}
+	}
 }
 
 func crearTerminado(r nucleo.ResultadoCaso) bool {

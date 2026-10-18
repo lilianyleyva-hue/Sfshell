@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
-	"math/rand"
 	"regexp"
 	"sort"
 	"strconv"
@@ -21,11 +20,12 @@ import (
 	"nyxcodigo/internal/saber"
 )
 
-// What words mean and learning to talk (internal/habla) inside the orchestrator: the templates
-// (what a word means, how two words relate, a sentence about a topic, reading a text, how much it
-// knows), their routing, and the learning hooks (every request is read; the Go notes once per
-// version; Spanish web pages through hablaLeerWeb). Nothing here is checked: every answer says where
-// its knowledge came from and the sentences it builds start with "Creo que" (Nivel sin_comprobar).
+// What words mean (internal/habla) inside the orchestrator: the templates (what a word means, how two
+// words relate, what it knows about a topic, reading a text, how much it knows), their routing, and the
+// learning hooks (every request is read; the Go notes once per version; Spanish web pages through
+// hablaLeerWeb). Every answer says where its knowledge came from; what it read and never checked is
+// said with "Creo que" (Nivel sin_comprobar). It never shows a sentence of its own making as an
+// answer: habla's sentence model is not a source of facts.
 
 const (
 	intervaloHabla = time.Minute // what is read from the requests is saved at most this often
@@ -645,63 +645,61 @@ func comillas(ws []string) []string {
 	return out
 }
 
-// respuestaDecir: a sentence of its own about a topic, built only with words whose meaning it knows.
+// respuestaDecir: "háblame de X" says what it knows about X and where each part comes from: the shipped
+// Go note on X (a source) and the meaning in its dictionary. It does not build sentences of its own: a
+// sentence stitched together from what it read can state something false about Go, and a "Creo que"
+// in front would not make it honest (§0).
 func (c *Cerebro) respuestaDecir(k *tarea, tema string) nucleo.Respuesta {
 	tema = quitarArticulo(tema)
-	paso := k.raiz.Sub(nucleo.PasoIntento, "Busco una frase sobre «%s» con lo que he leído", tema)
-	semilla := k.semilla
-	for _, r := range k.p.Tarea + k.p.Sesion {
-		semilla = semilla*31 + int64(r)
+	paso := k.raiz.Sub(nucleo.PasoMemoria, "Busco lo que sé de «%s» en mis notas de Go y en mi diccionario", tema)
+	var palabras []string
+	visto := map[string]bool{}
+	for _, w := range strings.Fields(nucleo.Normalizar(tema)) {
+		for _, x := range []string{w, lengua.Lema(w)} {
+			if x != "" && !visto[x] && !articuloHabla[x] {
+				visto[x] = true
+				palabras = append(palabras, x)
+			}
+		}
 	}
-	rng := rand.New(rand.NewSource(semilla))
-	// "dime otra frase": not the sentence it has just said
-	anterior := ""
-	if prev, ok := k.s.ultimo(); ok && prev.Respuesta.Metodo == metodoHabla {
-		anterior = prev.Respuesta.Texto
+	var ps, justif []string
+	comps := []nucleo.Comprobacion{}
+	nivel := nucleo.NivelSinComprobar
+	if nota, ok := docgoResumenNota(palabras); ok {
+		ps = append(ps, "Según mis notas de Go: "+strings.TrimSuffix(strings.TrimSpace(nota.Titulo), ".")+". "+strings.TrimSpace(nota.Resumen))
+		comps = append(comps, nucleo.Comprobacion{Nivel: nucleo.NivelFuente, Pasan: 1, Total: 1, Texto: "Según mis notas de Go",
+			Detalle: "nota «" + nota.Clave + "»"})
+		nivel = nucleo.NivelFuente
+		justif = append(justif, "Lo tomé de mi nota de Go «"+nota.Clave+"».")
 	}
-	f, ok := c.habla.Decir(rng, []string{tema}, habla.MaxPalabrasDir)
-	for i := 0; ok && i < 4 && anterior != "" && strings.Contains(anterior, f.Texto); i++ {
-		f, ok = c.habla.Decir(rng, []string{tema}, habla.MaxPalabrasDir)
-	}
-	var def []string
 	for _, w := range strings.Fields(tema) {
-		if s, ok := c.habla.Buscar(w); ok && s.Propio && !articuloHabla[nucleo.Normalizar(w)] {
-			def = append(def, lineaDefinicion(s))
+		if articuloHabla[nucleo.Normalizar(w)] {
+			continue
+		}
+		if s, ok := c.habla.Buscar(w); ok && s.Propio {
+			def := lineaDefinicion(s)
+			if !ensenado(s) && s.Fuente != habla.FuenteSemilla {
+				def = "Creo que " + def // read somewhere, never checked
+			}
+			ps = append(ps, def)
+			justif = append(justif, "Busqué «"+s.Palabra+"» en mi diccionario de significados.")
 			break
 		}
 	}
-	if !ok {
-		paso.Info("No me sale ninguna frase (%d probadas)", f.Probadas)
-		ps := []string{}
-		switch f.Motivo {
-		case "sin_significado":
-			ps = append(ps, fmt.Sprintf("He leído frases con «%s», pero no sé qué significa: dímelo así: «%s significa …».", tema, tema))
-		case "sin_lectura":
-			ps = append(ps, "Todavía no he leído ninguna frase sobre eso.")
-		default:
-			ps = append(ps, "Las frases que me salen usan palabras que no sé qué significan, y esas no las digo.")
-		}
-		if len(def) > 0 {
-			ps = append(ps, "Lo que sí sé es qué significa: "+def[0])
-		}
-		ps = append(ps, "Dame un texto con «lee esto: …» y aprenderé a hablar de ello.")
-		return plantillaHablaR(fmt.Sprintf("Todavía no sé decir nada sobre «%s»: léeme algo o enséñame qué significa.", tema), ps,
+	if len(ps) == 0 {
+		paso.Info("No sé nada de eso")
+		return plantillaHablaR(fmt.Sprintf("Todavía no sé nada de «%s»: léeme algo o enséñame qué significa.", tema),
+			[]string{fmt.Sprintf("Enséñamelo así: «%s significa …», o dame un texto con «lee esto: …».", tema),
+				"No invento frases sobre un tema: solo te digo lo que sé y de dónde lo sé."},
 			[]string{"¿Qué significa " + tema + "?", "¿Qué palabras sabes?"}, false)
 	}
-	paso.Bien("Me quedo con: %s", f.Texto)
-	e := c.habla.Estado()
-	texto := "Con mis propias palabras (no lo he comprobado): " + afirmar(f.Texto, nil)
-	ps := append([]string(nil), def...)
-	ps = append(ps, fmt.Sprintf("He formado la frase con lo que he leído (%d frases): la elegí entre %d que solo usan palabras cuyo significado conozco. Puede parecerse mucho a algo que leí.", e.Frases, f.Validas))
-	if len(f.Ancladas) > 0 {
-		ps = append(ps, "Estas palabras solo las conozco de oídas (sin definición propia): "+strings.Join(comillas(f.Ancladas), ", ")+".")
-	}
-	r := plantillaHablaR(texto, ps, []string{"Dime otra frase sobre " + tema, "¿Qué significa " + tema + "?"}, true)
-	r.Comprobaciones = []nucleo.Comprobacion{{Nivel: nucleo.NivelSinComprobar, Texto: "Frase mía, sin comprobar"}}
-	r.Justificacion = []string{
-		fmt.Sprintf("Probé %d frases siguiendo lo que he leído (un modelo de trigramas de palabras); %d usaban solo palabras que conozco.", f.Probadas, f.Validas),
-		fmt.Sprintf("Me quedé con una de las más probables que habla de «%s» (puntuación %s).", tema, decimal(f.Puntos)),
-	}
+	paso.Bien("%s", cuantas(len(ps), "cosa", "cosas"))
+	ps = append(ps, "No invento frases sobre un tema: solo te digo lo que sé y de dónde lo sé.")
+	r := plantillaHablaR(fmt.Sprintf("Esto es lo que sé de «%s»:", tema), ps,
+		[]string{"¿Qué significa " + tema + "?", "¿Qué palabras sabes?"}, true)
+	r.Comprobaciones = comps
+	r.Nivel = nivel
+	r.Justificacion = append(justif, "No formo frases nuevas: una frase hecha con trozos de lo que leí puede decir algo falso.")
 	return r
 }
 

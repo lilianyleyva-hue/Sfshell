@@ -128,18 +128,23 @@ en el navegador, ciérralo antes, o usa otra carpeta con `-datos`.
   a uno cuando se puede.
 - **Secuencias**: «2, 5, 10, 17, ¿siguiente?».
 - **Planificar**: jarras de agua, el lobo, la cabra y la col, torres de Hanói, laberintos.
-- **Memoria**: recuerda las funciones que te hizo y las palabras que le enseñas («recuerda que capicúa
-  significa palíndromo»). Puedes pedirle que las olvide.
+- **Memoria**: recuerda las funciones que te hizo, las palabras que le enseñas («recuerda que capicúa
+  significa palíndromo») y los datos y reglas que le cuentas («recuerda que todos los perros son
+  mamíferos»). Puedes usarlas («usa SumaPares para [1,2,3,4]») y pedirle que las olvide («olvida que
+  todos los perros son mamíferos»).
 - **Buscar en internet** (si lo dejas): «busca cómo invertir un mapa en Go». Dice de dónde sale cada cosa.
+  Cuenta qué webs le dieron código que funcionó y cuáles no, y lee antes las que mejor le fueron.
 - **Seguir la conversación**: «¿y si fuera 13?», «ahora con impares», «¿por qué?», «otra forma»,
-  «está mal: con [2] da 2».
+  «está mal: con [2] da 2», «pruébala con [3,3]», «ejecútalo con entrada 5», «hazlo programa». Si no
+  conoce otra forma, te lo dice.
 - **Estudiar**: con el botón «Estudiar Go» aprende ejemplos nuevos y vuelve a intentar las preguntas
   que antes no supo resolver.
 
 ## Cómo aprende a hablar y qué significa cada palabra
 
-Nyx Código tiene un diccionario de significados y aprende a hablar con lo que lee. No es un modelo de
-lenguaje: son sus propios algoritmos, y todo lo que dice así lleva «Creo que» y «no lo he comprobado».
+Nyx Código tiene un diccionario de significados que crece con lo que lee. No es un modelo de lenguaje:
+son sus propios algoritmos. Dice siempre de dónde sacó cada significado, y lo que solo ha leído (sin
+comprobarlo) lo dice con «Creo que».
 
 - **Empieza sabiendo 66 palabras** con su definición en español y su palabra en inglés («variable: una
   caja con nombre donde guardas un valor»). Vienen del diccionario Resh de Nyx.
@@ -154,10 +159,10 @@ lenguaje: son sus propios algoritmos, y todo lo que dice así lleva «Creo que»
 - **Compara palabras por lo que significan**: «¿qué relación hay entre aprender y olvidar?» → opuestos
   (hablan de la memoria pero uno guarda y el otro pierde); también afines, del mismo tema o sin relación,
   con las palabras que lo justifican. Si no sabe qué significa una, no se inventa la relación.
-- **Aprende a hablar** con un modelo de trigramas de palabras entrenado con todo lo que lee. Con
-  «háblame de las funciones» construye una frase propia, y solo la dice si conoce el significado de
-  todas sus palabras importantes; si no puede, te lo dice: «Todavía no sé decir nada sobre X: léeme algo
-  o enséñame qué significa».
+- **Te dice lo que sabe de un tema**: con «háblame de las funciones» junta su nota de Go sobre el tema y
+  el significado de su diccionario, cada cosa con su fuente. No inventa frases propias: una frase hecha
+  con trozos de lo que leyó podría decir algo falso de Go. Si no sabe nada, te lo dice: «Todavía no sé
+  nada de X: léeme algo o enséñame qué significa».
 
 Pruébalo con: «¿qué significa variable?», «¿qué es un bucle?», «zarzamora significa una fruta negra»,
 «lee esto: un parámetro es un valor que recibe una función», «háblame de las funciones», «¿sumar es lo
@@ -198,7 +203,9 @@ una carpeta que ya tenga otros archivos, para no tocarlos). Dentro hay:
 - `aprendizaje.json`, `contraejemplos.json`, `pistas.json`: lo que aprende con el uso,
 - `historial/`: lo que le preguntaste cada día,
 - `pendientes.jsonl`: las preguntas que no supo resolver,
-- `web/`, `estudio/`, `indice-std.json`: copias de páginas y ejemplos de Go,
+- `habla.json`: su diccionario de significados (mira «Cómo aprende a hablar»),
+- `web/`: copias de las páginas que leyó en internet (también las de «Estudiar Go»),
+- `indice-std.json`: el índice de los ejemplos que trae tu Go,
 - `cache/go-build/`: la caché de Go para compilar,
 - `tmp/`: carpetas temporales (se vacían al cerrar),
 - `registro.log`: el registro del programa (para buscar fallos),
@@ -215,7 +222,7 @@ rm -rf ~/.local/share/nyx-codigo
 ```
 
 Si solo quieres que olvide algo concreto, no hace falta borrar nada: en la pestaña «Memoria» puedes
-quitar funciones, hechos y palabras, o pedírselo: «olvida SumaPares».
+quitar funciones, hechos, reglas y palabras, o pedírselo: «olvida SumaPares».
 
 ## Privacidad
 

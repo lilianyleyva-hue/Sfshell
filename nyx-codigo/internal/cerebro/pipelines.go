@@ -89,6 +89,8 @@ type tarea struct {
 	optimizar   bool   // "hazlo más rápido" / IOptimizar (N3)
 	envolver    bool   // "hazlo programa": wrap the session's function (k.codigo) into a program
 
+	sinPlantillas bool // crear_programa: build the function and wrap it, no template ("ahora con impares" after "hazlo programa")
+
 	programa  *sintesis.Expr // DSL program of the answer, if any (learning: componente:/asoc: counters)
 	pendiente string         // non-empty: the question is added to pendientes with this reason
 	fallidas  []string       // strategies tried that failed (their counters go down)

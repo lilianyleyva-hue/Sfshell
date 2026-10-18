@@ -119,16 +119,47 @@ func (c *Cerebro) sesion(id string) *sesion {
 	return s
 }
 
-// ultimo returns the last turn that is not a meta turn.
+// ultimo returns the last turn that is not a meta turn nor a "no te entiendo": a misunderstanding is
+// not the context the next follow-up talks about.
 func (s *sesion) ultimo() (Turno, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := len(s.turnos) - 1; i >= 0; i-- {
-		if !s.turnos[i].Meta {
+		if !s.turnos[i].Meta && !noEntendido(s.turnos[i]) {
 			return s.turnos[i], true
 		}
 	}
 	return Turno{}, false
+}
+
+// noEntendido: the turn was the "no te entiendo" template.
+func noEntendido(t Turno) bool {
+	return t.Metodo == "no_entiendo" || t.Respuesta.Metodo == "no_entiendo"
+}
+
+// baseCreacion finds the request that created the code the conversation is about, for "ahora con
+// impares": the newest creation turn, walking back over meta turns, misunderstandings and follow-ups
+// about that code (pruébala, explícalo, hazlo programa…). comoPrograma: the code was turned into a
+// program after it ("hazlo programa"). ok=false when another kind of request came in between.
+func (s *sesion) baseCreacion() (base Turno, comoPrograma, ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := len(s.turnos) - 1; i >= 0; i-- {
+		t := s.turnos[i]
+		switch {
+		case t.Meta || noEntendido(t):
+			continue
+		case esCreacion(t.Intencion) && t.Pregunta != nil && t.Seguimiento != "programa_eso":
+			return t, comoPrograma, true
+		case t.Seguimiento != "" && nucleo.Familia(t.Intencion) == "programar":
+			if t.Seguimiento == "programa_eso" {
+				comoPrograma = true
+			}
+			continue
+		}
+		return Turno{}, false, false
+	}
+	return Turno{}, false, false
 }
 
 // contexto returns a copy of the session context (for lengua).
@@ -188,7 +219,7 @@ func (s *sesion) registrar(k *tarea, r nucleo.Respuesta) {
 	if len(s.turnos) > MaxTurnos {
 		s.turnos = append([]Turno(nil), s.turnos[len(s.turnos)-MaxTurnos:]...)
 	}
-	if t.Meta {
+	if t.Meta || noEntendido(t) {
 		return
 	}
 	ctx := s.ctx

@@ -20,7 +20,8 @@ import (
 //	nucleo/nucleotest                         nucleo
 //	instrumenta, pruebas, reparar, analisis,  nucleo
 //	recetas, sintesis, lengua, mates, logica,
-//	puzles, saber, memoria, servidor, habla
+//	puzles, saber, memoria, servidor, habla,
+//	manos
 //	arenero                                   nucleo, instrumenta
 //	cerebro                                   everything under internal/ except servidor
 //	main.go                                   cerebro, servidor, arenero, memoria, saber, nucleo
@@ -35,7 +36,7 @@ import (
 const modulo = "nyxcodigo"
 
 var hojas = []string{"instrumenta", "pruebas", "reparar", "analisis", "recetas", "sintesis", "lengua",
-	"mates", "logica", "puzles", "saber", "memoria", "servidor", "habla"}
+	"mates", "logica", "puzles", "saber", "memoria", "servidor", "habla", "manos"}
 
 // reglas: package (path under internal/) → internal packages it may import.
 func reglas() map[string][]string {

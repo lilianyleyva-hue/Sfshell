@@ -39,6 +39,15 @@ var metodosSinAprendizaje = map[string]bool{
 	"seguimiento": true, "error": true, "habla": true, "parado": true,
 }
 
+// sinAprendizaje: the answer's method teaches nothing about strategies. Metodo "memoria" is the memory
+// template only: a function reused from memory ("Ya sé hacer esto") is crear_funcion doing its job.
+func sinAprendizaje(metodo string, i nucleo.TipoIntencion) bool {
+	if metodo == "memoria" && nucleo.Familia(i) == "programar" {
+		return false
+	}
+	return metodosSinAprendizaje[metodo]
+}
+
 // juzganCodigoAjeno are the intents that judge the user's own code: running it, testing it or
 // explaining it is the job done even when the code fails (Nivel fallo is the code's verdict, not the
 // app's), and such a request is never a pending question.
@@ -76,7 +85,7 @@ func (c *Cerebro) aprender(k *tarea, r *nucleo.Respuesta) {
 	if k.meta || r.Metodo == "parado" {
 		return // a stopped request teaches nothing and is not a pending question
 	}
-	if !metodosSinAprendizaje[r.Metodo] && k.estrategia != "" && k.estrategia != "-" {
+	if !sinAprendizaje(r.Metodo, k.intencion) && k.estrategia != "" && k.estrategia != "-" {
 		c.stats.Exito("estrategia:"+k.estrategia, ok)
 	}
 	visto := map[string]bool{k.estrategia: true}
@@ -94,7 +103,7 @@ func (c *Cerebro) aprender(k *tarea, r *nucleo.Respuesta) {
 		c.contarPrograma(k.programa, conceptos, true)
 	}
 	motivo := k.pendiente
-	if motivo == "" && r.Nivel == nucleo.NivelFallo && !metodosSinAprendizaje[r.Metodo] && !juzganCodigoAjeno[k.intencion] {
+	if motivo == "" && r.Nivel == nucleo.NivelFallo && !sinAprendizaje(r.Metodo, k.intencion) && !juzganCodigoAjeno[k.intencion] {
 		motivo = "fallo"
 	}
 	if motivo != "" {

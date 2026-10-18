@@ -38,9 +38,13 @@ func pipeCrearPrograma(c *Cerebro, k *tarea) nucleo.Respuesta {
 	if k.envolver && strings.TrimSpace(k.codigo) != "" {
 		return programaDeCodigo(c, k)
 	}
-	k.raiz.Sub(nucleo.PasoPlan, "Plan: 1) buscar una plantilla de programa 2) si no, construir la función y envolverla 3) ejecutarlo para comprobarlo").Info("")
-	if r, ok := programaPlantilla(c, k); ok {
-		return r
+	if k.sinPlantillas {
+		k.raiz.Sub(nucleo.PasoPlan, "Plan: 1) construir la función 2) envolverla en un programa 3) ejecutarlo para comprobarlo").Info("")
+	} else {
+		k.raiz.Sub(nucleo.PasoPlan, "Plan: 1) buscar una plantilla de programa 2) si no, construir la función y envolverla 3) ejecutarlo para comprobarlo").Info("")
+		if r, ok := programaPlantilla(c, k); ok {
+			return r
+		}
 	}
 	q := k.q
 	var fallo *nucleo.Respuesta
@@ -337,6 +341,10 @@ func programaPlantilla(c *Cerebro, k *tarea) (nucleo.Respuesta, bool) {
 			continue
 		}
 		p := *h.Plantilla
+		if crearExcluido(k.excluir, "plantilla:"+p.Nombre) {
+			n.Nota("La plantilla «%s» ya te la enseñé", p.Titulo)
+			continue
+		}
 		probadas++
 		n.Nota("Pruebo la plantilla «%s» (%s)", p.Titulo, decimal(h.Puntos))
 		valores, notas, ok := programaRellenar(c, k, p)
@@ -399,6 +407,7 @@ func programaPlantilla(c *Cerebro, k *tarea) (nucleo.Respuesta, bool) {
 			r.Entendi = "Así lo entendí: " + programaEntendi(pp)
 		}
 		k.turno.Metodo = "plantilla"
+		k.turno.Excluidos = append(k.turno.Excluidos, "plantilla:"+p.Nombre) // for "otra forma"
 		return r, true
 	}
 	if probadas == 0 {
@@ -908,7 +917,7 @@ func programaWeb(c *Cerebro, k *tarea) (nucleo.Respuesta, bool) {
 	k.ctx = ctx
 	defer func() { k.ctx = ctxTarea }()
 	n := k.raiz.Sub(nucleo.PasoBusqueda, "Busco un programa en la web: «%s»", q.ConsultaWeb)
-	_, docs, err := c.web.BuscarDocumentos(ctx, q.ConsultaWeb)
+	docs, err := c.buscarDocumentos(ctx, q.ConsultaWeb)
 	if err != nil || len(docs) == 0 {
 		n.Mal("No encontré nada útil")
 		return nucleo.Respuesta{}, false
@@ -925,6 +934,7 @@ func programaWeb(c *Cerebro, k *tarea) (nucleo.Respuesta, bool) {
 			comp := c.ej.Compilar(ctx, cand.Codigo)
 			if !comp.OK {
 				n.Nota("El de %s no compila", saber.Dominio(cand.URL))
+				c.contarDominio(cand.URL, false)
 				continue
 			}
 			vet := c.ej.Vet(ctx, cand.Codigo)
@@ -944,7 +954,11 @@ func programaWeb(c *Cerebro, k *tarea) (nucleo.Respuesta, bool) {
 				r.Parrafos = append(r.Parrafos, "go vet avisa: "+resumenErrores(vet, nil)+".")
 			}
 			if !programaLeeEntrada(cand.Codigo) {
-				if pp, err := programaProbar(c, k, cand.Codigo, []nucleo.CasoPrograma{{Nota: "sin entrada"}}); err == nil && len(pp.runs) > 0 && pp.runs[0].ok {
+				pp, err := programaProbar(c, k, cand.Codigo, []nucleo.CasoPrograma{{Nota: "sin entrada"}})
+				if err == nil && len(pp.runs) > 0 {
+					c.contarDominio(cand.URL, pp.runs[0].ok)
+				}
+				if err == nil && len(pp.runs) > 0 && pp.runs[0].ok {
 					if salida := strings.TrimSpace(pp.runs[0].ej.Salida); salida == "" {
 						r.Parrafos = append(r.Parrafos, "Lo ejecuté una vez y no escribió nada.")
 					} else {

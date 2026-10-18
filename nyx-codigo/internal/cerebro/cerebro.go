@@ -282,12 +282,22 @@ func (c *Cerebro) Funciones(q string) []nucleo.FuncionAprendida {
 	return out
 }
 
-// Hechos lists the stored facts; q ranks and filters them.
+// Hechos lists the stored facts and rules; q ranks and filters them. A rule ("todos los perros son
+// mamíferos") is listed as a Hecho whose ID is the rule's ("r1"), so the Memoria tab shows it and its
+// «Olvidar» reaches Olvidar("hecho", "r1").
 func (c *Cerebro) Hechos(q string) []nucleo.Hecho {
+	var out []nucleo.Hecho
 	if strings.TrimSpace(q) == "" {
-		return c.mem.Todos()
+		out = c.mem.Todos()
+	} else {
+		out = c.mem.BuscarHechos(q, 0)
 	}
-	return c.mem.BuscarHechos(q, 0)
+	for _, r := range c.mem.Reglas() {
+		if strings.TrimSpace(q) == "" || reglaMenciona(r, q) {
+			out = append(out, hechoDeRegla(r))
+		}
+	}
+	return out
 }
 
 // Palabras returns the confirmed learned words (word → concept) and the learned meanings (word →
@@ -347,7 +357,7 @@ func (c *Cerebro) Estado() nucleo.EstadoApp {
 		e.Avisos = append(e.Avisos, "No tengo caja segura: no puedo compilar ni ejecutar código.")
 	}
 	e.Internet = c.hayInternet()
-	e.Funciones, e.Hechos, e.Palabras = c.mem.Contar()
+	e.Funciones, e.Hechos, e.Palabras = c.contar()
 	e.Palabras += c.palabrasHabla(c.mem.Palabras())
 	e.Avisos = append(e.Avisos, c.mem.Avisos()...)
 	e.Avisos = append(e.Avisos, c.habla.Avisos()...)

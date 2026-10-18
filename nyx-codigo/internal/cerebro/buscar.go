@@ -55,7 +55,7 @@ func pipeBuscar(c *Cerebro, k *tarea) nucleo.Respuesta {
 	if consulta != tema {
 		nb.Detalle("Lo busco con estas palabras en inglés: %s", consulta)
 	}
-	_, docs, err := c.web.BuscarDocumentos(k.ctx, consulta)
+	docs, err := c.buscarDocumentos(k.ctx, consulta)
 	c.hablaLeerWeb(docs...) // Spanish pages also teach meanings and how to talk (habla.go)
 	if err != nil || len(docs) == 0 {
 		motivo := "no encontré páginas"
@@ -89,7 +89,7 @@ func pipeBuscar(c *Cerebro, k *tarea) nucleo.Respuesta {
 
 	// passages
 	np := k.raiz.Sub(nucleo.PasoBusqueda, "Elijo las frases que mejor responden")
-	pasajes := saber.Rankear(consulta, docs, 3)
+	pasajes := c.rankear(consulta, docs, 3)
 	for _, p := range pasajes {
 		r.Parrafos = append(r.Parrafos, segun(p.URL, recortar(p.Texto, 400)))
 		ponerFuente(p.URL, "")
@@ -153,7 +153,7 @@ func pipeBuscar(c *Cerebro, k *tarea) nucleo.Respuesta {
 	}
 	r.Justificacion = []string{
 		busque + " y leí " + buscarMejores(len(docs)) + ".",
-		"Elegí las frases que más se parecen a la pregunta (BM25, con más peso para go.dev y gobyexample).",
+		"Elegí las frases que más se parecen a la pregunta (BM25, con más peso para go.dev y gobyexample y para las webs cuyo código me funcionó otras veces).",
 		"El código de la web solo lo ejecuto si pasa la revisión de seguridad automática; si no, solo lo compilo.",
 	}
 	if codigo != "" {
@@ -241,12 +241,14 @@ func (c *Cerebro) buscarCodigo(k *tarea, docs []saber.Documento) buscado {
 				salida, falla, crudo, corrio := c.buscarCorrerPrograma(k, n, cd.Codigo)
 				switch {
 				case corrio && falla == "":
+					c.contarDominio(cd.URL, true)
 					n.Bien("Uno funciona")
 					return buscado{codigo: cd.Codigo, url: cd.URL,
 						comp: &nucleo.Comprobacion{Nivel: nucleo.NivelSinFallos, Pasan: 1, Total: 1,
 							Texto: "Lo ejecuté: terminó sin errores", Detalle: cd.URL},
 						frase: "Lo ejecuté y escribió: «" + docgoSalida(salida) + "»."}
 				case corrio:
+					c.contarDominio(cd.URL, false)
 					if fallido == nil {
 						fallido = &buscado{codigo: cd.Codigo, url: cd.URL, falla: falla,
 							comp: &nucleo.Comprobacion{Nivel: nucleo.NivelFallo, Pasan: 0, Total: 1,
@@ -276,6 +278,7 @@ func (c *Cerebro) buscarCodigo(k *tarea, docs []saber.Documento) buscado {
 				case err != nil:
 					motivo = "no pude probarlo en la caja segura"
 				case len(v.Fallos) > 0:
+					c.contarDominio(cd.URL, false)
 					if fallido == nil {
 						falla, crudo := buscarFallaFuncion(f, v)
 						fallido = &buscado{codigo: cd.Codigo, url: cd.URL, falla: falla,
@@ -284,6 +287,7 @@ func (c *Cerebro) buscarCodigo(k *tarea, docs []saber.Documento) buscado {
 					}
 					continue // it ran and failed: never offered as "compila"
 				case len(v.Comprobaciones) > 0:
+					c.contarDominio(cd.URL, true)
 					comp := v.Comprobaciones[0]
 					for _, cp := range v.Comprobaciones {
 						if cp.Nivel == nucleo.NivelSinFallos {
@@ -299,7 +303,11 @@ func (c *Cerebro) buscarCodigo(k *tarea, docs []saber.Documento) buscado {
 			}
 		}
 		if compila == nil {
-			if comp := c.ej.Compilar(k.ctx, cd.Codigo); comp.OK {
+			comp := c.ej.Compilar(k.ctx, cd.Codigo)
+			if !comp.OK && k.ctx.Err() == nil {
+				c.contarDominio(cd.URL, false)
+			}
+			if comp.OK {
 				compila = &buscado{codigo: cd.Codigo, url: cd.URL,
 					comp:  &nucleo.Comprobacion{Nivel: nucleo.NivelSinComprobar, Texto: "Sin comprobar · compila", Detalle: cd.URL},
 					frase: "Este código compila, pero no lo he ejecutado: " + motivo + "."}

@@ -199,6 +199,15 @@ func (c *Cerebro) candidatos(q *nucleo.Pregunta) []candidato {
 	}
 	out = append(out, c.candidatosHabla(q)...) // "¿qué significa X?" (habla.go)
 	visto := map[nucleo.TipoIntencion]bool{}
+	if m := reUsaFuncion.FindStringSubmatch(q.Texto); m != nil {
+		if g, ok := c.mem.Funcion(m[1]); ok && g.Codigo != "" {
+			// "usa SumaPares para [1,2,3,4]": a function of my memory, named to be used (crear_funcion
+			// reuses it by its exact name)
+			visto[nucleo.ICrearFuncion] = true
+			out = append(out, candidato{nombre: string(nucleo.ICrearFuncion), intencion: nucleo.ICrearFuncion, familia: "programar",
+				puntos: 0.95, lectura: "Usar la función " + g.Nombre + ", que ya sé", motivo: "nombras una función de mi memoria"})
+		}
+	}
 	for _, ci := range q.Intenciones {
 		if intencionesRazonar[ci.Tipo] || visto[ci.Tipo] {
 			continue
