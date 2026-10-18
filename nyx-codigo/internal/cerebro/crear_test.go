@@ -374,8 +374,10 @@ func TestCrearSeguimientos(t *testing.T) {
 	if !strings.Contains(r4.Codigo, "package main") || !strings.Contains(todoElTexto(r4), "go run main.go") || !r4.Exito {
 		t.Errorf("hazlo programa: %s %q\n%s", r4.Nivel, r4.Texto, recortar(r4.Codigo, 400))
 	}
-	if r4.Nivel != nucleo.NivelEntendido {
-		t.Errorf("el programa se compara con la función: nivel %s", r4.Nivel)
+	// the program is compared with the function, and with the user's own example of the turn before
+	if r4.Nivel != nucleo.NivelTusEjemplos || !strings.Contains(todoElTexto(r4), "Cumple tu ejemplo") ||
+		!strings.Contains(todoElTexto(r4), "Lo ejecuté con") {
+		t.Errorf("el programa se compara con la función y con tu ejemplo: nivel %s\n%s", r4.Nivel, recortar(todoElTexto(r4), 800))
 	}
 }
 
@@ -917,6 +919,46 @@ func TestCrearWebDentroDeSuPresupuesto(t *testing.T) {
 	for i, d := range ej.plazos {
 		if d < 0 || d > tope {
 			t.Errorf("llamada %d al arenero con plazo %v (tope %v)", i, d, tope)
+		}
+	}
+}
+
+// A yes/no function whose check was not understood ("si una lista está ordenada": no predicate in the
+// frame) is not guessed: any yes/no program ("todos son pares") would be shown as "lo que entendí".
+func TestCrearNoAdivinaLaComprobacion(t *testing.T) {
+	necesitaGo(t)
+	c := cerebroExamen(t)
+	r, tr := preguntarCrear(c, "s", "función que diga si una lista está ordenada", nil)
+	if r.Exito || r.Codigo != "" && r.Entendi != "" || !strings.Contains(todoElTexto(r), "No sé qué debe comprobar") {
+		t.Fatalf("no debía adivinar: %s %q\n%s\n%s", r.Nivel, r.Texto, todoElTexto(r), titulos(tr))
+	}
+	// with a predicate it understands, it still builds it
+	r, tr = preguntarCrear(c, "s2", "función que diga si todos los números de una lista son pares", nil)
+	if !r.Exito || r.Nivel != nucleo.NivelEntendido {
+		t.Fatalf("con «pares» sí sabe qué comprobar: %s %q\n%s", r.Nivel, r.Texto, titulos(tr))
+	}
+}
+
+// Template names are compared by lemma: «adivina el número» names adivina_numero; a template whose
+// name only shares a common word is not taken.
+func TestProgramaPlantillaPorNombre(t *testing.T) {
+	casos := map[string]string{
+		"adivina el número":                   "adivina_numero",
+		"haz el FizzBuzz hasta 15":            "fizzbuzz",
+		"haz un programa que cuente hasta 10": "",
+	}
+	for texto, quiero := range casos {
+		q := lengua.Analizar(texto, "", "", lengua.LexicoBase(), nil)
+		lemas := crearLemas(q)
+		elegida := ""
+		for _, h := range recetas.BuscarPlantillas(lemas, 3) {
+			if h.Plantilla != nil && programaEncaja(q, *h.Plantilla, h.Puntos, lemas) {
+				elegida = h.Plantilla.Nombre
+				break
+			}
+		}
+		if elegida != quiero {
+			t.Errorf("%q: plantilla %q, quiero %q", texto, elegida, quiero)
 		}
 	}
 }

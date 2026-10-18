@@ -4,13 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/ast"
 	"go/format"
 	"go/parser"
+	"go/scanner"
 	"go/token"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"nyxcodigo/internal/analisis"
@@ -23,7 +27,11 @@ import (
 // run automatically, a variable trace on a small input, Observar (summary checked on random inputs,
 // fingerprint lookup) and, for loops over the input, the measured growth on an uninstrumented build.
 // "ponle comentarios" → analisis.Comentar; IOptimizar / "hazlo más rápido" → analisis.Optimizaciones,
-// shown only after comparing the rewrite with the original on generated cases.
+// shown only after comparing the rewritten function with the original on generated cases.
+//
+// A snippet that only compiles once completed (a forgotten standard import, analisis.Normalizar) is run
+// completed, and the answer says what was missing. Code that cannot be parsed is not narrated: the
+// parser's recovery would make up statements.
 
 // cabeceraFrases is the header of the per-line explanation table. UI contract (servidor/web/app.js,
 // actualizarExplicacion): the first Tabla whose first header normalizes to "linea" feeds the editor
@@ -33,7 +41,8 @@ var cabeceraFrases = []string{"Línea", "Frase"}
 const (
 	explicarMaxEventos    = 200
 	explicarFilasTraza    = 40
-	explicarAzar          = 200
+	explicarAzar          = 300 // random cases that check the summary (§4.5, §1 #5)
+	explicarAzarPedidos   = 400 // asked from the generator: duplicates are removed
 	explicarLimiteResumen = 1500 * time.Millisecond
 	explicarMinMedir      = 4 * time.Second // budget left needed to measure the growth
 	explicarMaxMedir      = 6 * time.Second // the longest a growth measurement may take
@@ -57,6 +66,13 @@ func pipeExplicar(c *Cerebro, k *tarea) nucleo.Respuesta {
 		ne.Mal("No lo puedo leer: %s", mensajeError(err))
 		return explicarRespuesta("No veo código Go que pueda leer: "+mensajeError(err)+".", false)
 	}
+	x := &explicacion{c: c, k: k, codigo: codigo, inf: inf}
+	if len(inf.Errores) > 0 {
+		if f, _, _ := explicarParsear(codigo); f == nil {
+			ne.Mal("No se puede leer")
+			return x.ilegible()
+		}
+	}
 	fn, ok := explicarElegir(k, inf)
 	if !ok {
 		ne.Mal("No tiene funciones")
@@ -67,7 +83,9 @@ func pipeExplicar(c *Cerebro, k *tarea) nucleo.Respuesta {
 	} else {
 		ne.Bien("Explico «%s»", fn.Nombre)
 	}
-	x := &explicacion{c: c, k: k, codigo: codigo, inf: inf, fn: fn}
+	x.fn = fn
+	x.completar()
+	explicarLeerPeticion(k)
 	switch {
 	case k.comentarios:
 		return x.comentar()
@@ -85,23 +103,31 @@ type explicacion struct {
 	inf    analisis.Informe
 	fn     analisis.InfoFunc
 
+	// the code as given has errors but compiles once analisis.Normalizar adds what it forgot (importados);
+	// firmas are the functions of the completed file
+	completado bool
+	importados []string
+	firmas     map[string]analisis.InfoFunc
+
 	roles map[string]string
 
-	// dynamic evidence
-	ejecutado   bool
-	motivoNo    string // why it was not run ("" when it ran)
-	fraseTraza  string
-	tablas      []nucleo.Tabla
-	resumen     string // verified summary ("devuelve la suma de …")
-	pruebasRes  int
-	igualA      string
-	numSondas   int
-	numAzar     int
-	medida      string // measured growth class
-	medidas     []analisis.Medida
-	notaMedida  string // why there is no measured class
-	notaParo    string // the measurement stopped early (it still gave a class)
-	comprobados []nucleo.Comprobacion
+	// dynamic evidence: only what really ran is reported
+	ejecutado      bool   // it was built in the sandbox
+	motivoNo       string // why it was not run ("" when it ran)
+	traza          string // the input of the variable trace, when it ran
+	fraseTraza     string
+	tablas         []nucleo.Tabla
+	resumen        string // verified summary ("devuelve la suma de …")
+	pruebasRes     int
+	resumenFallido bool // a summary was tried on random cases and did not fit
+	igualA         string
+	numSondas      int // probes that ran
+	numAzar        int // random cases that ran
+	medida         string
+	medidas        []analisis.Medida
+	notaMedida     string // why there is no measured class
+	notaParo       string // the measurement stopped early (it still gave a class)
+	comprobados    []nucleo.Comprobacion
 }
 
 func explicarRespuesta(texto string, exito bool) nucleo.Respuesta {
@@ -155,6 +181,162 @@ func explicarElegir(k *tarea, inf analisis.Informe) (analisis.InfoFunc, bool) {
 	return inf.Funciones[0], true
 }
 
+// ---- what the request asks for ----
+
+var (
+	reExplicarComentarios = regexp.MustCompile(`\b(pon(le|les|ele)?|añade(le|les)?|agrega(le|les)?|mete(le|les)?|escribe(le|les)?) (un |unos |los |algunos )?comentarios?\b|\bcon comentarios\b|\bcomenta(lo|la|me|melo|mela)?\b|\bdocumenta(lo|la)\b`)
+	reExplicarDetalle     = regexp.MustCompile(`\b(con (mas )?detalles?|mas detalles?|en detalle|detalladamente|paso a paso|a fondo)\b`)
+	reExplicarSimple      = regexp.MustCompile(`\b(mas (facil|simple|sencillo|sencilla|claro|clara)|en palabras sencillas|de forma (simple|sencilla)|para (un |una )?niñ[oa]s?)\b`)
+	reExplicarEficiencia  = regexp.MustCompile(`\b(eficien\w*|rapid[oa]s?|rapidez|lent[oa]s?|lentitud|complejidad|cuanto tarda\w*|o grande|big o|coste|costo|rendimiento)\b|\bo\(`)
+)
+
+// explicarTexto is the request's text without its code, normalized ("" when the message is only code).
+func explicarTexto(k *tarea) string {
+	if k.q != nil {
+		return k.q.Normal
+	}
+	return nucleo.Normalizar(k.p.Texto)
+}
+
+// explicarLeerPeticion reads "ponle comentarios", "con detalle" and "más simple" in the request itself
+// (follow-ups already set them: seguir.go), so a first message with code gets them too (§4.14.2).
+func explicarLeerPeticion(k *tarea) {
+	t := explicarTexto(k)
+	if t == "" {
+		return
+	}
+	if !k.comentarios && reExplicarComentarios.MatchString(t) {
+		k.comentarios = true
+	}
+	if k.detalle == 0 {
+		switch {
+		case reExplicarDetalle.MatchString(t):
+			k.detalle = 2
+		case reExplicarSimple.MatchString(t):
+			k.detalle = 1
+		}
+	}
+}
+
+// explicarPideEficiencia: the request asks about speed ("¿es eficiente?", "¿cuánto tarda?"). Whole words
+// only: "excelente" does not ask whether it is slow.
+func explicarPideEficiencia(k *tarea) bool {
+	return reExplicarEficiencia.MatchString(explicarTexto(k))
+}
+
+// ---- code that does not compile as given ----
+
+// completar looks at code with errors (that parses: pipeExplicar answers ilegible otherwise): completado
+// when it compiles once analisis.Normalizar adds the standard imports it forgot (then it can be run that
+// way).
+func (x *explicacion) completar() {
+	if len(x.inf.Errores) == 0 {
+		return
+	}
+	normal, err := analisis.Normalizar(x.codigo, "")
+	if err != nil {
+		return
+	}
+	inf, err := analisis.Analizar(normal)
+	if err != nil || len(inf.Errores) > 0 {
+		return
+	}
+	x.completado = true
+	antes := map[string]bool{}
+	for _, im := range x.inf.Imports {
+		antes[im] = true
+	}
+	for _, im := range inf.Imports {
+		if !antes[im] {
+			x.importados = append(x.importados, im)
+		}
+	}
+	x.firmas = map[string]analisis.InfoFunc{}
+	for _, g := range inf.Funciones {
+		x.firmas[g.Nombre] = g
+	}
+	x.fn = x.funcion(x.fn)
+}
+
+// funcion is f with the signature of the completed file when the code needed completing (the types of
+// a file with errors may be partial).
+func (x *explicacion) funcion(f analisis.InfoFunc) analisis.InfoFunc {
+	if g, ok := x.firmas[f.Nombre]; ok && g.Firma != nil {
+		f.Firma, f.NoProbable = g.Firma, g.NoProbable
+	}
+	return f
+}
+
+// infoDe finds a function of the file by name.
+func (x *explicacion) infoDe(nombre string) (analisis.InfoFunc, bool) {
+	for _, g := range x.inf.Funciones {
+		if g.Nombre == nombre {
+			return x.funcion(g), true
+		}
+	}
+	return analisis.InfoFunc{}, false
+}
+
+// explicarErrorTexto is a compiler error in simple Spanish (reparar.Traducir), written to go inside a
+// sentence: "en la línea 4, usas `strings` pero no lo importaste".
+func explicarErrorTexto(e nucleo.ErrorGo) string {
+	t := strings.TrimSpace(reparar.Traducir(e))
+	if e.Linea > 0 {
+		t = strings.TrimSpace(strings.TrimSuffix(t, "(línea "+strconv.Itoa(e.Linea)+")"))
+	}
+	t = explicarMinuscula(strings.TrimRight(t, ". "))
+	if e.Linea > 0 {
+		return "en la línea " + strconv.Itoa(e.Linea) + ", " + t
+	}
+	return t
+}
+
+// explicarMinuscula lowers the first letter unless the word looks like a name ("Go", "OK").
+func explicarMinuscula(s string) string {
+	r, n := utf8.DecodeRuneInString(s)
+	if r == utf8.RuneError || !unicode.IsUpper(r) {
+		return s
+	}
+	if r2, _ := utf8.DecodeRuneInString(s[n:]); unicode.IsUpper(r2) || strings.HasPrefix(s, "Go ") {
+		return s
+	}
+	return string(unicode.ToLower(r)) + s[n:]
+}
+
+// explicarPanico is a runtime error in simple Spanish, to go inside parentheses: "intentaste leer la
+// posición 3 de una lista vacía".
+func explicarPanico(panico string) string {
+	p := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(primeraLinea(panico)), "panic:"))
+	return explicarMinuscula(strings.TrimRight(reparar.TraducirPanico(p), ". "))
+}
+
+// explicarImports: "`strings`", "`strings` y `os`".
+func explicarImports(rutas []string) string {
+	ps := make([]string, len(rutas))
+	for i, r := range rutas {
+		ps[i] = "`" + r + "`"
+	}
+	if len(ps) == 1 {
+		return ps[0]
+	}
+	return strings.Join(ps[:len(ps)-1], ", ") + " y " + ps[len(ps)-1]
+}
+
+// ilegible answers for code that cannot be parsed: narrating it would describe statements the parser made
+// up to recover.
+func (x *explicacion) ilegible() nucleo.Respuesta {
+	motivo := "tiene un error de escritura"
+	if len(x.inf.Errores) > 0 {
+		motivo = explicarErrorTexto(x.inf.Errores[0])
+	}
+	x.k.raiz.Sub(nucleo.PasoError, "No se puede leer: %s", motivo).Mal("")
+	r := explicarRespuesta("Así como está, este código no se puede leer ("+motivo+").", false)
+	r.Parrafos = []string{"No te lo explico línea a línea: te contaría cosas que no están en tu código. Arréglalo primero (o pídeme «arréglalo») y te lo explico."}
+	r.Sugerencias = []string{"Arréglalo"}
+	x.k.turno.Metodo = "analisis"
+	return r
+}
+
 // ---- the explanation ----
 
 func (x *explicacion) explicar() nucleo.Respuesta {
@@ -190,7 +372,7 @@ func (x *explicacion) explicar() nucleo.Respuesta {
 
 	// run it, when that is safe and possible
 	switch {
-	case len(x.inf.Errores) > 0:
+	case len(x.inf.Errores) > 0 && !x.completado:
 		x.motivoNo = "no compila"
 	case x.fn.Firma == nil || !x.fn.Firma.Probable():
 		x.motivoNo = "no sé con qué datos llamarla"
@@ -242,10 +424,22 @@ func (x *explicacion) explicar() nucleo.Respuesta {
 	if s := explicarAvisos(x.inf.Hallazgos); s != "" {
 		r.Parrafos = append(r.Parrafos, s)
 	}
-	if len(x.inf.Errores) > 0 {
-		e := x.inf.Errores[0]
-		r.Parrafos = append(r.Parrafos, fmt.Sprintf("Ojo: así como está no compila (línea %d: %s), así que no lo he ejecutado.", e.Linea, e.Msg))
-	} else if !x.ejecutado && x.motivoNo != "" && k.detalle != 1 {
+	switch {
+	case len(x.inf.Errores) > 0 && x.completado:
+		p := "Ojo: así como está no compila (" + explicarErrorTexto(x.inf.Errores[0]) + ")."
+		if len(x.importados) > 0 {
+			p += " Le falta importar " + explicarImports(x.importados) + "."
+		}
+		if x.ejecutado {
+			p += " Para ejecutarlo se lo añadí."
+		}
+		r.Parrafos = append(r.Parrafos, p)
+		if !x.ejecutado && x.motivoNo != "" && k.detalle != 1 {
+			r.Parrafos = append(r.Parrafos, "No lo he ejecutado: "+x.motivoNo+". Lo que digo sale de leer el código.")
+		}
+	case len(x.inf.Errores) > 0:
+		r.Parrafos = append(r.Parrafos, "Ojo: así como está no compila ("+explicarErrorTexto(x.inf.Errores[0])+"), así que no lo he ejecutado.")
+	case !x.ejecutado && x.motivoNo != "" && k.detalle != 1:
 		r.Parrafos = append(r.Parrafos, "No lo he ejecutado: "+x.motivoNo+". Lo que digo sale de leer el código.")
 	}
 	if otras := x.otrasFunciones(); otras != "" {
@@ -270,11 +464,13 @@ func (x *explicacion) explicar() nucleo.Respuesta {
 		}
 		r.Justificacion = append(r.Justificacion, j+".")
 	}
-	if x.ejecutado {
-		r.Justificacion = append(r.Justificacion, fmt.Sprintf("Lo compilé en la caja segura y lo ejecuté con %d entradas fijas y %d al azar (semilla %d).", x.numSondas, x.numAzar, k.semilla))
+	if s := x.fraseEjecuciones(); s != "" {
+		r.Justificacion = append(r.Justificacion, s)
 	}
 	if x.resumen != "" {
 		r.Justificacion = append(r.Justificacion, fmt.Sprintf("Busqué un programa corto que diera lo mismo con las entradas fijas y lo comparé con tu código en %d entradas al azar: coincide en todas.", x.pruebasRes))
+	} else if x.resumenFallido {
+		r.Justificacion = append(r.Justificacion, "Probé a describirlo con un programa corto, pero no daba lo mismo que tu código en las entradas al azar, así que no te doy un resumen.")
 	}
 	if len(x.medidas) > 0 {
 		var ns []string
@@ -293,6 +489,28 @@ func (x *explicacion) explicar() nucleo.Respuesta {
 	}
 	k.turno.Metodo = "analisis"
 	return r
+}
+
+// fraseEjecuciones says what really ran (for "¿por qué?"): only the probes and random cases that were
+// executed are counted.
+func (x *explicacion) fraseEjecuciones() string {
+	if !x.ejecutado {
+		return ""
+	}
+	var partes []string
+	if x.numSondas > 0 {
+		partes = append(partes, cuantas(x.numSondas, "entrada fija", "entradas fijas"))
+	}
+	if x.numAzar > 0 {
+		partes = append(partes, fmt.Sprintf("%d al azar (semilla %d)", x.numAzar, x.k.semilla))
+	}
+	switch {
+	case len(partes) > 0:
+		return "Lo compilé en la caja segura y lo ejecuté con " + strings.Join(partes, " y ") + "."
+	case x.traza != "":
+		return "Lo compilé en la caja segura y lo ejecuté con " + x.traza + "."
+	}
+	return "Lo compilé en la caja segura, pero no conseguí ejecutarlo."
 }
 
 // otrasFunciones mentions the other functions of the file.
@@ -318,7 +536,7 @@ func (x *explicacion) ejecutar() {
 	k, c := x.k, x.c
 	f := *x.fn.Firma
 	n := k.raiz.Sub(nucleo.PasoComprobar, "Lo ejecuto para ver qué hace de verdad")
-	fuente, delta, err := explicarFuente(x.codigo, x.fn.Nombre, x.fn.Desde)
+	fuente, err := explicarFuente(x.codigo, x.fn.Nombre)
 	if err != nil {
 		x.motivoNo = "no pude prepararlo para compilar (" + mensajeError(err) + ")"
 		n.Info("No lo ejecuto: %s", x.motivoNo)
@@ -332,16 +550,21 @@ func (x *explicacion) ejecutar() {
 	instr := nucleo.InstrNormal
 	instr.Variables = true
 	instr.MaxEventos = explicarMaxEventos
-	b, _, err := c.preparar(k, n, nucleo.Preparacion{Variantes: []string{fuente}, Firma: f, Instr: instr, Permiso: nucleo.PermisoAuto})
+	b, comp, err := c.preparar(k, n, nucleo.Preparacion{Variantes: []string{fuente}, Firma: f, Instr: instr, Permiso: nucleo.PermisoAuto})
 	if err != nil {
-		x.motivoNo = "no compila en la caja segura (" + mensajeError(err) + ")"
+		x.motivoNo = "no compila en la caja segura"
+		if len(comp.Errores) > 0 {
+			e := comp.Errores[0]
+			e.Linea = 0 // a line of the file I built, not of yours
+			x.motivoNo += " (" + explicarErrorTexto(e) + ")"
+		}
 		n.Mal("No lo pude ejecutar")
 		return
 	}
 	defer b.Cerrar()
 	x.ejecutado = true
 	if k.detalle != 1 {
-		x.trazar(n, b, f, delta)
+		x.trazar(n, b, f, fuente)
 	}
 	x.observar(n, b, f)
 	if k.detalle != 1 {
@@ -350,8 +573,9 @@ func (x *explicacion) ejecutar() {
 	n.Bien("")
 }
 
-// trazar follows the variables on one small input.
-func (x *explicacion) trazar(n *nucleo.Nodo, b nucleo.Binario, f nucleo.Firma, delta int) {
+// trazar follows the variables on one small input. Event lines are lines of the built file (normalized
+// and gofmt'd); explicarMapaLineas takes them back to the user's lines statement by statement.
+func (x *explicacion) trazar(n *nucleo.Nodo, b nucleo.Binario, f nucleo.Firma, fuente string) {
 	k := x.k
 	caso, ok := explicarCasoPequeno(x.c, k, f)
 	if !ok {
@@ -364,14 +588,16 @@ func (x *explicacion) trazar(n *nucleo.Nodo, b nucleo.Binario, f nucleo.Firma, d
 		nt.Mal("No pude seguirlas")
 		return
 	}
+	x.traza = ent
 	r0 := rs[0][0]
+	lineas := explicarMapaLineas(x.codigo, fuente, x.fn.Nombre)
 	tb := nucleo.Tabla{Titulo: "Así cambian las variables con " + ent, Cabecera: []string{"Paso", "Línea", "Variable", "Valor"}}
 	for i, e := range r0.Eventos {
 		if i >= explicarFilasTraza {
 			break
 		}
 		linea := ""
-		if l := e.Linea - delta; l >= x.fn.Desde && l <= x.fn.Hasta {
+		if l, ok := lineas[e.Linea]; ok && l >= x.fn.Desde && l <= x.fn.Hasta {
 			linea = strconv.Itoa(l)
 		}
 		tb.Filas = append(tb.Filas, []string{strconv.Itoa(i + 1), linea, e.Var, e.Valor})
@@ -391,9 +617,7 @@ func (x *explicacion) observar(n *nucleo.Nodo, b nucleo.Binario, f nucleo.Firma)
 	if len(sondas) == 0 {
 		return
 	}
-	x.numSondas = len(sondas)
-	aleatorios := c.generarCasos(k, f, nil, -1, explicarAzar)
-	x.numAzar = len(aleatorios)
+	aleatorios := explicarMuestra(c.generarCasos(k, f, nil, -1, explicarAzarPedidos), explicarAzar)
 	var resumir analisis.Resumidor
 	if sintesis.Sintetizable(f) {
 		resumir = x.resumidor()
@@ -410,6 +634,8 @@ func (x *explicacion) observar(n *nucleo.Nodo, b nucleo.Binario, f nucleo.Firma)
 	if err != nil {
 		return
 	}
+	// only what ran: the random cases run only when a summary fits every probe (comp.Pruebas)
+	x.numSondas, x.numAzar = len(sondas), comp.Pruebas
 	if len(comp.Tabla.Filas) > 0 {
 		x.tablas = append(x.tablas, comp.Tabla)
 	}
@@ -422,8 +648,23 @@ func (x *explicacion) observar(n *nucleo.Nodo, b nucleo.Binario, f nucleo.Firma)
 			Texto:   fmt.Sprintf("Resumen comprobado con %d entradas al azar", comp.Pruebas),
 			Detalle: fmt.Sprintf("semilla %d; %d entradas fijas y %d al azar", k.semilla, len(sondas), comp.Pruebas),
 		})
+	} else if comp.Pruebas > 0 {
+		x.resumenFallido = true
 	}
 	x.igualA = comp.IgualA
+}
+
+// explicarMuestra keeps at most n cases spread over the list (the generator's cases grow in size, so
+// keeping the first n would drop the largest).
+func explicarMuestra(cs []nucleo.Caso, n int) []nucleo.Caso {
+	if len(cs) <= n {
+		return cs
+	}
+	out := make([]nucleo.Caso, n)
+	for i := range out {
+		out[i] = cs[i*len(cs)/n]
+	}
+	return out
 }
 
 // resumidor describes the observed pairs with a short DSL program (sintesis, 1.5 s).
@@ -661,36 +902,65 @@ func (x *explicacion) optimizarCodigo() nucleo.Respuesta {
 	k := x.k
 	no := k.raiz.Sub(nucleo.PasoIntento, "Busco partes lentas que se puedan reescribir")
 	rws := analisis.Optimizaciones(x.codigo)
-	fraseO := x.fraseComplejidad()
 	if len(rws) == 0 {
 		no.Info("No encuentro ninguna")
 		r := explicarRespuesta("No veo nada claro que pueda hacer más rápido sin cambiar lo que hace.", true)
 		r.Nivel = ""
-		if fraseO != "" {
+		if fraseO := x.fraseComplejidad(); fraseO != "" {
 			r.Parrafos = append(r.Parrafos, fraseO)
 		}
 		r.Sugerencias = []string{"Explícalo", "Hazle pruebas"}
 		return r
 	}
-	rw := rws[0]
-	no.Bien("Línea %d: %s", rw.Hallazgo.Linea, rw.Hallazgo.Mensaje)
+	// compare and time the function the rewrite really changes, not the one picked to explain
+	rw, objetivo := x.elegirReescritura(rws)
+	if objetivo != "" && objetivo != x.fn.Nombre {
+		if g, ok := x.infoDe(objetivo); ok {
+			x.fn = g
+			k.raiz.Nota("El cambio está en `%s`: comparo y mido esa función", objetivo)
+		} else {
+			objetivo = ""
+		}
+	}
+	donde := "este código"
+	if objetivo != "" {
+		donde = "`" + explicarNombreCorto(objetivo) + "`"
+	}
+	no.Bien("%s: %s", mayusculaInicial(donde), rw.Hallazgo.Mensaje)
 	r := explicarRespuesta("", true)
 	r.Nivel = ""
 	r.Codigo = rw.Fuente
 	r.Diff = reparar.Diff(x.codigo, rw.Fuente)
-	cambio := strings.TrimRight(rw.Hallazgo.Mensaje, ".")
+	var notas []string
+	// Hallazgo.Linea is a line of the code as given only when it type-checks as given (else it is a line
+	// of the completed file, so it is not shown)
+	lugar := "Lo lento está en " + donde + "."
+	if len(x.inf.Errores) == 0 && rw.Hallazgo.Linea > 0 {
+		if objetivo != "" {
+			lugar = fmt.Sprintf("Lo lento está en la línea %d, dentro de %s.", rw.Hallazgo.Linea, donde)
+		} else {
+			lugar = fmt.Sprintf("Lo lento está en la línea %d.", rw.Hallazgo.Linea)
+		}
+	}
+	notas = append(notas, strings.TrimSpace(lugar+" "+strings.TrimSpace(rw.Hallazgo.Mensaje)))
 	if rw.Hallazgo.Consejo != "" {
-		r.Parrafos = append(r.Parrafos, mayusculaInicial(strings.TrimRight(rw.Hallazgo.Consejo, "."))+".")
+		notas = append(notas, mayusculaInicial(strings.TrimRight(rw.Hallazgo.Consejo, "."))+".")
 	}
 	if len(rws) > 1 {
 		if len(rws) == 2 {
-			r.Parrafos = append(r.Parrafos, "Hay 1 cambio posible más; pídemelo otra vez cuando apliques este.")
+			notas = append(notas, "Hay 1 cambio posible más; pídemelo otra vez cuando apliques este.")
 		} else {
-			r.Parrafos = append(r.Parrafos, fmt.Sprintf("Hay %d cambios posibles más; pídemelo otra vez cuando apliques este.", len(rws)-1))
+			notas = append(notas, fmt.Sprintf("Hay %d cambios posibles más; pídemelo otra vez cuando apliques este.", len(rws)-1))
 		}
 	}
 
-	comp, diferencia, motivo := x.compararReescritura(rw.Fuente)
+	var comp *nucleo.Comprobacion
+	var diferencia, motivo string
+	if objetivo == "" {
+		motivo = "no sé en qué función está el cambio"
+	} else {
+		comp, diferencia, motivo = x.compararReescritura(rw.Fuente)
+	}
 	medido := false
 	switch {
 	case comp != nil:
@@ -700,37 +970,67 @@ func (x *explicacion) optimizarCodigo() nucleo.Respuesta {
 		medido = tiempo != ""
 		switch {
 		case rapido:
-			r.Texto = "Lo hago más rápido: " + cambio + "."
+			r.Texto = "Así " + donde + " va más rápido y da lo mismo que tu código."
 		case medido:
-			r.Texto = "Este cambio da lo mismo que tu código (" + cambio + "), pero al medirlo no he visto que vaya más rápido."
+			r.Texto = "Este cambio en " + donde + " da lo mismo que tu código, pero al medirlo no he visto que vaya más rápido."
 		default:
-			r.Texto = "Creo que esto va más rápido: " + cambio + " (no he podido medirlo: " + porque + ")."
+			r.Texto = "Creo que así " + donde + " va más rápido, aunque no he podido medirlo (" + porque + ")."
 		}
-		pre := []string{fmt.Sprintf("Lo comparé con tu código en %d pruebas y da lo mismo.", comp.Total)}
+		pre := []string{fmt.Sprintf("Comparé la nueva %s con la tuya en %d pruebas y dan lo mismo.", donde, comp.Total)}
 		if medido {
 			pre = append(pre, tiempo)
 		}
-		r.Parrafos = append(pre, r.Parrafos...)
+		r.Parrafos = append(pre, notas...)
 	case diferencia != "":
-		r.Texto = "Encontré un cambio posible (" + cambio + "), pero no te lo propongo: " + diferencia + "."
+		r.Texto = "Encontré un cambio posible en " + donde + ", pero no te lo propongo: " + diferencia + "."
+		r.Parrafos = notas[:1]
 		r.Codigo, r.Diff = "", ""
 		r.Exito = false
 		r.Nivel = nucleo.NivelSinComprobar
 	default:
-		r.Texto = afirmar("esto va más rápido y hace lo mismo ("+cambio+"), pero no lo he podido comprobar: "+motivo+".", nil)
+		r.Texto = afirmar("así "+donde+" va más rápido y hace lo mismo, pero no lo he podido comprobar ("+motivo+").", nil)
+		r.Parrafos = notas
 		r.Nivel = nucleo.NivelSinComprobar
 	}
-	if fraseO != "" {
+	if fraseO := x.fraseComplejidad(); fraseO != "" && objetivo != "" {
 		r.Parrafos = append(r.Parrafos, fraseO)
 	}
 	r.Justificacion = []string{"Busqué patrones lentos conocidos (concatenar textos en un bucle, buscar en una lista dentro de un bucle, append sin capacidad).",
-		"Antes de proponer el cambio comparo el código nuevo con el tuyo en las mismas entradas."}
+		"Antes de proponer el cambio comparo la función que cambia con la tuya en las mismas entradas."}
 	if medido {
-		r.Justificacion = append(r.Justificacion, "Medí los dos con la misma entrada grande en una versión sin instrumentar (mediana de 3 ejecuciones).")
+		r.Justificacion = append(r.Justificacion, "Medí las dos con la misma entrada grande en una versión sin instrumentar (mediana de 3 ejecuciones).")
 	}
 	r.Sugerencias = []string{"Explícalo", "Hazle pruebas"}
 	k.turno.Metodo = "optimizar"
 	return r
+}
+
+// elegirReescritura picks the rewrite to show and the function it changes ("" when that cannot be told):
+// one that changes the function being explained, else the first.
+func (x *explicacion) elegirReescritura(rws []analisis.Reescritura) (analisis.Reescritura, string) {
+	antes, err := analisis.Normalizar(x.codigo, "")
+	if err != nil {
+		antes = x.codigo
+	}
+	elegida, nombre := -1, ""
+	for i, rw := range rws {
+		cambiadas := explicarCambiadas(antes, rw.Fuente)
+		if len(cambiadas) == 0 {
+			continue
+		}
+		for _, c := range cambiadas {
+			if c == x.fn.Nombre {
+				return rw, c
+			}
+		}
+		if elegida < 0 {
+			elegida, nombre = i, cambiadas[0]
+		}
+	}
+	if elegida < 0 {
+		return rws[0], ""
+	}
+	return rws[elegida], nombre
 }
 
 // medirReescritura times the original and the rewrite on the same large input (uninstrumented build,
@@ -754,11 +1054,11 @@ func (x *explicacion) medirReescritura(nueva string) (frase string, rapido bool,
 	if k.restante() < explicarMinMedir {
 		return "", false, "no me quedaba tiempo"
 	}
-	orig, _, err := explicarFuente(x.codigo, x.fn.Nombre, x.fn.Desde)
+	orig, err := explicarFuente(x.codigo, x.fn.Nombre)
 	if err != nil {
 		return "", false, mensajeError(err)
 	}
-	nuevo, _, err := explicarFuente(nueva, x.fn.Nombre, 0)
+	nuevo, err := explicarFuente(nueva, x.fn.Nombre)
 	if err != nil {
 		return "", false, mensajeError(err)
 	}
@@ -861,31 +1161,36 @@ func explicarVeredictoTiempo(n int, orig, nuevo int64, cortado bool) (string, bo
 	return base + ", así que con este tamaño no he visto que vaya más rápido.", false
 }
 
-// compararReescritura runs the original and the rewrite on the same generated cases. It returns a
-// comprobación when they agree on all, the first difference otherwise, or why it could not compare.
+// compararReescritura runs the original and the rewrite of the changed function (x.fn) on the same
+// generated cases. It returns a comprobación when they agree on all, the first difference otherwise, or
+// why it could not compare.
 func (x *explicacion) compararReescritura(nueva string) (*nucleo.Comprobacion, string, string) {
 	k, c := x.k, x.c
 	if x.fn.Firma == nil || !x.fn.Firma.Probable() {
-		return nil, "", "no sé con qué datos llamarla"
+		motivo := "no sé con qué datos llamar a `" + explicarNombreCorto(x.fn.Nombre) + "`"
+		if x.fn.NoProbable != "" {
+			motivo += ": " + x.fn.NoProbable
+		}
+		return nil, "", motivo
 	}
 	if c.ej == nil {
 		return nil, "", "no tengo caja segura para ejecutar código"
 	}
 	f := *x.fn.Firma
-	orig, _, err := explicarFuente(x.codigo, x.fn.Nombre, x.fn.Desde)
+	orig, err := explicarFuente(x.codigo, x.fn.Nombre)
 	if err != nil {
 		return nil, "", mensajeError(err)
 	}
-	nuevo, _, err := explicarFuente(nueva, x.fn.Nombre, 0)
+	nuevo, err := explicarFuente(nueva, x.fn.Nombre)
 	if err != nil {
 		return nil, "", mensajeError(err)
 	}
 	for _, src := range []string{orig, nuevo} {
 		if v := c.ej.Revisar(src, nucleo.PermisoAuto); len(v) > 0 {
-			return nil, "", "por seguridad no lo ejecuto sin tu permiso (" + v[0].Que + ")"
+			return nil, "", "por seguridad no lo ejecuto sin tu permiso, " + v[0].Que
 		}
 	}
-	n := k.raiz.Sub(nucleo.PasoComprobar, "Comparo el código nuevo con el tuyo")
+	n := k.raiz.Sub(nucleo.PasoComprobar, "Comparo la nueva `%s` con la tuya", explicarNombreCorto(x.fn.Nombre))
 	b, _, err := c.preparar(k, n, nucleo.Preparacion{Variantes: []string{orig, nuevo}, Firma: f, Instr: nucleo.InstrNormal, Permiso: nucleo.PermisoAuto})
 	if err != nil {
 		n.Mal("")
@@ -920,7 +1225,7 @@ func (x *explicacion) compararReescritura(nueva string) (*nucleo.Comprobacion, s
 	return &nucleo.Comprobacion{
 		Nivel: nucleo.NivelEntendido, Pasan: iguales, Total: iguales,
 		Texto:   fmt.Sprintf("Da lo mismo que tu código en %d pruebas", iguales),
-		Detalle: fmt.Sprintf("semilla %d", k.semilla),
+		Detalle: fmt.Sprintf("función %s; semilla %d", x.fn.Nombre, k.semilla),
 	}, "", ""
 }
 
@@ -943,7 +1248,7 @@ func explicarMismoResultado(a, b nucleo.ResultadoCaso) bool {
 
 func explicarResultado(f nucleo.Firma, r nucleo.ResultadoCaso) string {
 	if r.Panico != "" || r.Caida {
-		return "un error (" + recortar(primeraLinea(r.Panico), 80) + ")"
+		return "un error (" + recortar(explicarPanico(r.Panico), 100) + ")"
 	}
 	if !r.Ejecutado || r.Agotado || r.SinCombustible {
 		return "nada (no terminó)"
@@ -951,31 +1256,170 @@ func explicarResultado(f nucleo.Firma, r nucleo.ResultadoCaso) string {
 	return explicarSalidas(f, r.Obtenido)
 }
 
-// ---- helpers ----
+// ---- reading the code's structure ----
 
 // explicarFuente makes a buildable file with the target function and what it needs (snippets are
-// normalized; main and unrelated code are left out). delta is how many lines the function moved.
-func explicarFuente(codigo, nombre string, desde int) (string, int, error) {
+// normalized; main and unrelated code are left out).
+func explicarFuente(codigo, nombre string) (string, error) {
 	fuente, err := analisis.Normalizar(codigo, "")
 	if err != nil {
-		return "", 0, err
+		return "", err
 	}
 	if sola, err := analisis.Funcion(fuente, nombre); err == nil && strings.TrimSpace(sola) != "" {
 		fuente = sola
 	}
-	delta := 0
-	if desde > 0 {
-		if inf, err := analisis.Analizar(fuente); err == nil {
-			for _, g := range inf.Funciones {
-				if g.Nombre == nombre {
-					delta = g.Desde - desde
-					break
-				}
-			}
+	return fuente, nil
+}
+
+// explicarParsear parses src as analisis does, keeping the user's line numbers: as a file, else with
+// "package main;" in front, else with its statements wrapped in func main(). It returns the parsed
+// text too (offsets refer to it), or a nil file when the code cannot be parsed.
+func explicarParsear(src string) (*ast.File, *token.FileSet, string) {
+	for _, t := range []string{src, "package main;" + src, "package main; func main() {" + src + "\n}"} {
+		fset := token.NewFileSet()
+		if f, err := parser.ParseFile(fset, "x.go", t, 0); err == nil {
+			return f, fset, t
 		}
 	}
-	return fuente, delta, nil
+	return nil, nil, ""
 }
+
+// explicarNombreDecl names a function as analisis does: "F", or "Tipo.Metodo" for a method.
+func explicarNombreDecl(fd *ast.FuncDecl) string {
+	if fd.Recv == nil || len(fd.Recv.List) == 0 {
+		return fd.Name.Name
+	}
+	t := fd.Recv.List[0].Type
+	for {
+		switch e := t.(type) {
+		case *ast.StarExpr:
+			t = e.X
+			continue
+		case *ast.ParenExpr:
+			t = e.X
+			continue
+		case *ast.IndexExpr:
+			t = e.X
+			continue
+		case *ast.IndexListExpr:
+			t = e.X
+			continue
+		case *ast.Ident:
+			return e.Name + "." + fd.Name.Name
+		}
+		return "?." + fd.Name.Name
+	}
+}
+
+func explicarBuscarFunc(f *ast.File, nombre string) *ast.FuncDecl {
+	for _, d := range f.Decls {
+		if fd, ok := d.(*ast.FuncDecl); ok && fd.Name != nil && explicarNombreDecl(fd) == nombre {
+			return fd
+		}
+	}
+	return nil
+}
+
+// explicarMapaLineas maps the lines of the built file (fuente: normalized and gofmt'd, where the trace
+// events happen) to the lines of the same statements in the user's code. Both trees of the function
+// have the same shape, because gofmt only moves code between lines, so their nodes are paired in order.
+// nil when the function cannot be paired (then no line is shown rather than a wrong one).
+func explicarMapaLineas(codigo, fuente, nombre string) map[int]int {
+	fu, fsu, _ := explicarParsear(codigo)
+	fb, fsb, _ := explicarParsear(fuente)
+	if fu == nil || fb == nil {
+		return nil
+	}
+	du, db := explicarBuscarFunc(fu, nombre), explicarBuscarFunc(fb, nombre)
+	if du == nil || db == nil {
+		return nil
+	}
+	nu, nb := explicarNodos(du), explicarNodos(db)
+	if len(nu) != len(nb) {
+		return nil
+	}
+	m := map[int]int{}
+	for i := range nb {
+		lb := fsb.Position(nb[i].Pos()).Line
+		if _, ok := m[lb]; !ok {
+			m[lb] = fsu.Position(nu[i].Pos()).Line
+		}
+	}
+	return m
+}
+
+// explicarNodos lists the syntax nodes of a function in visiting order (comments left out).
+func explicarNodos(fd *ast.FuncDecl) []ast.Node {
+	var out []ast.Node
+	ast.Inspect(fd, func(n ast.Node) bool {
+		switch n.(type) {
+		case nil:
+			return false
+		case *ast.CommentGroup, *ast.Comment:
+			return false
+		}
+		out = append(out, n)
+		return true
+	})
+	return out
+}
+
+// explicarCambiadas lists the functions of despues whose code differs from antes (compared token by
+// token, so layout and comments do not count), in the order of despues.
+func explicarCambiadas(antes, despues string) []string {
+	fa, fsa, ta := explicarParsear(antes)
+	fd, fsd, td := explicarParsear(despues)
+	if fa == nil || fd == nil {
+		return nil
+	}
+	previas := map[string]string{}
+	for _, d := range fa.Decls {
+		if g, ok := d.(*ast.FuncDecl); ok && g.Name != nil {
+			previas[explicarNombreDecl(g)] = explicarFichas(fsa, ta, g)
+		}
+	}
+	var out []string
+	for _, d := range fd.Decls {
+		g, ok := d.(*ast.FuncDecl)
+		if !ok || g.Name == nil {
+			continue
+		}
+		nombre := explicarNombreDecl(g)
+		if previa, ok := previas[nombre]; !ok || previa != explicarFichas(fsd, td, g) {
+			out = append(out, nombre)
+		}
+	}
+	return out
+}
+
+// explicarFichas is the token sequence of a node's source (no comments, no semicolons: they depend on
+// the layout).
+func explicarFichas(fset *token.FileSet, texto string, n ast.Node) string {
+	ini, fin := fset.Position(n.Pos()).Offset, fset.Position(n.End()).Offset
+	if ini < 0 || fin > len(texto) || ini > fin {
+		return ""
+	}
+	src := []byte(texto[ini:fin])
+	var s scanner.Scanner
+	s.Init(token.NewFileSet().AddFile("", -1, len(src)), src, nil, 0)
+	var sb strings.Builder
+	for {
+		_, tok, lit := s.Scan()
+		if tok == token.EOF {
+			break
+		}
+		if tok == token.SEMICOLON || tok == token.COMMENT {
+			continue
+		}
+		sb.WriteString(tok.String())
+		sb.WriteByte(' ')
+		sb.WriteString(lit)
+		sb.WriteByte('\n')
+	}
+	return sb.String()
+}
+
+// ---- small helpers ----
 
 // explicarCasoPequeno picks a small, readable input: a probe with 3 to 8 elements, else the smallest
 // non-empty one, else the first probe.
@@ -1108,7 +1552,7 @@ func explicarFraseTraza(f nucleo.Firma, ent string, r nucleo.ResultadoCaso, role
 	}
 	switch {
 	case r.Panico != "" || r.Caida:
-		s += "; se para con un error: " + recortar(primeraLinea(r.Panico), 120)
+		s += "; se para con un error (" + recortar(explicarPanico(r.Panico), 120) + ")"
 	case len(r.Obtenido) == len(f.Res) && len(f.Res) > 0:
 		s += "; devuelve " + explicarSalidas(f, r.Obtenido)
 	}
@@ -1389,21 +1833,6 @@ func explicarVeredicto(o string) string {
 		return "Según esa estimación es muy lenta: cada elemento más puede doblar el tiempo."
 	}
 	return ""
-}
-
-// explicarPideEficiencia: the request asks about speed ("¿es eficiente?", "¿cuánto tarda?").
-func explicarPideEficiencia(k *tarea) bool {
-	texto := k.p.Texto
-	if k.q != nil && strings.TrimSpace(k.q.Resto) != "" {
-		texto = k.q.Resto
-	}
-	t := nucleo.Normalizar(texto)
-	for _, w := range []string{"eficien", "rapid", "lent", "complejidad", "cuanto tarda", "o grande", "big o", "coste", "costo", "rendimiento", "o(n"} {
-		if strings.Contains(t, w) {
-			return true
-		}
-	}
-	return false
 }
 
 func explicarNombreCorto(nombre string) string {

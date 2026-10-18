@@ -290,3 +290,24 @@ func TestRevisionNumerosSinDesbordar(t *testing.T) {
 		}
 	}
 }
+
+// "¿cuántos X … hay?" asks for the count of the matching elements, not for the list of them
+// (integration: "cuántos números negativos hay en una lista" gave FiltraNegativos with a list result).
+func TestRegresionCuantosHayCuenta(t *testing.T) {
+	casos := map[string]string{
+		"función que diga cuántos números negativos hay en una lista": "([]int)int",
+		"cuántos números pares hay en una lista":                      "([]int)int",
+		"función que devuelva los números negativos de una lista":     "([]int)[]int",
+		"devuelve las palabras con más de 3 letras":                   "([]string)[]string",
+	}
+	for texto, forma := range casos {
+		p := Analizar(texto, "", "", LexicoBase(), nil)
+		if p.Firma == nil || p.Firma.Forma() != forma {
+			t.Errorf("%q: firma %v, quiero %s", texto, p.Firma, forma)
+			continue
+		}
+		if forma == "([]int)int" && (p.Marco == nil || p.Marco.Accion != "contar") {
+			t.Errorf("%q: acción %+v, quiero contar", texto, p.Marco)
+		}
+	}
+}

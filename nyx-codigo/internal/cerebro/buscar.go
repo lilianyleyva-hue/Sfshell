@@ -2,10 +2,12 @@ package cerebro
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
 	"nyxcodigo/internal/nucleo"
+	"nyxcodigo/internal/reparar"
 	"nyxcodigo/internal/saber"
 )
 
@@ -19,10 +21,12 @@ const (
 	buscarMaxCandidatas = 6
 	buscarMaxHechos     = 10
 	buscarCasos         = 100
+	buscarRepetir       = 3 // runs per case to catch results that change from run to run
 )
 
 func pipeBuscar(c *Cerebro, k *tarea) nucleo.Respuesta {
 	consulta := buscarConsulta(k)
+	tema := buscarTema(k, consulta) // the user's words: the English query is only for the search engine
 	k.raiz.Sub(nucleo.PasoPlan, "Plan: 1) buscar en internet 2) leer las mejores páginas 3) probar el código que encuentre").Info("")
 	r := nucleo.Respuesta{Comprobaciones: []nucleo.Comprobacion{}, Metodo: "web"}
 	if consulta == "" {
@@ -47,7 +51,10 @@ func pipeBuscar(c *Cerebro, k *tarea) nucleo.Respuesta {
 		return r
 	}
 
-	nb := k.raiz.Sub(nucleo.PasoBusqueda, "Busco «%s»", consulta)
+	nb := k.raiz.Sub(nucleo.PasoBusqueda, "Busco «%s»", tema)
+	if consulta != tema {
+		nb.Detalle("Lo busco con estas palabras en inglés: %s", consulta)
+	}
 	_, docs, err := c.web.BuscarDocumentos(k.ctx, consulta)
 	c.hablaLeerWeb(docs...) // Spanish pages also teach meanings and how to talk (habla.go)
 	if err != nil || len(docs) == 0 {
@@ -57,7 +64,7 @@ func pipeBuscar(c *Cerebro, k *tarea) nucleo.Respuesta {
 		}
 		nb.Mal("No encontré nada: %s", motivo)
 		k.pendiente = "búsqueda sin resultados"
-		r.Texto = "No encontré nada útil sobre «" + consulta + "» (" + motivo + ")."
+		r.Texto = "No encontré nada útil sobre «" + tema + "» (" + motivo + ")."
 		r.Nivel = nucleo.NivelSinComprobar
 		r.Parrafos = []string{"Prueba a decirlo con otras palabras, o con el nombre exacto de la función de Go."}
 		return r
@@ -98,7 +105,7 @@ func pipeBuscar(c *Cerebro, k *tarea) nucleo.Respuesta {
 	bc := c.buscarCodigo(k, docs)
 	codigo := bc.codigo
 	if codigo != "" && bc.falla != "" && len(pasajes) > 0 {
-		r.Parrafos = append(r.Parrafos, "También encontré código, pero lo probé y falla ("+bc.falla+"), así que no te lo enseño.")
+		r.Parrafos = append(r.Parrafos, "También encontré código, pero lo probé y "+bc.falla+", así que no te lo enseño.")
 		codigo = ""
 	}
 	if codigo != "" {
@@ -119,17 +126,17 @@ func pipeBuscar(c *Cerebro, k *tarea) nucleo.Respuesta {
 
 	switch {
 	case len(pasajes) > 0:
-		r.Texto = "Esto es lo que encontré sobre «" + consulta + "»:"
+		r.Texto = "Esto es lo que encontré sobre «" + tema + "»:"
 	case codigo != "" && bc.falla != "":
 		k.pendiente = "búsqueda sin respuesta clara"
-		r.Texto = "Encontré código para «" + consulta + "», pero lo probé y falla."
+		r.Texto = "Encontré código para «" + tema + "», pero lo probé y falla."
 		r.Nivel = nucleo.NivelFallo
 		return r
 	case codigo != "":
-		r.Texto = "Encontré este código para «" + consulta + "»:"
+		r.Texto = "Encontré este código para «" + tema + "»:"
 	default:
 		k.pendiente = "búsqueda sin respuesta clara"
-		r.Texto = "Leí " + cuantas(len(docs), "página", "páginas") + " sobre «" + consulta + "», pero ninguna lo explica claramente."
+		r.Texto = "Leí " + cuantas(len(docs), "página", "páginas") + " sobre «" + tema + "», pero ninguna lo explica claramente."
 		r.Nivel = nucleo.NivelSinComprobar
 		for _, d := range docs {
 			ponerFuente(d.URL, "")
@@ -140,8 +147,12 @@ func pipeBuscar(c *Cerebro, k *tarea) nucleo.Respuesta {
 		Texto: "Según " + cuantas(len(r.Fuentes), "fuente", "fuentes") + " de la web", Detalle: "consulta: " + consulta})
 	r.Nivel = nucleo.NivelFuente
 	r.Exito = true
+	busque := "Busqué «" + tema + "»"
+	if consulta != tema {
+		busque += " (con las palabras en inglés «" + consulta + "»)"
+	}
 	r.Justificacion = []string{
-		"Busqué «" + consulta + "» y leí " + buscarMejores(len(docs)) + ".",
+		busque + " y leí " + buscarMejores(len(docs)) + ".",
 		"Elegí las frases que más se parecen a la pregunta (BM25, con más peso para go.dev y gobyexample).",
 		"El código de la web solo lo ejecuto si pasa la revisión de seguridad automática; si no, solo lo compilo.",
 	}
@@ -152,22 +163,39 @@ func pipeBuscar(c *Cerebro, k *tarea) nucleo.Respuesta {
 	return r
 }
 
-// buscarConsulta is the English query lengua prepared, or the text without the verb.
+// buscarConsulta is the English query lengua prepared (for the search engine), or the user's words.
 func buscarConsulta(k *tarea) string {
 	if k.q != nil {
 		if q := strings.TrimSpace(k.q.ConsultaWeb); q != "" && q != "golang" {
 			return q
 		}
 	}
-	t := strings.TrimSpace(k.p.Texto)
-	for _, pre := range []string{"búscame", "buscame", "busca", "buscar", "Busca", "Búscame"} {
-		t = strings.TrimSpace(strings.TrimPrefix(t, pre))
+	return buscarTema(k, "")
+}
+
+// reBuscarVerbo is the request verb in front of what to search: "busca", "¿puedes buscar en internet…".
+var reBuscarVerbo = regexp.MustCompile(`(?i)^(?:por favor,?\s+)?(?:(?:me\s+)?(?:puedes|podrías|podrias)\s+)?(?:búscame|buscame|búscalo|buscalo|busca|buscar|encuéntrame|encuentrame|encuentra|investiga)\b[\s,:]*(?:(?:en\s+)?(?:internet|la\s+web|google)\b[\s,:]*)?`)
+
+// buscarTema is what the user asked to search, in their words ("cómo leer un archivo línea por línea en
+// Go"): the text without the verb. Answers show it instead of the English query. otro is the fallback.
+func buscarTema(k *tarea, otro string) string {
+	t := k.p.Texto
+	if k.q != nil && strings.TrimSpace(k.q.Resto) != "" {
+		t = k.q.Resto
 	}
-	return strings.Trim(t, " ¿?.")
+	t = strings.TrimSpace(primeraLinea(strings.TrimSpace(t)))
+	t = strings.TrimSpace(strings.TrimLeft(t, "¿¡ "))
+	t = reBuscarVerbo.ReplaceAllString(t, "")
+	t = strings.Trim(strings.TrimSpace(t), " ¿?¡!.:;,")
+	if t == "" {
+		return otro
+	}
+	return recortar(t, 100)
 }
 
 // buscado is the code buscar offers: the first candidate that runs well, else the first that only
-// compiles (never run), else the first that was run and fails (falla says why; Nivel fallo).
+// compiles (never run), else the first that was run and fails (falla says how, written to follow
+// "lo probé y …": "falla en 2 de 89 casos…", "no termina nunca…"; Nivel fallo).
 type buscado struct {
 	codigo, url, frase string
 	comp               *nucleo.Comprobacion
@@ -210,7 +238,7 @@ func (c *Cerebro) buscarCodigo(k *tarea, docs []saber.Documento) buscado {
 			case buscarLeeEntrada(cd.Codigo):
 				motivo = "lee datos del teclado"
 			default:
-				salida, falla, corrio := c.buscarCorrerPrograma(k, n, cd.Codigo)
+				salida, falla, crudo, corrio := c.buscarCorrerPrograma(k, n, cd.Codigo)
 				switch {
 				case corrio && falla == "":
 					n.Bien("Uno funciona")
@@ -222,7 +250,7 @@ func (c *Cerebro) buscarCodigo(k *tarea, docs []saber.Documento) buscado {
 					if fallido == nil {
 						fallido = &buscado{codigo: cd.Codigo, url: cd.URL, falla: falla,
 							comp: &nucleo.Comprobacion{Nivel: nucleo.NivelFallo, Pasan: 0, Total: 1,
-								Texto: "Lo ejecuté y falla", Detalle: falla + " · " + cd.URL}}
+								Texto: "Lo ejecuté y falla", Detalle: buscarDetalle(falla, crudo, cd.URL)}}
 					}
 					continue // it ran and failed: never offered as "compila"
 				default:
@@ -242,16 +270,17 @@ func (c *Cerebro) buscarCodigo(k *tarea, docs []saber.Documento) buscado {
 					motivo = "no sé con qué datos llamarlo"
 					break
 				}
-				v, err := c.verificar(k, n, cd.Codigo, f, casos, nil, nucleo.OpcionesProbar{Repetir: 2})
+				// three runs per case: one repeat often misses code that depends on map order
+				v, err := c.verificar(k, n, cd.Codigo, f, casos, nil, nucleo.OpcionesProbar{Repetir: buscarRepetir})
 				switch {
 				case err != nil:
 					motivo = "no pude probarlo en la caja segura"
 				case len(v.Fallos) > 0:
 					if fallido == nil {
-						falla := buscarFallaFuncion(f, v)
+						falla, crudo := buscarFallaFuncion(f, v)
 						fallido = &buscado{codigo: cd.Codigo, url: cd.URL, falla: falla,
 							comp: &nucleo.Comprobacion{Nivel: nucleo.NivelFallo, Pasan: len(v.Casos) - len(v.Fallos), Total: len(v.Casos),
-								Texto: "Lo probé y falla", Detalle: falla + " · " + cd.URL}}
+								Texto: "Lo probé y falla", Detalle: buscarDetalle(falla, crudo, cd.URL)}}
 					}
 					continue // it ran and failed: never offered as "compila"
 				case len(v.Comprobaciones) > 0:
@@ -286,77 +315,101 @@ func (c *Cerebro) buscarCodigo(k *tarea, docs []saber.Documento) buscado {
 		return *compila
 	case fallido != nil:
 		n.Mal("El código que encontré falla al probarlo")
-		fallido.frase = "Ojo: lo probé y falla (" + fallido.falla + "). No lo uses tal cual."
+		fallido.frase = "Ojo: lo probé y " + fallido.falla + ". No lo uses tal cual."
 		return *fallido
 	}
 	n.Mal("Ninguno compila")
 	return buscado{}
 }
 
-// buscarFallaFuncion says how a web function failed on the generated cases: "falla en 2 de 89 casos:
-// se cae con xs = [] (index out of range…)".
-func buscarFallaFuncion(f nucleo.Firma, v verificacion) string {
+// buscarFallaFuncion says how a web function failed on the generated cases, to follow "lo probé y":
+// "falla en 2 de 89 casos; por ejemplo, con xs = [] se para con un error (intentaste leer…)". crudo is
+// the runtime's own message, kept for the badge's detail.
+func buscarFallaFuncion(f nucleo.Firma, v verificacion) (falla, crudo string) {
 	s := fmt.Sprintf("falla en %d de %d casos", len(v.Fallos), len(v.Casos))
 	i := v.Fallos[0]
 	if i >= len(v.Resultados) || i >= len(v.Casos) {
-		return s
+		return s, ""
 	}
 	r, ent := v.Resultados[i], explicarEntradas(f, v.Casos[i].Entradas)
+	s += "; por ejemplo, con " + ent
 	switch {
 	case r.NoDeterminista:
-		return s + ": con " + ent + " da resultados distintos cada vez"
+		return s + " da resultados distintos cada vez", ""
 	case r.Panico != "" || r.Caida:
-		d := "se cae con " + ent
-		if p := strings.TrimSpace(primeraLinea(r.Panico)); p != "" {
-			d += " (" + recortar(p, 80) + ")"
-		}
-		return s + ": " + d
+		crudo = strings.TrimSpace(primeraLinea(r.Panico))
+		return s + " se para con un error" + buscarPorQue(crudo), crudo
 	case !r.Ejecutado || r.Agotado || r.SinCombustible:
-		return s + ": con " + ent + " no termina"
+		return s + " no termina", ""
 	}
-	return s + ": con " + ent
+	return s + " no da lo esperado", ""
+}
+
+// buscarPorQue explains a runtime error in simple Spanish, in parentheses: " (intentaste leer la posición
+// 3 de una lista vacía)". Without a known explanation it quotes the message.
+func buscarPorQue(crudo string) string {
+	crudo = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(crudo), "panic:"))
+	if crudo == "" {
+		return ""
+	}
+	t := reparar.TraducirPanico(crudo)
+	if strings.HasPrefix(t, "El programa se detuvo") {
+		return " («" + recortar(crudo, 80) + "»)"
+	}
+	return " (" + explicarMinuscula(strings.TrimRight(t, ". ")) + ")"
+}
+
+// buscarDetalle is the badge detail: what failed, the runtime's message and the link.
+func buscarDetalle(falla, crudo, url string) string {
+	d := falla
+	if crudo != "" {
+		d += " · " + recortar(crudo, 120)
+	}
+	return d + " · " + url
 }
 
 // buscarCorrerPrograma runs a program once under PermisoAuto, with no input. corrio is false when it
-// could not be run at all; falla says why a run failed ("" when it ended well).
-func (c *Cerebro) buscarCorrerPrograma(k *tarea, nodo *nucleo.Nodo, fuente string) (salida, falla string, corrio bool) {
+// could not be run at all; falla says how a run failed ("" when it ended well), crudo is the first line
+// of its error output.
+func (c *Cerebro) buscarCorrerPrograma(k *tarea, nodo *nucleo.Nodo, fuente string) (salida, falla, crudo string, corrio bool) {
 	p, comp, err := c.ej.PrepararPrograma(k.ctx, fuente, nucleo.InstrNormal, nucleo.PermisoAuto)
 	if err != nil {
 		nodo.Sub(nucleo.PasoError, "No compila: %s", resumenErrores(comp, err)).Mal("")
-		return "", "", false
+		return "", "", "", false
 	}
 	defer p.Cerrar()
 	ej, err := p.Correr(k.ctx, nucleo.CasoPrograma{})
 	if err != nil {
 		nodo.Sub(nucleo.PasoError, "No pude ejecutarlo: %s", mensajeError(err)).Mal("")
-		return "", "", false
+		return "", "", "", false
 	}
 	if ej.Codigo != 0 || ej.Agotado || ej.SinCombustible {
-		falla := buscarFallaPrograma(ej)
-		nodo.Sub(nucleo.PasoError, "Al ejecutarlo falla: %s", falla).Mal("")
-		return ej.Salida, falla, true
+		falla, crudo := buscarFallaPrograma(ej)
+		nodo.Sub(nucleo.PasoError, "Al ejecutarlo %s", falla).Mal("")
+		return ej.Salida, falla, crudo, true
 	}
 	nodo.Sub(nucleo.PasoPrueba, "Lo ejecuté: %s", recortar(docgoSalida(ej.Salida), 120)).Bien("")
-	return ej.Salida, "", true
+	return ej.Salida, "", "", true
 }
 
-// buscarFallaPrograma describes a failed run: "terminó con error (código 2): panic: …".
-func buscarFallaPrograma(ej nucleo.Ejecucion) string {
-	var s string
-	switch {
-	case ej.Agotado:
-		s = "no terminó a tiempo"
-	case ej.SinCombustible:
-		s = "no terminó (demasiados pasos)"
-	default:
-		s = fmt.Sprintf("terminó con error (código %d)", ej.Codigo)
-	}
+// buscarFallaPrograma describes a failed run, to follow "lo probé y": "no termina nunca (da demasiadas
+// vueltas; ¿un bucle sin fin?)", "se para con un error (…)". crudo is the first line of its error output.
+func buscarFallaPrograma(ej nucleo.Ejecucion) (falla, crudo string) {
 	for _, l := range strings.Split(ej.ErrSalida, "\n") {
 		if l = strings.TrimSpace(l); l != "" {
-			return s + ": " + recortar(l, 100)
+			crudo = l
+			break
 		}
 	}
-	return s
+	switch {
+	case ej.SinCombustible:
+		return "no termina nunca (da demasiadas vueltas; ¿un bucle sin fin?)", crudo
+	case ej.Agotado:
+		return "no termina a tiempo", crudo
+	case strings.HasPrefix(crudo, "panic:") || strings.HasPrefix(crudo, "fatal error:") || strings.HasPrefix(crudo, "runtime:"):
+		return "se para con un error" + buscarPorQue(crudo), crudo
+	}
+	return fmt.Sprintf("termina con un error (código %d)", ej.Codigo), crudo
 }
 
 // cuantas writes a count with its noun in the right number: "1 página", "2 páginas".

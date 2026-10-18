@@ -262,6 +262,33 @@ func TestImpresoraArbol(t *testing.T) {
 	if b.String() != quiero {
 		t.Fatalf("Vaciar repitió líneas:\n%q", b.String())
 	}
+
+	// Regression: the open step of a question is not printed as well as the question itself
+	// («▸ ¿Qué debe dar F([1, 2])?» right before «? ¿Qué debe dar F([1, 2])?»); its closing line stays.
+	b.Reset()
+	imp = nuevaImpresora(&b)
+	tr = nucleo.NuevaTraza(imp.Evento, nuevoLector(strings.NewReader("a\n")).Responder(imp))
+	plan = tr.Raiz().Sub(nucleo.PasoPlan, "Construyo el programa")
+	q := plan.Sub(nucleo.PasoPregunta, "¿Qué debe dar F([1, 2])?")
+	s, err := tr.Preguntar(context.Background(), nucleo.PreguntaUsuario{Texto: "¿Qué debe dar F([1, 2])?", Opciones: []string{"3", "2"}, Libre: true})
+	if err != nil || s != "3" {
+		t.Fatalf("respuesta: %q %v", s, err)
+	}
+	q.Bien("Me respondiste: " + s)
+	otra := plan.Sub(nucleo.PasoPregunta, "¿Seguro?") // a step titled differently from the question is printed
+	_ = otra
+	tr.Preguntar(context.Background(), nucleo.PreguntaUsuario{Texto: "¿Lo guardo?", Opciones: []string{"sí", "no"}, PorDefecto: "sí"})
+	plan.Bien("")
+	imp.Vaciar()
+	quiero = "▸ Construyo el programa\n" +
+		"? ¿Qué debe dar F([1, 2])?\n    A) 3\n    B) 2\n  Escribe la letra de una opción o tu respuesta: a\n" +
+		"  ✔ Me respondiste: 3\n" +
+		"  ▸ ¿Seguro?\n" +
+		"? ¿Lo guardo?\n    A) sí\n    B) no\n  Escribe la letra de una opción (Intro = «sí»): (sin respuesta)\n" +
+		"✔ Construyo el programa\n"
+	if b.String() != quiero {
+		t.Fatalf("pregunta:\n%s\nquiero:\n%s", b.String(), quiero)
+	}
 }
 
 func TestLectorResponder(t *testing.T) {
@@ -428,10 +455,10 @@ func TestImprimirRespuesta(t *testing.T) {
 func TestImprimirRespuestaTerminal(t *testing.T) {
 	var b bytes.Buffer
 	imprimirRespuesta(&b, nucleo.Respuesta{
-		Texto:         "`SumaPares` hace esto: la suma de los números pares de nums.",
-		Parrafos:      []string{cerebro.FraseSinEjemplos, "Se acabó el tiempo. Pulsa «Pensar más» para darme el doble de tiempo."},
-		Plan:          []string{"1. llena la jarra de 5 l → (0, 5)", "2. vierte la jarra de 5 l en la jarra de 3 l → (3, 2)"},
-		Justificacion: []string{"1. llena la jarra de 5 l → (0, 5)", "Busqué el camino más corto (BFS)"},
+		Texto:          "`SumaPares` hace esto: la suma de los números pares de nums.",
+		Parrafos:       []string{cerebro.FraseSinEjemplos, "Se acabó el tiempo. Pulsa «Pensar más» para darme el doble de tiempo."},
+		Plan:           []string{"1. llena la jarra de 5 l → (0, 5)", "2. vierte la jarra de 5 l en la jarra de 3 l → (3, 2)"},
+		Justificacion:  []string{"1. llena la jarra de 5 l → (0, 5)", "Busqué el camino más corto (BFS)"},
 		Comprobaciones: []nucleo.Comprobacion{{Nivel: nucleo.NivelEntendido, Texto: "47/47 según lo que entendí"}},
 		Sugerencias:    []string{"Pruébala con otros datos", "Explícala"},
 	})

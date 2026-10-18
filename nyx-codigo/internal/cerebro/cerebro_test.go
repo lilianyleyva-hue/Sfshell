@@ -762,3 +762,227 @@ func TestFlechasDatosOLogica(t *testing.T) {
 		}
 	}
 }
+
+// ---- integration fixes (round 1) ----
+
+// Go code pasted in the text is not read by the reasoning resolvers: "if err != nil {" is not an
+// implication, so "ejecuta esto…" with that code goes to ejecutar, not to logic.
+func TestCodigoPegadoNoLoLeeElRazonamiento(t *testing.T) {
+	c := nuevoCerebroPrueba(t, nil)
+	texto := "ejecuta esto con entrada 5\npackage main\n\nimport (\n\t\"fmt\"\n\t\"strconv\"\n)\n\nfunc main() {\n\tvar s string\n\tfmt.Scan(&s)\n" +
+		"\tn, err := strconv.Atoi(s)\n\tif err != nil {\n\t\tfmt.Println(\"no es un número\")\n\t\treturn\n\t}\n\tfmt.Println(n * 2)\n}\n"
+	k := c.nuevaTarea(context.Background(), nucleo.Peticion{Texto: texto}, c.sesion("x"), nil)
+	q := c.analizar(k, texto, "")
+	if strings.TrimSpace(q.Codigo) == "" {
+		t.Fatalf("lengua debía separar el código: %+v", q)
+	}
+	cs := c.candidatos(q)
+	if len(cs) == 0 || cs[0].intencion != nucleo.IEjecutar {
+		t.Fatalf("debía ganar ejecutar: %+v", cs)
+	}
+	if len(cs) > 1 && cs[1].familia != cs[0].familia && cs[1].score >= (1-margenDuda)*cs[0].score {
+		t.Errorf("no debería hacer falta preguntar: %+v", cs[:2])
+	}
+	for _, cd := range cs {
+		if cd.nombre == "logica.proposicional" && cd.score >= corte {
+			t.Errorf("la lógica no debe leer el código pegado: %+v", cd)
+		}
+	}
+	logica := c.resolutor("logica.proposicional")
+	if logica == nil || reconocer(logica, q).Puntos == 0 {
+		t.Fatalf("la prueba necesita que la lógica lea «if err != nil» del texto entero")
+	}
+	qr := paraRazonar(q)
+	if p := reconocer(logica, qr).Puntos; p != 0 {
+		t.Errorf("sin el código, la lógica no reconoce nada: %v", p)
+	}
+	if qr == q || strings.Contains(qr.Texto, "err != nil") || !strings.Contains(q.Texto, "err != nil") {
+		t.Errorf("paraRazonar quita el código solo de su copia: %q", qr.Texto)
+	}
+	// code in the separate box: the text has no code, nothing to remove
+	q2 := c.analizar(k, "¿qué hace esto?", "package main\n\nfunc main() {}\n")
+	if paraRazonar(q2) != q2 {
+		t.Errorf("sin código en el texto, la pregunta no cambia")
+	}
+	// a sudoku is not code
+	q3 := c.analizar(k, "resuelve este sudoku:\n53..7....\n6..195...\n.98....6.\n8...6...3\n4..8.3..1\n7...2...6\n.6....28.\n...419..5\n....8..79", "")
+	if paraRazonar(q3) != q3 {
+		t.Errorf("el sudoku no es código: %q", q3.Codigo)
+	}
+}
+
+// Running, testing or explaining the user's code is the job done even when the best honest level is
+// sin_fallos or the code fails; such a request is not a pending question. Code the app writes still
+// has to be checked to count as a success.
+func TestExitoEstrategiaPorIntencion(t *testing.T) {
+	falla := []nucleo.Comprobacion{{Nivel: nucleo.NivelFallo, Total: 1, Texto: "Lo ejecuté y terminó con un error"}}
+	casos := []struct {
+		i    nucleo.TipoIntencion
+		r    nucleo.Respuesta
+		want bool
+	}{
+		{nucleo.IEjecutar, nucleo.Respuesta{Exito: true, Nivel: nucleo.NivelSinFallos}, true},
+		{nucleo.IEjecutar, nucleo.Respuesta{Nivel: nucleo.NivelFallo, Comprobaciones: falla}, true},
+		{nucleo.IEjecutar, nucleo.Respuesta{Nivel: nucleo.NivelSinComprobar}, false},
+		{nucleo.IProbar, nucleo.Respuesta{Exito: true, Nivel: nucleo.NivelFallo, Comprobaciones: falla}, true},
+		{nucleo.IExplicar, nucleo.Respuesta{Exito: true}, true},
+		{nucleo.IDocGo, nucleo.Respuesta{Exito: true, Nivel: nucleo.NivelFuente}, true},
+		{nucleo.IDocGo, nucleo.Respuesta{Nivel: nucleo.NivelSinComprobar}, false},
+		{nucleo.ICrearFuncion, nucleo.Respuesta{Exito: true, Nivel: nucleo.NivelSinFallos}, false},
+		{nucleo.ICrearFuncion, nucleo.Respuesta{Exito: true, Nivel: nucleo.NivelEntendido}, true},
+		{nucleo.IReparar, nucleo.Respuesta{Nivel: nucleo.NivelFallo, Comprobaciones: falla}, false},
+	}
+	for _, cs := range casos {
+		if got := exitoEstrategia(cs.i, &cs.r); got != cs.want {
+			t.Errorf("%s %+v: %v, quiero %v", cs.i, cs.r, got, cs.want)
+		}
+	}
+
+	c := nuevoCerebroPrueba(t, nil)
+	c.pipes.ejecutar = func(c *Cerebro, k *tarea) nucleo.Respuesta {
+		return nucleo.Respuesta{Texto: "Lo ejecuté y terminó con un error: panic: x", Nivel: nucleo.NivelFallo,
+			Comprobaciones: falla, Metodo: "ejecutar"}
+	}
+	for i := 0; i < 3; i++ {
+		c.Responder(context.Background(), nucleo.Peticion{Tarea: "e" + itoa(int64(i)), Sesion: "s", Accion: "ejecutar",
+			Codigo: "package main\n\nfunc main() { panic(\"x\") }\n"}, nucleo.NuevaTraza(nil, nil))
+	}
+	if tasa := c.stats.Tasa("estrategia:ejecutar"); tasa <= 0.5 {
+		t.Errorf("ejecutar el código del usuario es un éxito de la estrategia aunque el código falle: tasa %v", tasa)
+	}
+	if p := c.Pendientes(); len(p) != 0 {
+		t.Errorf("un código del usuario que falla no es una pregunta pendiente: %+v", p)
+	}
+}
+
+// resolutorQueEspera answers only when its context ends (a long search the user stops).
+type resolutorQueEspera struct{ empezo chan struct{} }
+
+func (r *resolutorQueEspera) Nombre() string { return "falso.espera" }
+func (r *resolutorQueEspera) Reconoce(p *nucleo.Pregunta) nucleo.Reconocimiento {
+	if !strings.Contains(p.Texto, "zork") {
+		return nucleo.Reconocimiento{}
+	}
+	return nucleo.Reconocimiento{Puntos: 0.9, Intencion: nucleo.ICalculo, Lectura: "una cuenta larga"}
+}
+func (r *resolutorQueEspera) Resolver(ctx context.Context, p *nucleo.Pregunta, n *nucleo.Nodo) (nucleo.Respuesta, error) {
+	close(r.empezo)
+	<-ctx.Done()
+	return nucleo.Respuesta{}, ctx.Err()
+}
+
+// A request stopped by the user (Parar) or by the app closing says so: no "No lo he conseguido" for a
+// search that never ended, nothing in pendientes, and no strategy counted as failed.
+func TestParadaNoEsUnFallo(t *testing.T) {
+	c := nuevoCerebroPrueba(t, nil)
+	espera := &resolutorQueEspera{empezo: make(chan struct{})}
+	c.resolutores = []nucleo.Resolutor{espera}
+	ctx, cancelar := context.WithCancel(context.Background())
+	go func() { <-espera.empezo; cancelar() }()
+	var fin string
+	tr := nucleo.NuevaTraza(func(e nucleo.Evento) {
+		if e.Fin != nil {
+			fin = e.Fin.Estado
+		}
+	}, nil)
+	r := c.Responder(ctx, nucleo.Peticion{Tarea: "p1", Sesion: "s", Texto: "zork 9"}, tr)
+	if r.Texto != "Lo he parado antes de terminar." || r.Nivel != nucleo.NivelSinComprobar || r.Exito || fin != "cancelada" {
+		t.Fatalf("parada: %+v (fin %q)", r, fin)
+	}
+	if strings.Contains(todoElTexto(r), "No lo he conseguido") {
+		t.Errorf("no dice que no lo consiguió: %+v", r)
+	}
+	if p := c.Pendientes(); len(p) != 0 {
+		t.Errorf("lo parado no va a pendientes: %+v", p)
+	}
+	if c.stats.Usos("estrategia:falso.espera") != 0 {
+		t.Errorf("lo parado no mueve las estadísticas")
+	}
+
+	// the same for a code pipeline that fails because it was stopped: its closest attempt is kept,
+	// labelled as unfinished
+	c2 := nuevoCerebroPrueba(t, nil)
+	c2.pipes.crearFuncion = func(c *Cerebro, k *tarea) nucleo.Respuesta {
+		<-k.ctx.Done()
+		return c.respuestaFallo(k, "no encontré un programa que haga lo que pides", "func Suma(xs []int) int { return 0 }", "")
+	}
+	ctx2, cancelar2 := context.WithCancel(context.Background())
+	time.AfterFunc(50*time.Millisecond, cancelar2)
+	r = c2.Responder(ctx2, nucleo.Peticion{Tarea: "p2", Sesion: "s", Texto: "haz una función que sume los números pares de una lista"}, nucleo.NuevaTraza(nil, nil))
+	if r.Texto != "Lo he parado antes de terminar." || !strings.Contains(r.Codigo, "func Suma") || strings.Contains(todoElTexto(r), "No encontré") {
+		t.Fatalf("parada en crear: %+v", r)
+	}
+	if p := c2.Pendientes(); len(p) != 0 {
+		t.Errorf("lo parado no va a pendientes: %+v", p)
+	}
+	// a request that ends normally is untouched
+	r = c2.Responder(context.Background(), nucleo.Peticion{Tarea: "p3", Sesion: "s2", Texto: "hola"}, nucleo.NuevaTraza(nil, nil))
+	if r.Metodo == "parado" {
+		t.Errorf("sin parar no hay respuesta de parada: %+v", r)
+	}
+}
+
+// An open question ("¿quién…?", "¿qué…?") is never answered with "se sigue / no se sigue": only the
+// question itself is read, so a "cuando" inside a premise still allows the yes/no answer.
+func TestPreguntaAbiertaNoEsVerdad(t *testing.T) {
+	casos := map[string]bool{
+		"Ana es mayor que Luis y Luis es mayor que Eva. ¿Quién es el menor?": true,
+		"si llueve el suelo se moja; llueve. ¿qué pasa?":                     true,
+		"María tiene 12 caramelos y regala 5. ¿Cuántos le quedan?":           true,
+		"cuando llueve el suelo se moja; llueve. ¿se moja?":                  false,
+		"si llueve el suelo se moja; llueve. ¿se moja?":                      false,
+		"¿es «p o no p» siempre verdad?":                                     false,
+		"todos los A son B, algunos B son C, ¿algunos A son C?":              false,
+	}
+	for texto, quiero := range casos {
+		if got := preguntaCantidad(texto); got != quiero {
+			t.Errorf("%q: %v, quiero %v", texto, got, quiero)
+		}
+	}
+	c := nuevoCerebroPrueba(t, nil)
+	r, _ := preguntar(t, c, "s", "Ana es mayor que Luis y Luis es mayor que Eva. ¿Quién es el menor?", nil)
+	if strings.Contains(r.Texto, "se sigue") || strings.Contains(r.Texto, "No se sigue") {
+		t.Errorf("una pregunta abierta no se contesta con «se sigue»: %+v", r)
+	}
+}
+
+// Short requests about the code ("¿tiene errores?", "¿es eficiente?", "arréglalo") act on the
+// session's code; without code in the session the pipeline is reached with no code (it asks for it).
+func TestOrdenesSobreElCodigoDeAntes(t *testing.T) {
+	c := nuevoCerebroPrueba(t, nil)
+	var visto []string
+	anotar := func(nombre string) pipeline {
+		return func(c *Cerebro, k *tarea) nucleo.Respuesta {
+			visto = append(visto, nombre+":"+strings.TrimSpace(k.codigo))
+			return nucleo.Respuesta{Texto: nombre, Exito: true, Nivel: nucleo.NivelSinComprobar}
+		}
+	}
+	c.pipes.probar, c.pipes.explicar, c.pipes.reparar = anotar("probar"), anotar("explicar"), anotar("reparar")
+	codigo := "func Suma(xs []int) int {\n\ttotal := 0\n\tfor _, x := range xs {\n\t\ttotal += x\n\t}\n\treturn total\n}"
+	preguntar(t, c, "s", "explícame este código:\n"+codigo+"\n", nil)
+	for _, tx := range []string{"¿tiene errores?", "¿es eficiente?", "arréglalo", "hazle pruebas", "¿Hay algún error en el código?"} {
+		preguntar(t, c, "s", tx, nil)
+	}
+	quiero := []string{"explicar", "probar", "explicar", "reparar", "probar", "probar"}
+	if len(visto) != len(quiero) {
+		t.Fatalf("pipelines: %q", visto)
+	}
+	for i, q := range quiero {
+		if visto[i] != q+":"+codigo {
+			t.Errorf("turno %d: %q, quiero %s con el código de antes", i+1, visto[i], q)
+		}
+	}
+	visto = nil
+	preguntar(t, c, "otra", "¿tiene errores?", nil)
+	if len(visto) != 1 || visto[0] != "probar:" {
+		t.Errorf("sin código en la sesión: %q", visto)
+	}
+	// other requests are not taken
+	visto = nil
+	for _, tx := range []string{"¿es primo 97?", "¿es «p o no p» siempre verdad?", "hola"} {
+		preguntar(t, c, "s", tx, nil)
+	}
+	if len(visto) != 0 {
+		t.Errorf("no son órdenes sobre el código: %q", visto)
+	}
+}

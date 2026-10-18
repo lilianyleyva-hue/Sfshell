@@ -43,7 +43,11 @@ type tarea struct {
 	finEn     time.Time
 	cancelada bool
 	preguntas map[string]chan string
-	ahora     func() time.Time
+	// respondidas are the question channels that already took their answer: the Motor may read the
+	// answer before its deferred cleanup removes the question, and a second /responder in between must
+	// still be refused (409), not accepted into an empty channel and lost.
+	respondidas map[chan string]bool
+	ahora       func() time.Time
 }
 
 // agregar is the trace's emitir: it is called with the trace's mutex held and never calls back into it.
@@ -133,6 +137,7 @@ func (t *tarea) esperarRespuesta(ctx context.Context, p nucleo.PreguntaUsuario, 
 		if t.preguntas[p.ID] == ch {
 			delete(t.preguntas, p.ID)
 		}
+		delete(t.respondidas, ch)
 		t.mu.Unlock()
 	}()
 	reloj := time.NewTimer(espera)
@@ -152,11 +157,15 @@ func (t *tarea) contestar(id, respuesta string) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	ch := t.preguntas[id]
-	if ch == nil {
+	if ch == nil || t.respondidas[ch] {
 		return false
 	}
 	select {
 	case ch <- respuesta:
+		if t.respondidas == nil {
+			t.respondidas = map[chan string]bool{}
+		}
+		t.respondidas[ch] = true
 		return true
 	default:
 		return false

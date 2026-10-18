@@ -152,3 +152,5 @@ función que quite los repetidos de una lista sin repetir	crear_funcion	([]int)[
 función que diga si un número es positivo	crear_funcion	(int)bool	accion=comprobar;mods=positivo;entrada=numero;salida=booleano;nombre=EsPositivo	0
 (3, 5, true) -> 8	crear_funcion	(int,int,bool)int	nil	1
 (1, 2, 3, 'x') -> 6	crear_funcion	(int,int,int,rune)int	nil	1
+función que diga cuántos números negativos hay en una lista	crear_funcion	([]int)int	accion=contar;elemento=numero;mods=negativo;entrada=lista_numeros;salida=numero;nombre=CuentaNegativos	0
+cuántos números pares hay en una lista	crear_funcion	([]int)int	accion=contar;elemento=numero;mods=par;entrada=lista_numeros;salida=numero;nombre=CuentaPares	0

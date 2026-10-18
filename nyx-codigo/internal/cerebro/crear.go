@@ -106,6 +106,7 @@ type crearFlujo struct {
 	descartes   []string          // programs the user rejected (sintesis.Especificacion.Excluir)
 	reducidos   map[string]string // fuente → its minimized failing case ("Falla con [-1]: …")
 	webConsenso bool              // the web answer agrees with another independent source
+	sinQue      string            // why no program was guessed from the frame ("no sé qué debe comprobar…")
 }
 
 // pipeCrearFuncion is the pipeline to crear funciones (crear_funcion, §4.14.2).
@@ -733,6 +734,13 @@ func (cf *crearFlujo) conEjemplos(ctx context.Context, n *nucleo.Nodo, reg *sint
 // readings disagree.
 func (cf *crearFlujo) desdeConceptos(ctx context.Context, n *nucleo.Nodo, reg *sintesis.Registro, lim time.Duration) []sintesis.Solucion {
 	k := cf.k
+	if m := k.q.Marco; m != nil && m.Accion == "comprobar" && len(m.Mods) == 0 && !crearPredicados[m.Elemento] {
+		// "si una lista está ordenada": the check itself was not understood; any yes/no program
+		// ("todos son pares") would be a guess shown as "lo que entendí" (§0)
+		n.Nota("No sé qué debe comprobar: no lo adivino")
+		cf.sinQue = "no sé qué debe comprobar la función"
+		return nil
+	}
 	todas := sintesis.DesdeConceptos(ctx, k.q.Marco, cf.f, reg, 5+len(k.excluir))
 	var sols []sintesis.Solucion
 	for _, s := range todas {
@@ -1891,6 +1899,8 @@ func (cf *crearFlujo) fallo() crearHecho {
 		motivo = "no tengo Go para comprobar nada"
 	case len(cf.usuario) == 0 && k.q.Marco == nil:
 		motivo = "no entendí bien qué debe hacer la función"
+	case len(cf.usuario) == 0 && cf.sinQue != "":
+		motivo = cf.sinQue
 	}
 	r := c.respuestaFallo(k, motivo, cf.mejor.codigo, cf.mejor.contra)
 	r.Metodo = "sintesis"

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"nyxcodigo/internal/analisis"
+	"nyxcodigo/internal/lengua"
 	"nyxcodigo/internal/nucleo"
 	"nyxcodigo/internal/pruebas"
 	"nyxcodigo/internal/recetas"
@@ -436,6 +437,9 @@ func programaEncaja(q *nucleo.Pregunta, p recetas.Plantilla, puntos float64, lem
 	partes := map[string]bool{}
 	for _, w := range strings.Split(p.Nombre, "_") {
 		partes[crearRaiz(w)] = true
+		for _, tk := range lengua.Lematizar(w) { // "adivina" names the request's "adivinar"
+			partes[crearRaiz(tk.Lema)] = true
+		}
 	}
 	for _, l := range lemas {
 		if r := crearRaiz(l); partes[r] && !programaGenericas[r] {
@@ -629,7 +633,19 @@ func programaEnvolver(c *Cerebro, k *tarea, hecho crearHecho) (nucleo.Respuesta,
 		return nucleo.Respuesta{}, false
 	}
 	fr := hecho.resp
-	comps := append(append([]nucleo.Comprobacion(nil), pp.comps...), fr.Comprobaciones...)
+	// the program's own badges first; a function badge that says the same thing is not repeated
+	comps := append([]nucleo.Comprobacion(nil), pp.comps...)
+	for _, cp := range fr.Comprobaciones {
+		repetida := false
+		for _, x := range pp.comps {
+			if x.Nivel == cp.Nivel && x.Texto == cp.Texto {
+				repetida = true
+			}
+		}
+		if !repetida {
+			comps = append(comps, cp)
+		}
+	}
 	r := nucleo.Respuesta{
 		Texto:          fmt.Sprintf("Aquí tienes el programa: lee los datos, usa `%s` y escribe el resultado.", hecho.firma.Nombre),
 		Codigo:         fuente,
@@ -781,7 +797,7 @@ func programaDeCodigo(c *Cerebro, k *tarea) nucleo.Respuesta {
 						ref = append(ref, x)
 					}
 				}
-				casos = programaDeCasos(ref, aCaso)
+				casos = programaDeCasos(append(programaEjemplosPrevios(k, f), ref...), aCaso)
 				n.Info("")
 			} else {
 				n.Mal("No pude ejecutarla")
@@ -815,6 +831,28 @@ func programaDeCodigo(c *Cerebro, k *tarea) nucleo.Respuesta {
 	r.Parrafos = append(r.Parrafos, FraseGoRun)
 	k.turno.Metodo = r.Metodo
 	return r
+}
+
+// programaEjemplosPrevios are the user's own examples of the function being wrapped (from the turn that
+// made it), so "hazla programa" checks the program against them too ("Cumple tus 2 ejemplos").
+func programaEjemplosPrevios(k *tarea, f nucleo.Firma) []nucleo.Caso {
+	if k.previo == nil {
+		return nil
+	}
+	var fuente []nucleo.Caso
+	switch {
+	case k.previo.Funcion != nil && k.previo.Funcion.Firma.Nombre == f.Nombre && k.previo.Funcion.Firma.Forma() == f.Forma():
+		fuente, _ = nucleo.LeerCasos(f, k.previo.Funcion.Casos)
+	case k.previo.Pregunta != nil && k.previo.Pregunta.Firma != nil && k.previo.Pregunta.Firma.Forma() == f.Forma():
+		fuente = k.previo.Pregunta.Ejemplos
+	}
+	var out []nucleo.Caso
+	for _, cs := range fuente {
+		if cs.Expectativa == nucleo.EspUsuario && cs.ConEsperado() && len(cs.Entradas) == len(f.Params) {
+			out = append(out, cs)
+		}
+	}
+	return out
 }
 
 // programaFirmaDe picks the function to wrap: the session's function name, else the first plain one.

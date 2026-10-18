@@ -81,10 +81,18 @@ Ejemplos del modo terminal:
 ./nyx-codigo -preguntar "¿por qué falla?" -codigo main.go
 ```
 
-Si en el modo terminal te hace una pregunta, contesta escribiendo el número de una opción (o tu
-respuesta) y pulsa Intro. Si el código hace algo arriesgado (leer archivos, ejecutar otros programas…),
-te explica los riesgos y te pregunta «¿Lo ejecuto en la caja segura?»: contesta `1` (sí) o `2` (no).
-El programa termina con código 0 si lo consiguió y con 1 si no.
+Si en el modo terminal te hace una pregunta, las opciones salen con letras (`A)`, `B)`, `C)`…): escribe
+la letra de una opción, o tu respuesta, y pulsa Intro. Así un número que escribas es siempre ese número:
+con `A) 10  B) 4  C) 1`, `1` quiere decir el valor 1 y `a` quiere decir 10. (Si alguna opción es ella
+misma una letra, salen con números.)
+
+Si el código hace algo arriesgado (leer archivos, ejecutar otros programas…), te explica los riesgos y
+te pregunta «¿Lo ejecuto en la caja segura?»: contesta `a` (sí) o `b` (no). El programa termina con
+código 0 si lo consiguió y con 1 si no.
+
+Cada `-preguntar` empieza una conversación nueva, así que las preguntas de seguimiento («¿por qué?»,
+«¿y si fuera 13?», «explícala») y los botones como «No es eso» o «Pensar más» solo funcionan en el
+navegador.
 
 Debajo de la respuesta salen las comprobaciones: `✔` si comprobó el resultado (tus ejemplos, sus
 propiedades, el cálculo), `✘` si algo falla y `·` si no lo comprobó o lo sacó de una fuente.
@@ -216,9 +224,10 @@ quitar funciones, hechos y palabras, o pedírselo: «olvida SumaPares».
 - **Tu código, tus archivos y su memoria no se suben a ningún sitio.** Se quedan en la carpeta de datos.
 - **Sí usa internet en estos casos** (si no lo quitas):
   - al arrancar, y de vez en cuando, abre `go.dev` para saber si hay internet;
-  - cuando le pides buscar algo («busca cómo invertir un mapa en Go»);
-  - para leer documentación de Go (go.dev, pkg.go.dev, gobyexample.com, Wikipedia) cuando preguntas por Go,
-    y en el modo «Estudiar»;
+  - cuando le pides buscar algo («busca cómo invertir un mapa en Go»): manda la búsqueda a DuckDuckGo
+    y descarga algunas de las páginas que encuentra;
+  - para leer documentación de Go cuando preguntas por Go (pkg.go.dev y gobyexample.com; antes mira la
+    documentación que trae tu Go, sin internet) y en el modo «Estudiar» (gobyexample.com);
   - **por su cuenta** cuando le pides crear una función o un programa y no lo consigue con sus recetas
     ni con su síntesis: entonces manda a **DuckDuckGo** una búsqueda en inglés hecha con las palabras de
     tu petición (por ejemplo «golang reverse map»). Manda esas palabras, no tu código.

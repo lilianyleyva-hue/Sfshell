@@ -541,3 +541,34 @@ func TestTraducirMainEnlazador(t *testing.T) {
 		}
 	}
 }
+
+// A snippet whose package clause shares the first line with code ("package solucion; func F() …", as
+// cerebro completes a pasted function so its line numbers do not move) still gets its missing import,
+// on that same line, and nothing moves.
+func TestImportarConPaqueteEnLaMismaLinea(t *testing.T) {
+	casos := []string{
+		"package solucion; func F(s string) bool { return strings.HasPrefix(s, \"a\") }\n",
+		"package solucion; func Vocales(s string) int {\n\tn := 0\n\tfor _, r := range s {\n\t\tif strings.ContainsRune(\"aeiou\", r) {\n\t\t\tn++\n\t\t}\n\t}\n\treturn n\n}\n",
+		"package solucion; func F(x float64) string { return fmt.Sprint(math.Sqrt(x)) }\n",
+	}
+	for _, src := range casos {
+		ar := compilar(t, src)
+		if !ar.OK {
+			t.Errorf("no compila: %v\n%s", ar.Quedan, ar.Fuente)
+			continue
+		}
+		if !strings.Contains(ar.Fuente, "import") || len(ar.Cambios) == 0 {
+			t.Errorf("debía añadir el import:\n%s", ar.Fuente)
+		}
+		for _, c := range ar.Cambios {
+			if c.Regla == "importar" && c.Linea != 1 {
+				t.Errorf("el import va en la línea 1: %+v", c)
+			}
+		}
+	}
+	// the usual layout is unchanged
+	ar := compilar(t, "package solucion\n\nfunc F(s string) bool { return strings.HasPrefix(s, \"a\") }\n")
+	if !ar.OK || !strings.HasPrefix(ar.Fuente, "package solucion\n\nimport \"strings\"\n") {
+		t.Errorf("import en su sitio de siempre:\n%s", ar.Fuente)
+	}
+}

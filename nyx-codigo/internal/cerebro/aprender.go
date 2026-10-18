@@ -36,7 +36,27 @@ func nivelAlMenosEntendido(n nucleo.Nivel) bool {
 // metodosSinAprendizaje are answers that teach nothing about strategies (templates, stubs, acks).
 var metodosSinAprendizaje = map[string]bool{
 	"charla": true, "memoria": true, "en_construccion": true, "no_entiendo": true, "respuesta": true,
-	"seguimiento": true, "error": true, "habla": true,
+	"seguimiento": true, "error": true, "habla": true, "parado": true,
+}
+
+// juzganCodigoAjeno are the intents that judge the user's own code: running it, testing it or
+// explaining it is the job done even when the code fails (Nivel fallo is the code's verdict, not the
+// app's), and such a request is never a pending question.
+var juzganCodigoAjeno = map[nucleo.TipoIntencion]bool{
+	nucleo.IEjecutar: true, nucleo.IProbar: true, nucleo.IExplicar: true,
+}
+
+// exitoEstrategia: whether the chosen strategy did its job. Code that the app writes or repairs and
+// reasoning answers must be checked (nivelVerificado); running, testing and explaining the user's code
+// succeed when they ran to the end; documentation and search succeed with a source.
+func exitoEstrategia(i nucleo.TipoIntencion, r *nucleo.Respuesta) bool {
+	switch {
+	case juzganCodigoAjeno[i]:
+		return r.Exito || (r.Nivel == nucleo.NivelFallo && len(r.Comprobaciones) > 0)
+	case i == nucleo.IDocGo || i == nucleo.IBuscar:
+		return r.Exito && (r.Nivel == nucleo.NivelFuente || nivelVerificado(r.Nivel))
+	}
+	return r.Exito && nivelVerificado(r.Nivel)
 }
 
 // aprender: always register the episode and move the strategy counters; on success propose the
@@ -44,7 +64,7 @@ var metodosSinAprendizaje = map[string]bool{
 // question in pendientes.
 func (c *Cerebro) aprender(k *tarea, r *nucleo.Respuesta) {
 	defer func() { _ = recover() }()
-	ok := r.Exito && nivelVerificado(r.Nivel)
+	ok := exitoEstrategia(k.intencion, r)
 	texto := k.p.Texto
 	if k.turno.Texto != "" {
 		texto = k.turno.Texto
@@ -53,8 +73,8 @@ func (c *Cerebro) aprender(k *tarea, r *nucleo.Respuesta) {
 		Fecha: k.inicio, Sesion: k.p.Sesion, Tarea: k.p.Tarea, Texto: texto, Intencion: k.intencion,
 		Metodo: r.Metodo, Exito: r.Exito, Nivel: r.Nivel, Ms: c.ahora().Sub(k.inicio).Milliseconds(),
 	})
-	if k.meta {
-		return
+	if k.meta || r.Metodo == "parado" {
+		return // a stopped request teaches nothing and is not a pending question
 	}
 	if !metodosSinAprendizaje[r.Metodo] && k.estrategia != "" && k.estrategia != "-" {
 		c.stats.Exito("estrategia:"+k.estrategia, ok)
@@ -69,12 +89,12 @@ func (c *Cerebro) aprender(k *tarea, r *nucleo.Respuesta) {
 	if r.Exito && nivelAlMenosEntendido(r.Nivel) && nucleo.Familia(k.intencion) == "programar" && k.q != nil {
 		c.proponerPalabras(k, r)
 	}
-	if ok && k.programa != nil {
+	if r.Exito && nivelVerificado(r.Nivel) && k.programa != nil {
 		conceptos := conceptosDeTarea(k)
 		c.contarPrograma(k.programa, conceptos, true)
 	}
 	motivo := k.pendiente
-	if motivo == "" && r.Nivel == nucleo.NivelFallo && !metodosSinAprendizaje[r.Metodo] {
+	if motivo == "" && r.Nivel == nucleo.NivelFallo && !metodosSinAprendizaje[r.Metodo] && !juzganCodigoAjeno[k.intencion] {
 		motivo = "fallo"
 	}
 	if motivo != "" {

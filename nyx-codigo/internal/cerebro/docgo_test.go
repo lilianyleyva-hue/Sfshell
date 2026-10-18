@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"nyxcodigo/internal/nucleo"
+	"nyxcodigo/internal/nucleo/nucleotest"
 	"nyxcodigo/internal/saber"
 )
 
@@ -89,5 +90,28 @@ func TestDocGoLeerGoDoc(t *testing.T) {
 	d = docgoLeerGoDoc("package strings // import \"strings\"\n\nfunc (b *Builder) WriteString(s string) (int, error)\n    WriteString appends the contents of s to b's buffer.\n", "strings.Builder.WriteString")
 	if d.url != "https://pkg.go.dev/strings#Builder.WriteString" {
 		t.Errorf("método: %+v", d)
+	}
+}
+
+// Review quality (§0): when the note's example runs and prints something else, the answer says so and
+// does not badge it as checked.
+func TestDocGoEjemploQueEscribeOtraCosa(t *testing.T) {
+	falso := &nucleotest.EjecutorFalso{Programa: func(fuente string, c nucleo.CasoPrograma) (nucleo.Ejecucion, error) {
+		return nucleo.Ejecucion{Salida: "otra cosa\n"}, nil
+	}}
+	c := nuevoCerebroPrueba(t, falso)
+	r, tr := preguntar(t, c, "s", "¿qué hace strings.Fields?", nil)
+	todo := todoElTexto(r)
+	if falso.NumLlamadas("Correr") == 0 {
+		t.Fatalf("no ejecutó el ejemplo:\n%s\n%s", todo, titulos(tr))
+	}
+	if !strings.Contains(todo, "probé el ejemplo y escribió «otra cosa» en vez de «") {
+		t.Errorf("dice lo que escribió de verdad:\n%s", todo)
+	}
+	if _, ok := badge(r, "Ejemplo comprobado"); ok || strings.Contains(todo, "Lo probé y escribe") {
+		t.Errorf("no lo da por comprobado: %+v\n%s", r.Comprobaciones, todo)
+	}
+	if !r.Exito || r.Nivel != nucleo.NivelFuente {
+		t.Errorf("la nota sigue valiendo como fuente: %v %s", r.Exito, r.Nivel)
 	}
 }

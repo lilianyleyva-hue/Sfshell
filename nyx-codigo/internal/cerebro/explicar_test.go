@@ -3,12 +3,16 @@ package cerebro
 import (
 	"context"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"nyxcodigo/internal/analisis"
 	"nyxcodigo/internal/nucleo"
+	"nyxcodigo/internal/nucleo/nucleotest"
 )
 
 const explicarSumaPares = "func SumaPares(nums []int) int {\n\ttotal := 0\n\tfor _, n := range nums {\n\t\tif n%2 == 0 {\n\t\t\ttotal += n\n\t\t}\n\t}\n\treturn total\n}\n"
@@ -340,12 +344,412 @@ func TestExplicarOptimizarNoAfirmaSinMedir(t *testing.T) {
 	r, tr := preguntar(t, c, "s", "hazlo más rápido:\n"+explicarUnir, nil)
 	todo := todoElTexto(r)
 	switch {
-	case strings.HasPrefix(r.Texto, "Lo hago más rápido"):
+	case strings.HasPrefix(r.Texto, "Así `Unir` va más rápido"):
 		if !strings.Contains(todo, "Lo medí con n = ") {
 			t.Errorf("dice «más rápido» sin medirlo:\n%s\n%s", todo, titulos(tr))
 		}
-	case strings.HasPrefix(r.Texto, "Creo que"), strings.HasPrefix(r.Texto, "Este cambio da lo mismo"):
+	case strings.HasPrefix(r.Texto, "Creo que"), strings.HasPrefix(r.Texto, "Este cambio en `Unir` da lo mismo"):
 	default:
 		t.Errorf("texto: %q\n%s", r.Texto, titulos(tr))
+	}
+}
+
+// ---- regression tests for the review of explicar ----
+
+// ejecutorEspia records what is prepared and every case run, on top of any Ejecutor.
+type ejecutorEspia struct {
+	nucleo.Ejecutor
+	mu         sync.Mutex
+	preparados []nucleo.Preparacion
+	casos      []nucleo.Caso
+}
+
+func (e *ejecutorEspia) Preparar(ctx context.Context, p nucleo.Preparacion) (nucleo.Binario, nucleo.Compilacion, error) {
+	e.mu.Lock()
+	e.preparados = append(e.preparados, p)
+	e.mu.Unlock()
+	b, comp, err := e.Ejecutor.Preparar(ctx, p)
+	if err != nil || b == nil {
+		return b, comp, err
+	}
+	return &binarioEspia{Binario: b, e: e}, comp, nil
+}
+
+type binarioEspia struct {
+	nucleo.Binario
+	e *ejecutorEspia
+}
+
+func (b *binarioEspia) Probar(ctx context.Context, casos []nucleo.Caso, op nucleo.OpcionesProbar) ([][]nucleo.ResultadoCaso, error) {
+	b.e.mu.Lock()
+	b.e.casos = append(b.e.casos, casos...)
+	b.e.mu.Unlock()
+	return b.Binario.Probar(ctx, casos, op)
+}
+
+// azarCorridos counts the random cases that were run to check a summary (growth inputs are left out).
+func (e *ejecutorEspia) azarCorridos() int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	n := 0
+	for _, c := range e.casos {
+		if c.Origen == nucleo.OrigenAzar && !strings.HasPrefix(c.Nota, "tamaño") {
+			n++
+		}
+	}
+	return n
+}
+
+func espiaFalso(funcs map[int]func([]nucleo.Valor) ([]nucleo.Valor, string)) *ejecutorEspia {
+	return &ejecutorEspia{Ejecutor: &nucleotest.EjecutorFalso{Funcs: funcs}}
+}
+
+var reAzarDicho = regexp.MustCompile(`y (\d+) al azar`)
+
+// azarHonesto: the "¿por qué?" text never claims more random cases than really ran.
+func azarHonesto(t *testing.T, r nucleo.Respuesta, e *ejecutorEspia, tr *nucleo.Traza) {
+	t.Helper()
+	corridos := e.azarCorridos()
+	just := strings.Join(r.Justificacion, "\n")
+	m := reAzarDicho.FindStringSubmatch(just)
+	switch {
+	case corridos == 0 && strings.Contains(just, "al azar"):
+		t.Errorf("no ejecutó ninguna entrada al azar y dice que sí:\n%s\n%s", just, titulos(tr))
+	case m != nil:
+		if n, _ := strconv.Atoi(m[1]); n > corridos || n == 0 {
+			t.Errorf("dice %d al azar y corrieron %d:\n%s", n, corridos, just)
+		}
+	}
+}
+
+// Review bug: the Justificacion said the random cases ran even when the summarizer found nothing (they
+// only run to check a summary).
+func TestExplicarJustificacionSoloLoQueCorrio(t *testing.T) {
+	hash := func(in []nucleo.Valor) ([]nucleo.Valor, string) {
+		s, _ := in[0].(string)
+		h := 7
+		for _, r := range s {
+			h = h*31 + int(r)%13
+		}
+		return []nucleo.Valor{h}, ""
+	}
+	e := espiaFalso(map[int]func([]nucleo.Valor) ([]nucleo.Valor, string){0: hash})
+	c := nuevoCerebroPrueba(t, e)
+	const codigo = "func H(s string) int {\n\th := 7\n\tfor _, r := range s {\n\t\th = h*31 + int(r)%13\n\t}\n\treturn h\n}\n"
+	r, tr := preguntar(t, c, "s", "explícame este código:\n"+codigo, nil)
+	if !strings.Contains(strings.Join(r.Justificacion, "\n"), "Lo compilé en la caja segura y lo ejecuté con") {
+		t.Fatalf("dice con qué lo ejecutó: %+v\n%s", r.Justificacion, titulos(tr))
+	}
+	azarHonesto(t, r, e, tr)
+	if !strings.Contains(r.Texto, "En resumen") && strings.Contains(strings.Join(r.Justificacion, "\n"), "coincide en todas") {
+		t.Errorf("sin resumen no dice que coincide: %+v", r.Justificacion)
+	}
+
+	// with a summary that fits, the random cases do run, and they are 300 (§4.5)
+	pares := func(in []nucleo.Valor) ([]nucleo.Valor, string) {
+		xs, _ := in[0].([]nucleo.Valor)
+		total := 0
+		for _, v := range xs {
+			if n, ok := v.(int); ok && n%2 == 0 {
+				total += n
+			}
+		}
+		return []nucleo.Valor{total}, ""
+	}
+	e2 := espiaFalso(map[int]func([]nucleo.Valor) ([]nucleo.Valor, string){0: pares})
+	c2 := nuevoCerebroPrueba(t, e2)
+	r2, tr2 := preguntar(t, c2, "s", "explícame este código:\n"+explicarSumaPares, nil)
+	azarHonesto(t, r2, e2, tr2)
+	if strings.Contains(r2.Texto, "En resumen") && !strings.Contains(r2.Texto, "lo comprobé con 300 entradas al azar") {
+		t.Errorf("el resumen se comprueba con 300 entradas al azar: %q", r2.Texto)
+	}
+}
+
+// §4.5 / §1 #5: the summary is checked on 300 random cases, spread over the generated sizes.
+func TestExplicarTrescientasAlAzar(t *testing.T) {
+	c := nuevoCerebroPrueba(t, nil)
+	k := c.nuevaTarea(context.Background(), nucleo.Peticion{}, c.sesion("s"), nucleo.NuevaTraza(nil, nil))
+	f := nucleo.Firma{Nombre: "F", Params: []nucleo.Param{{Nombre: "xs", Tipo: nucleo.ListaDe(nucleo.TInt)}}, Res: []nucleo.Tipo{nucleo.TInt}}
+	todos := c.generarCasos(k, f, nil, -1, explicarAzarPedidos)
+	cs := explicarMuestra(todos, explicarAzar)
+	if len(cs) != 300 {
+		t.Fatalf("%d casos al azar (de %d generados), quiero 300", len(cs), len(todos))
+	}
+	if cs[len(cs)-1].Nota == todos[explicarAzar-1].Nota && len(todos) > explicarAzar {
+		t.Errorf("la muestra llega hasta los casos más grandes")
+	}
+	if got := explicarMuestra(todos[:10], 300); len(got) != 10 {
+		t.Errorf("con menos casos los deja todos: %d", len(got))
+	}
+}
+
+const explicarSumaYUnir = "func Suma(xs []int) int {\n\ttotal := 0\n\tfor _, x := range xs {\n\t\ttotal += x\n\t}\n\treturn total\n}\n\nfunc Unir(ps []string) string {\n\ts := \"\"\n\tfor _, p := range ps {\n\t\ts += p\n\t}\n\treturn s\n}\n"
+
+// Review bug: "hazlo más rápido" compared and timed the first function of the file, not the one the
+// rewrite changed.
+func TestExplicarOptimizaLaFuncionQueCambia(t *testing.T) {
+	unir := func(in []nucleo.Valor) ([]nucleo.Valor, string) {
+		xs, _ := in[0].([]nucleo.Valor)
+		var sb strings.Builder
+		for _, v := range xs {
+			s, _ := v.(string)
+			sb.WriteString(s)
+		}
+		return []nucleo.Valor{sb.String()}, ""
+	}
+	e := espiaFalso(map[int]func([]nucleo.Valor) ([]nucleo.Valor, string){0: unir, 1: unir})
+	c := nuevoCerebroPrueba(t, e)
+	r, tr := preguntar(t, c, "s", "hazlo más rápido:\n"+explicarSumaYUnir, nil)
+	if !strings.Contains(r.Codigo, "strings.Builder") {
+		t.Fatalf("reescritura: %+v\n%s", r, titulos(tr))
+	}
+	comparoUnir := false
+	for _, p := range e.preparados {
+		if p.Firma.Nombre == "Suma" {
+			t.Errorf("compiló Suma, que no cambia: %+v", p.Firma)
+		}
+		if p.Firma.Nombre == "Unir" && len(p.Variantes) == 2 && strings.Contains(p.Variantes[0], "func Unir") && strings.Contains(p.Variantes[1], "strings.Builder") {
+			comparoUnir = true
+		}
+	}
+	if !comparoUnir {
+		t.Errorf("compara la Unir nueva con la original: %+v", e.preparados)
+	}
+	if !strings.Contains(r.Texto, "`Unir`") || strings.Contains(r.Texto, "Suma") {
+		t.Errorf("habla de la función que cambia: %q", r.Texto)
+	}
+	if _, ok := badge(r, "Da lo mismo que tu código"); !ok {
+		t.Errorf("insignia de la comparación: %+v", r.Comprobaciones)
+	}
+	if !strings.Contains(titulos(tr), "El cambio está en `Unir`") {
+		t.Errorf("la traza dice qué función compara:\n%s", titulos(tr))
+	}
+	// wording: no "Lo hago más rápido: El texto …" (capital letter after a colon, the problem as the change)
+	todo := todoElTexto(r)
+	if strings.Contains(todo, "rápido: El") || strings.Contains(todo, "Lo hago más rápido") {
+		t.Errorf("redacción:\n%s", todo)
+	}
+	if !strings.Contains(todo, "Lo lento está en la línea 12, dentro de `Unir`.") {
+		t.Errorf("dice dónde está lo lento:\n%s", todo)
+	}
+}
+
+func TestExplicarCambiadas(t *testing.T) {
+	antes := "package main\n\nfunc A() int {\n\treturn 1\n}\n\nfunc B() int { return 2 }\n"
+	despues := "package main\n\nfunc A() int {\n\treturn 1\n}\n\nfunc B() int {\n\t// dos\n\treturn 3\n}\n"
+	if got := explicarCambiadas(antes, despues); len(got) != 1 || got[0] != "B" {
+		t.Errorf("solo cambia B: %v", got)
+	}
+	if got := explicarCambiadas(antes, "package main\n\nfunc A() int { return 1 }\n\nfunc B() int {\n\treturn 2\n}\n"); len(got) != 0 {
+		t.Errorf("cambiar el formato o los comentarios no es un cambio: %v", got)
+	}
+	metodo := "type P struct{ x int }\n\nfunc (p *P) Doble() int { return p.x * 2 }\n"
+	if got := explicarCambiadas(metodo, strings.Replace(metodo, "* 2", "+ p.x", 1)); len(got) != 1 || got[0] != "P.Doble" {
+		t.Errorf("métodos con el nombre de analisis: %v", got)
+	}
+}
+
+// Review N2: a first message that carries code honours "ponle comentarios" and "con detalle" (§4.14.2).
+func TestExplicarPeticionConComentariosYDetalle(t *testing.T) {
+	c := nuevoCerebroPrueba(t, nil)
+	r, tr := preguntar(t, c, "a", "ponle comentarios a este código:\n"+explicarSumaPares, nil)
+	if !strings.Contains(r.Codigo, "//") || !strings.Contains(todoElTexto(r), "comentarios") {
+		t.Errorf("comentarios en el primer mensaje: %+v\n%s", r, titulos(tr))
+	}
+	normal, _ := preguntar(t, c, "b", "explícame este código:\n"+explicarSumaPares, nil)
+	detalle, tr2 := preguntar(t, c, "c", "explícalo con detalle:\n"+explicarSumaPares, nil)
+	tn, ok1 := tablaFrases(normal)
+	td, ok2 := tablaFrases(detalle)
+	if !ok1 || !ok2 || len(td.Filas) <= len(tn.Filas) {
+		t.Errorf("con detalle da más frases: %d, normal %d\n%s", len(td.Filas), len(tn.Filas), titulos(tr2))
+	}
+	if !strings.Contains(strings.Join(detalle.Sugerencias, " "), "más simple") {
+		t.Errorf("tras «con detalle» sugiere «más simple»: %v", detalle.Sugerencias)
+	}
+}
+
+const explicarVocales = "func Vocales(s string) int {\n\tn := 0\n\tfor _, r := range s {\n\t\tif strings.ContainsRune(\"aeiou\", r) {\n\t\t\tn++\n\t\t}\n\t}\n\treturn n\n}\n"
+
+// Review N2: a pasted function that forgot its import runs completed, and the answer says what was
+// missing (in Spanish).
+func TestExplicarSinImportSeEjecuta(t *testing.T) {
+	vocales := func(in []nucleo.Valor) ([]nucleo.Valor, string) {
+		s, _ := in[0].(string)
+		n := 0
+		for _, r := range s {
+			if strings.ContainsRune("aeiou", r) {
+				n++
+			}
+		}
+		return []nucleo.Valor{n}, ""
+	}
+	e := espiaFalso(map[int]func([]nucleo.Valor) ([]nucleo.Valor, string){0: vocales})
+	c := nuevoCerebroPrueba(t, e)
+	r, tr := preguntar(t, c, "s", "explícame este código:\n"+explicarVocales, nil)
+	todo := todoElTexto(r)
+	importa := false
+	for _, p := range e.preparados {
+		if len(p.Variantes) > 0 && strings.Contains(p.Variantes[0], `"strings"`) {
+			importa = true
+		}
+	}
+	if !importa {
+		t.Fatalf("lo compila con el import que falta:\n%s\n%s", todo, titulos(tr))
+	}
+	for _, quiero := range []string{"Le falta importar `strings`", "Para ejecutarlo se lo añadí", "Lo ejecuté con s = "} {
+		if !strings.Contains(todo, quiero) {
+			t.Errorf("falta «%s»:\n%s", quiero, todo)
+		}
+	}
+	for _, no := range []string{"undefined", "No lo he ejecutado", "así que no lo he ejecutado"} {
+		if strings.Contains(todo, no) {
+			t.Errorf("sobra «%s»:\n%s", no, todo)
+		}
+	}
+
+	// without a sandbox it says what is missing and that it did not run it
+	c2 := nuevoCerebroPrueba(t, nil)
+	r2, _ := preguntar(t, c2, "s", "explícame este código:\n"+explicarVocales, nil)
+	todo2 := todoElTexto(r2)
+	if !strings.Contains(todo2, "Le falta importar `strings`") || !strings.Contains(todo2, "No lo he ejecutado: no tengo caja segura") || strings.Contains(todo2, "se lo añadí") {
+		t.Errorf("sin caja:\n%s", todo2)
+	}
+}
+
+// Review bug: the trace's "Línea" column used the gofmt'd file's lines for code that is not gofmt'd.
+func TestExplicarMapaLineas(t *testing.T) {
+	const codigo = "func SumaPares(nums []int) int {\n\ttotal := 0\n\tfor _, n := range nums { if n%2 == 0 { total += n } }\n\treturn total\n}\n"
+	fuente, err := explicarFuente(codigo, "SumaPares")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := explicarMapaLineas(codigo, fuente, "SumaPares")
+	quiero := map[string]int{"total := 0": 2, "total += n": 3, "return total": 4, "if n%2 == 0": 3}
+	for i, l := range strings.Split(fuente, "\n") {
+		for trozo, lu := range quiero {
+			if strings.Contains(l, trozo) && m[i+1] != lu {
+				t.Errorf("«%s» está en la línea %d del archivo compilado: la del usuario es %d, no %d", trozo, i+1, lu, m[i+1])
+			}
+		}
+	}
+	const metodo = "type P struct{ x int }\nfunc (p *P) Doble() int { y := p.x; return y * 2 }\n"
+	fm, err := explicarFuente(metodo, "P.Doble")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mm := explicarMapaLineas(metodo, fm, "P.Doble")
+	for i, l := range strings.Split(fm, "\n") {
+		if strings.Contains(l, "return y * 2") && mm[i+1] != 2 {
+			t.Errorf("método: %v\n%s", mm, fm)
+		}
+	}
+}
+
+func TestExplicarTrazaLineasDelUsuario(t *testing.T) {
+	explicarNecesitaGo(t)
+	c := cerebroExamen(t)
+	const codigo = "func SumaPares(nums []int) int {\n\ttotal := 0\n\tfor _, n := range nums { if n%2 == 0 { total += n } }\n\treturn total\n}\n"
+	r, tr := preguntar(t, c, "s", "explícame este código:\n"+codigo, nil)
+	hay := false
+	for _, tb := range r.Tablas {
+		if !strings.HasPrefix(tb.Titulo, "Así cambian las variables") {
+			continue
+		}
+		for _, f := range tb.Filas {
+			if f[2] != "total" {
+				continue
+			}
+			hay = true
+			if f[1] != "2" && f[1] != "3" {
+				t.Errorf("`total` cambia en las líneas 2 y 3 del código, no en la %s: %v", f[1], tb.Filas)
+			}
+		}
+	}
+	if !hay {
+		t.Errorf("sin traza de `total`: %+v\n%s", r.Tablas, titulos(tr))
+	}
+}
+
+// Review quality: compiler errors in simple Spanish (reparar.Traducir); code that cannot be parsed is
+// not narrated (the parser's BadExpr would reach the gutter).
+func TestExplicarErroresEnEspanol(t *testing.T) {
+	c := nuevoCerebroPrueba(t, nil)
+	const roto = "func F(xs []int) int {\n\ts := 0\n\tfor i := 0; i < len(xs) i++ {\n\t\ts += xs[i]\n\t}\n\treturn s\n}\n"
+	r, _ := preguntar(t, c, "a", "explícame este código:\n"+roto, nil)
+	todo := todoElTexto(r)
+	if _, ok := tablaFrases(r); ok || strings.Contains(todo, "BadExpr") || strings.Contains(todo, "expected") {
+		t.Errorf("no narra código que no se puede leer:\n%s", todo)
+	}
+	if !strings.Contains(todo, "no se puede leer") || !strings.Contains(todo, "en la línea 3") || r.Exito {
+		t.Errorf("dice en español por qué:\n%s", todo)
+	}
+	const tipos = "func F() int {\n\treturn totl\n}\n"
+	r2, _ := preguntar(t, c, "b", "explícame este código:\n"+tipos, nil)
+	todo2 := todoElTexto(r2)
+	if !strings.Contains(todo2, "Ojo: así como está no compila (en la línea 2, ") || strings.Contains(todo2, "undefined") {
+		t.Errorf("error de tipos en español:\n%s", todo2)
+	}
+}
+
+// Review quality: "excelente" does not ask whether the code is slow.
+func TestExplicarPideEficienciaPalabras(t *testing.T) {
+	casos := map[string]bool{
+		"explícame esta función excelente": false,
+		"explícame este código":            false,
+		"¿es eficiente?":                   true,
+		"¿es lento con listas grandes?":    true,
+		"¿cuánto tarda?":                   true,
+		"¿qué complejidad tiene?":          true,
+		"¿es O(n)?":                        true,
+		"¿cómo de rápida es?":              true,
+	}
+	for texto, quiero := range casos {
+		if got := explicarPideEficiencia(&tarea{p: nucleo.Peticion{Texto: texto}}); got != quiero {
+			t.Errorf("%q: %v, quiero %v", texto, got, quiero)
+		}
+	}
+}
+
+func TestExplicarErrorTexto(t *testing.T) {
+	got := explicarErrorTexto(nucleo.ErrorGo{Linea: 4, Msg: "undefined: strings"})
+	if !strings.HasPrefix(got, "en la línea 4, ") || strings.Contains(got, "undefined") || strings.HasSuffix(got, ".") || strings.Contains(got, "(línea") {
+		t.Errorf("%q", got)
+	}
+	if got := explicarMinuscula("Go es"); got != "Go es" {
+		t.Errorf("Go: %q", got)
+	}
+	if got := explicarImports([]string{"strings", "os"}); got != "`strings` y `os`" {
+		t.Errorf("imports: %q", got)
+	}
+}
+
+func TestExplicarLeerPeticion(t *testing.T) {
+	casos := []struct {
+		texto       string
+		comentarios bool
+		detalle     int
+	}{
+		{"ponle comentarios a este código", true, 0},
+		{"coméntalo, por favor", true, 0},
+		{"añádele un comentario", true, 0},
+		{"explícalo con comentarios", true, 0},
+		{"explícalo con detalle", false, 2},
+		{"explícame este bucle paso a paso", false, 2},
+		{"explícalo más simple", false, 1},
+		{"explícame este código", false, 0},
+		{"este código tiene comentarios, explícamelo", false, 0},
+	}
+	for _, c := range casos {
+		k := &tarea{p: nucleo.Peticion{Texto: c.texto}}
+		explicarLeerPeticion(k)
+		if k.comentarios != c.comentarios || k.detalle != c.detalle {
+			t.Errorf("%q: comentarios %v detalle %d", c.texto, k.comentarios, k.detalle)
+		}
+	}
+	// a follow-up already decided: the text does not undo it
+	k := &tarea{p: nucleo.Peticion{Texto: "explícalo más simple"}, detalle: 2}
+	explicarLeerPeticion(k)
+	if k.detalle != 2 {
+		t.Errorf("respeta el seguimiento: %d", k.detalle)
 	}
 }

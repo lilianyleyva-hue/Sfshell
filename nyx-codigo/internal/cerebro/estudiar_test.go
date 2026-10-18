@@ -57,7 +57,7 @@ func TestEstudiarConWebFalsa(t *testing.T) {
 	if !r.Exito || !strings.HasPrefix(r.Texto, "Aprendí") {
 		t.Fatalf("informe: %+v\n%s", r, titulos(tr))
 	}
-	for _, quiero := range []string{"a resolver «resuelve 2x+3=11»", "2 páginas de Go by Example", "Aprendí a resolver 1 pregunta que antes no sabía"} {
+	for _, quiero := range []string{"a resolver «resuelve 2x+3=11»", "2 páginas nuevas de Go by Example", "Aprendí a resolver 1 pregunta que antes no sabía"} {
 		if !strings.Contains(todo, quiero) {
 			t.Errorf("falta «%s»:\n%s\n%s", quiero, todo, titulos(tr))
 		}
@@ -150,5 +150,26 @@ func TestEstudiarResuelta(t *testing.T) {
 		if got := estudiarResuelta(c.r, c.pend); got != c.ok {
 			t.Errorf("%d: %v, quiero %v", i, got, c.ok)
 		}
+	}
+}
+
+// Review quality: reading the same Go by Example pages again is not "something new learned".
+func TestEstudiarDosVecesNoCuentaLoRepasado(t *testing.T) {
+	web := webDePrueba(t, map[string]string{"/gbe/": gbeIndice, "/gbe/hello-world": gbeHola, "/gbe/values": gbeValores})
+	c := cerebroConWeb(t, web, false)
+	c.PonerIndice(&saber.IndiceStd{GoVersion: "prueba", Ejemplos: []saber.EjemploStd{{Paquete: "strings", Nombre: "ExampleFields"}}})
+	if err := c.mem.AgregarPendiente(memoria.Pendiente{Texto: "zork blorp fnord", Motivo: "fallo"}); err != nil {
+		t.Fatal(err)
+	}
+	r1, tr1 := estudiarTarea(t, c)
+	if !strings.HasPrefix(r1.Texto, "Aprendí 1 cosa nueva: 2 páginas nuevas de Go by Example") {
+		t.Fatalf("primera vez: %q\n%s", r1.Texto, titulos(tr1))
+	}
+	r2, tr2 := estudiarTarea(t, c)
+	if r2.Texto != "Esta vez no aprendí nada nuevo." {
+		t.Errorf("segunda vez, mismas páginas y nada resuelto: %q\n%s", r2.Texto, titulos(tr2))
+	}
+	if todo := todoElTexto(r2); !strings.Contains(todo, "Repasé 2 páginas de Go by Example que ya había estudiado: no traían nada nuevo.") {
+		t.Errorf("dice que repasó lo que ya sabía:\n%s", todo)
 	}
 }

@@ -1,6 +1,7 @@
 package servidor
 
 import (
+	"context"
 	"encoding/json"
 	"io/fs"
 	"os"
@@ -211,5 +212,44 @@ func TestAppJSSintaxis(t *testing.T) {
 	}
 	if out, err := exec.Command(node, "--check", ruta).CombinedOutput(); err != nil {
 		t.Fatalf("node --check: %v\n%s", err, out)
+	}
+}
+
+// Regression: after the Motor took the first answer from the channel, and before its deferred cleanup
+// removed the question, a second /responder found the channel empty and was accepted (204), so that
+// answer was silently lost. It must be refused like any answer to an answered question.
+func TestSegundaRespuestaRechazadaAunqueElMotorYaLeyera(t *testing.T) {
+	tr := &tarea{preguntas: map[string]chan string{}, cambio: make(chan struct{}), ahora: time.Now}
+	tr.agregar(nucleo.Evento{Tipo: "pregunta", Seq: 1, Pregunta: &nucleo.PreguntaUsuario{ID: "p1", Texto: "¿Qué debe dar?"}})
+	if !tr.contestar("p1", "0") {
+		t.Fatal("la primera respuesta debe entrar")
+	}
+	ch := tr.preguntas["p1"]
+	if got := <-ch; got != "0" { // the Motor reads it; its deferred delete has not run yet
+		t.Fatalf("el Motor leyó %q", got)
+	}
+	if tr.contestar("p1", "-2") {
+		t.Error("una segunda respuesta a la misma pregunta debe rechazarse (409), no perderse")
+	}
+	// the same question id asked again later (a new channel) takes an answer again
+	tr.mu.Lock()
+	delete(tr.preguntas, "p1")
+	delete(tr.respondidas, ch)
+	tr.mu.Unlock()
+	tr.agregar(nucleo.Evento{Tipo: "pregunta", Seq: 2, Pregunta: &nucleo.PreguntaUsuario{ID: "p1", Texto: "¿Y ahora?"}})
+	if !tr.contestar("p1", "3") {
+		t.Error("una pregunta nueva con el mismo id debe aceptar respuesta")
+	}
+	// an answer that arrives before the Motor starts waiting is kept (registered by agregar)
+	tr2 := &tarea{preguntas: map[string]chan string{}, cambio: make(chan struct{}), ahora: time.Now}
+	tr2.agregar(nucleo.Evento{Tipo: "pregunta", Seq: 1, Pregunta: &nucleo.PreguntaUsuario{ID: "p1"}})
+	if !tr2.contestar("p1", "rápida") {
+		t.Fatal("la respuesta rápida debe entrar")
+	}
+	if got, err := tr2.esperarRespuesta(context.Background(), nucleo.PreguntaUsuario{ID: "p1"}, time.Second); err != nil || got != "rápida" {
+		t.Errorf("respuesta rápida: %q %v", got, err)
+	}
+	if tr2.contestar("p1", "otra") {
+		t.Error("después de leerla y limpiar, la pregunta ya no está pendiente")
 	}
 }

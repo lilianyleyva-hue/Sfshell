@@ -106,7 +106,7 @@ func (c *Cerebro) resolverUno(k *tarea, cd candidato, d time.Duration) intento {
 	defer cancelar()
 	it := intento{cd: cd}
 	if e := seguro(func() error {
-		it.r, it.err = cd.res.Resolver(ctx, k.q, nodo)
+		it.r, it.err = cd.res.Resolver(ctx, paraRazonar(k.q), nodo)
 		return nil
 	}); e != nil {
 		it.err = e

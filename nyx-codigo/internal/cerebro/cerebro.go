@@ -166,6 +166,24 @@ func respuestaErrorInterno(p nucleo.Peticion, x any, pila []byte) nucleo.Respues
 	}
 }
 
+// respuestaParada is the answer of a request stopped before it finished. Nothing in it claims a result:
+// a closest attempt, if any, is kept and labelled as unfinished.
+func respuestaParada(prev nucleo.Respuesta) nucleo.Respuesta {
+	r := nucleo.Respuesta{
+		Tarea:          prev.Tarea,
+		Texto:          "Lo he parado antes de terminar.",
+		Parrafos:       []string{"No llegué al final, así que no sé la respuesta. Puedes volver a preguntármelo cuando quieras."},
+		Comprobaciones: []nucleo.Comprobacion{},
+		Nivel:          nucleo.NivelSinComprobar,
+		Metodo:         "parado",
+	}
+	if strings.TrimSpace(prev.Codigo) != "" {
+		r.Codigo = prev.Codigo
+		r.Parrafos = append(r.Parrafos, "Esto es lo que tenía cuando paré (sin terminar de comprobar).")
+	}
+	return r
+}
+
 // responder is Responder without the panic guard and without Terminar.
 func (c *Cerebro) responder(ctx context.Context, p nucleo.Peticion, t *nucleo.Traza) nucleo.Respuesta {
 	s := c.sesion(p.Sesion)
@@ -176,6 +194,12 @@ func (c *Cerebro) responder(ctx context.Context, p nucleo.Peticion, t *nucleo.Tr
 	k := c.nuevaTarea(ctx, p, s, t)
 	defer k.cerrar()
 	r := c.rutear(k)
+	if errors.Is(ctx.Err(), context.Canceled) && (!r.Exito || r.Nivel == nucleo.NivelFallo) {
+		// stopped by the user (Parar) or by the app closing: say so, instead of a "No lo he
+		// conseguido" that was never really tried to the end, and keep it out of pendientes
+		r = respuestaParada(r)
+		k.pendiente = ""
+	}
 	c.redactar(k, &r)
 	c.aprender(k, &r)
 	c.hablaDespues(k)

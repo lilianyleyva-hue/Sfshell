@@ -50,11 +50,57 @@ func (c *Cerebro) rutear(k *tarea) nucleo.Respuesta {
 			}
 		}
 	}
+	if strings.TrimSpace(k.p.Codigo) == "" && !tieneCodigo(k.p.Texto) {
+		if r, ok := c.ordenSobreCodigo(k); ok {
+			return r
+		}
+	}
 	k.q = c.analizar(k, k.p.Texto, k.p.Codigo)
 	if r, ok := c.rutearHabla(k); ok {
 		return r
 	}
 	return c.interpretar(k)
+}
+
+// ordenesCodigo are short requests about the code of the conversation that are not follow-ups for
+// lengua ("¿tiene errores?", "¿es eficiente?", "arréglalo"). Without code in the request they act on
+// the session's code, like explicar_eso or ejecutar_eso (§4.14.1 step 4: "Uso el código de antes").
+var ordenesCodigo = []struct {
+	re   *regexp.Regexp
+	i    nucleo.TipoIntencion
+	tipo string
+}{
+	{regexp.MustCompile(`^(y )?((hazle|haz|hagale|le haces) (unas |las |algunas )?pruebas|pruebal[ao]|testeal[ao]|revisal[ao]|(tiene|hay) (algun |algunos )?(error|errores|fallo|fallos|bug|bugs)|(funciona|va) bien)( (a |en )?(el|este|ese|mi) codigo| (a |en )?(la|esta|esa|mi) funcion| eso| esto)?$`),
+		nucleo.IProbar, "probar_eso"},
+	{regexp.MustCompile(`^(y )?(es (eficiente|rapid[oa]|lent[oa])|que (complejidad|coste|costo) tiene|cuanto tarda|explicame (este|ese) codigo|explica (este|ese) codigo|que hace (este|ese) codigo|que hace (la|esta|esa) funcion)( (el|este|ese|mi) codigo| (la|esta|esa|mi) funcion| eso| esto)?$`),
+		nucleo.IExplicar, "explicar_eso"},
+	{regexp.MustCompile(`^(y )?(arreglal[ao]|corrigel[ao]|reparal[ao]|arregla(lo|la)? (el|este|ese|mi) codigo|arregla(la)? (la|esta|esa|mi) funcion|no compila)$`),
+		nucleo.IReparar, "reparar_eso"},
+}
+
+// ordenSobreCodigo runs one of ordenesCodigo on the session's code. Without code in the session the
+// pipeline itself asks for it ("Pega el código que quieres que pruebe").
+func (c *Cerebro) ordenSobreCodigo(k *tarea) (nucleo.Respuesta, bool) {
+	n := strings.TrimSpace(strings.Trim(nucleo.Normalizar(k.p.Texto), " .;,:"))
+	for _, o := range ordenesCodigo {
+		if !o.re.MatchString(n) {
+			continue
+		}
+		var codigo string
+		if k.s.numTurnos() > 0 {
+			codigo = k.s.contexto().Codigo
+		}
+		if strings.TrimSpace(codigo) == "" {
+			k.q = c.analizar(k, k.p.Texto, "")
+			return c.despachar(k, o.i), true
+		}
+		k.turno.Seguimiento = o.tipo
+		k.codigo, k.codigoPrevio = codigo, true
+		k.q = c.analizar(k, k.p.Texto, codigo)
+		k.raiz.Nota("Uso el código de antes")
+		return c.despachar(k, o.i), true
+	}
+	return nucleo.Respuesta{}, false
 }
 
 // analizar parses a text with the learned lexicon and the session context (nil without turns).
@@ -163,11 +209,12 @@ func (c *Cerebro) candidatos(q *nucleo.Pregunta) []candidato {
 	}
 	hayResolutor := false
 	cantidad := preguntaCantidad(q.Texto)
+	qr := paraRazonar(q)
 	for _, r := range c.resolutores {
 		if cantidad && soloVerdad[r.Nombre()] {
 			continue
 		}
-		rec := reconocer(r, q)
+		rec := reconocer(r, qr)
 		if rec.Puntos <= 0 {
 			continue
 		}
@@ -265,6 +312,24 @@ func ladoLogico(s string) bool {
 
 func (c *Cerebro) puntuar(cd candidato) float64 {
 	return cd.puntos * (0.5 + c.stats.Tasa("estrategia:"+cd.nombre))
+}
+
+// paraRazonar is the question the reasoning resolvers see. They read Texto, so Go code pasted inside
+// the text is left out: its "if err != nil {" would read as an implication, and "x := 5" as an
+// equation. The copy's Texto is the text without the code, with its own tokens and numbers.
+func paraRazonar(q *nucleo.Pregunta) *nucleo.Pregunta {
+	if q == nil || strings.TrimSpace(q.Codigo) == "" || strings.TrimSpace(q.Texto) == q.Resto {
+		return q
+	}
+	cp := *q
+	cp.Texto = q.Resto
+	cp.Normal = nucleo.Normalizar(q.Resto)
+	cp.Tokens = lengua.Lematizar(q.Resto)
+	cp.Numeros = lengua.Numeros(q.Resto)
+	if cp.Numeros == nil {
+		cp.Numeros = []nucleo.Numero{}
+	}
+	return &cp
 }
 
 // reconocer calls Reconoce without letting a panic out.
@@ -368,11 +433,12 @@ func (c *Cerebro) candidatosRazonar(q *nucleo.Pregunta, i nucleo.TipoIntencion) 
 	prefijo := prefijoIntencion(i)
 	var propios, otros []candidato
 	cantidad := q != nil && preguntaCantidad(q.Texto)
+	qr := paraRazonar(q)
 	for _, r := range c.resolutores {
 		if cantidad && soloVerdad[r.Nombre()] {
 			continue // a "¿cuántos…?" question never gets a "se sigue / no se sigue" answer (§0)
 		}
-		rec := reconocer(r, q)
+		rec := reconocer(r, qr)
 		cd := candidato{nombre: r.Nombre(), intencion: rec.Intencion, familia: familiaDe(rec.Intencion),
 			puntos: rec.Puntos, res: r, lectura: rec.Lectura}
 		if cd.intencion == "" {
@@ -403,14 +469,28 @@ func (c *Cerebro) candidatosRazonar(q *nucleo.Pregunta, i nucleo.TipoIntencion) 
 }
 
 // soloVerdad are the resolvers whose answer is a truth value ("se sigue", "no se sigue", "siempre es
-// verdad"): they cannot answer a question that asks for a quantity.
+// verdad"): they cannot answer a question that asks for a quantity or for someone or something.
 var soloVerdad = map[string]bool{"logica.proposicional": true, "logica.silogismo": true}
 
-var reCantidad = regexp.MustCompile(`\bcuant[oa]s?\b`)
+var (
+	reCantidad = regexp.MustCompile(`\bcuant[oa]s?\b`)
+	// reAbierta: a question that starts with an interrogative word asks for a thing, a person, a
+	// place or a time, not for "sí / no" ("¿quién es el menor?", "¿qué pasa?", "¿cuál gana?").
+	reAbierta = regexp.MustCompile(`^(y |entonces |pues )?(quien(es)?|que|cual(es)?|donde|adonde|cuando|como|por que)\b`)
+)
 
-// preguntaCantidad: the question asks for a number ("¿cuántos le quedan?", "¿cuánto cuesta?").
+// preguntaCantidad: the question asks for a number ("¿cuántos le quedan?", "¿cuánto cuesta?") or is
+// an open question ("¿quién es el menor?"), so a truth value is never its answer (§0).
 func preguntaCantidad(texto string) bool {
-	return reCantidad.MatchString(nucleo.Normalizar(texto))
+	if reCantidad.MatchString(nucleo.Normalizar(texto)) {
+		return true
+	}
+	// only the question itself is read: "cuando llueve, el suelo se moja; llueve. ¿se moja?" asks sí/no
+	i := strings.LastIndex(texto, "¿")
+	if i < 0 {
+		return false
+	}
+	return reAbierta.MatchString(nucleo.Normalizar(texto[i:]))
 }
 
 func prefijoIntencion(i nucleo.TipoIntencion) string {

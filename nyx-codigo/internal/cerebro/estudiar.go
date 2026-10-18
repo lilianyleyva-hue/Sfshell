@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"reflect"
 	"strings"
 	"time"
 
@@ -18,7 +19,8 @@ import (
 // cache; 2) index the GOROOT examples; 3) read gobyexample (Web.Estudiar): its programs are vetted, and
 // those that pass the automatic safety check and read no input are run once ("ejemplo comprobado");
 // the hints mined from the code feed synthesis; 4) retry each pending question with 4× its budget and
-// the web on; a solved one leaves pendientes. Report: "Aprendí N cosas nuevas: …".
+// the web on; a solved one leaves pendientes. Report: "Aprendí N cosas nuevas: …", where a page read
+// again that brings nothing new (same hints as last time) is not counted as learned.
 
 const (
 	estudiarMaxEjecutar   = 30               // gobyexample programs run per study session
@@ -56,9 +58,17 @@ func pipeEstudiar(c *Cerebro, k *tarea) nucleo.Respuesta {
 	if c.web == nil || !c.enLinea(k.ctx) {
 		k.raiz.Sub(nucleo.PasoNota, "3/4 No tengo internet: hoy no estudio en la web").Info("")
 		notas = append(notas, "No tenía internet, así que no he estudiado en la web.")
-	} else if s, j := c.estudiarWeb(k); s != "" {
-		aprendidas = append(aprendidas, s)
-		justif = append(justif, j)
+	} else {
+		s, j, nota := c.estudiarWeb(k)
+		if s != "" {
+			aprendidas = append(aprendidas, s)
+		}
+		if j != "" {
+			justif = append(justif, j)
+		}
+		if nota != "" {
+			notas = append(notas, nota)
+		}
 	}
 
 	// 4. pending questions
@@ -186,30 +196,34 @@ func (c *Cerebro) estudiarGoroot(ctx context.Context) (goroot, version string) {
 }
 
 // estudiarWeb reads gobyexample: vets the programs, runs the safe ones once, and stores mined hints.
-func (c *Cerebro) estudiarWeb(k *tarea) (string, string) {
+// nuevo is what was learned ("" when nothing): only pages whose hints were not in memory yet, or have
+// changed, count. nota mentions the pages read again with nothing new.
+func (c *Cerebro) estudiarWeb(k *tarea) (nuevo, justif, nota string) {
 	n := k.raiz.Sub(nucleo.PasoBusqueda, "3/4 Estudio Go by Example")
 	lim := k.restante() / 2
 	if lim <= 0 {
 		n.Info("No me queda tiempo")
-		return "", ""
+		return "", "", ""
 	}
 	ctx, cancelar := context.WithTimeout(k.ctx, lim)
 	defer cancelar()
-	docs, err := c.web.Estudiar(ctx, func(hecho, total int, nota string) {
-		n.Progreso("%d/%d %s", hecho, total, nota)
+	docs, err := c.web.Estudiar(ctx, func(hecho, total int, que string) {
+		n.Progreso("%d/%d %s", hecho, total, que)
 	})
 	c.hablaLeerWeb(docs...) // Spanish pages also teach meanings and how to talk (habla.go)
 	if len(docs) == 0 {
 		n.Mal("No pude leer nada: %s", mensajeError(err))
-		return "", ""
+		return "", "", ""
 	}
 	vetados, ejecutados, comprobados, pistas := 0, 0, 0, 0
+	nuevas, repasadas, comprobadosNuevos := 0, 0, 0
 	for i, d := range docs {
 		if ctx.Err() != nil {
 			break
 		}
 		n.Progreso("%d/%d Pruebo «%s»", i+1, len(docs), d.Titulo)
 		var codigos []string
+		enPagina := 0
 		for _, cd := range saber.Candidatas(d) {
 			codigos = append(codigos, cd.Codigo)
 			if !cd.EsPrograma || c.ej == nil {
@@ -225,28 +239,52 @@ func (c *Cerebro) estudiarWeb(k *tarea) (string, string) {
 			ejecutados++
 			if _, ok := c.estudiarCorrer(ctx, cd.Codigo); ok {
 				comprobados++
+				enPagina++
 			}
 		}
-		if len(codigos) > 0 {
-			if p := saber.Minar(codigos); len(p.Llamadas)+len(p.Operadores)+len(p.Constantes) > 0 {
-				if err := c.mem.GuardarPistas(d.Titulo, p); err == nil {
-					pistas++
-				}
-			}
+		if len(codigos) == 0 {
+			continue
 		}
+		p := saber.Minar(codigos)
+		if len(p.Llamadas)+len(p.Operadores)+len(p.Constantes) == 0 {
+			continue
+		}
+		antes, habia := c.mem.Pistas(d.Titulo)
+		if err := c.mem.GuardarPistas(d.Titulo, p); err != nil {
+			continue
+		}
+		pistas++
+		ahora, _ := c.mem.Pistas(d.Titulo)
+		if habia && reflect.DeepEqual(antes, ahora) {
+			repasadas++
+			continue
+		}
+		nuevas++
+		comprobadosNuevos += enPagina
 	}
 	paginas := cuantas(len(docs), "página", "páginas")
+	if repasadas > 0 {
+		nota = "Repasé " + cuantas(repasadas, "página", "páginas") + " de Go by Example que ya había estudiado"
+		if nuevas == 0 {
+			nota += ": no traían nada nuevo"
+		}
+		nota += "."
+	}
 	if c.ej == nil {
 		// without a sandbox nothing was vetted or run: say so instead of "0 programas pasan go vet"
 		n.Bien("Leí %s (sin caja segura no pasé go vet ni ejecuté sus programas)", paginas)
-		s := paginas + " de Go by Example (sin ejecutar sus programas: no tengo caja segura)"
-		j := "Leí " + paginas + " de gobyexample.com sin comprobar sus programas (no tengo caja segura). Guardé pistas de " + cuantas(pistas, "página", "páginas") + " para construir funciones."
-		return s, j
+		if nuevas > 0 {
+			nuevo = cuantas(nuevas, "página nueva", "páginas nuevas") + " de Go by Example (sin ejecutar sus programas: no tengo caja segura)"
+		}
+		justif = "Leí " + paginas + " de gobyexample.com sin comprobar sus programas (no tengo caja segura). Guardé pistas de " + cuantas(pistas, "página", "páginas") + " para construir funciones."
+		return nuevo, justif, nota
 	}
 	n.Bien("Leí %s: %s go vet, %s al ejecutarlos", paginas, cuantas(vetados, "programa pasa", "programas pasan"), cuantas(comprobados, "funciona", "funcionan"))
-	s := paginas + " de Go by Example (" + cuantas(comprobados, "programa comprobado", "programas comprobados") + " al ejecutarlos)"
-	j := "Leí " + paginas + " de gobyexample.com; pasé go vet a sus programas y ejecuté una vez los que pasan la revisión de seguridad automática (nunca con permisos extra). Guardé pistas de " + cuantas(pistas, "página", "páginas") + " para construir funciones."
-	return s, j
+	if nuevas > 0 {
+		nuevo = cuantas(nuevas, "página nueva", "páginas nuevas") + " de Go by Example (" + cuantas(comprobadosNuevos, "programa comprobado", "programas comprobados") + " al ejecutarlos)"
+	}
+	justif = "Leí " + paginas + " de gobyexample.com; pasé go vet a sus programas y ejecuté una vez los que pasan la revisión de seguridad automática (nunca con permisos extra). Guardé pistas de " + cuantas(pistas, "página", "páginas") + " para construir funciones."
+	return nuevo, justif, nota
 }
 
 // estudiarCorrer runs a web program once under PermisoAuto, with no input.

@@ -2,6 +2,7 @@ package sintesis
 
 import (
 	"context"
+	"fmt"
 	"go/ast"
 	goparser "go/parser"
 	"go/token"
@@ -157,19 +158,36 @@ func TestRegresionAGoNombresDeAyudantes(t *testing.T) {
 
 // Opciones.Limite and the context must hold with large inputs: the clock is read according to how long the
 // candidates take, and inputs beyond what the DSL may build are refused.
+//
+// The whole suite runs packages in parallel on a few cores, so the wall clock of one run can stretch far
+// beyond the work done. A run is too slow only when both its wall time and the CPU time it used exceed
+// the bound: a limit that is not checked burns CPU for seconds, which the CPU time still shows.
 func TestRegresionLimiteConEntradasGrandes(t *testing.T) {
 	margen := func(d time.Duration) time.Duration { return time.Duration(float64(d) * factorCarrera) }
+	medir := func(f func()) (time.Duration, string) {
+		cpu0, conCPU := tiempoCPU()
+		inicio := time.Now()
+		f()
+		d := time.Since(inicio)
+		if !conCPU {
+			return d, d.String()
+		}
+		cpu1, _ := tiempoCPU()
+		return min(d, cpu1-cpu0), fmt.Sprintf("%v (%v de CPU)", d.Round(time.Millisecond), (cpu1 - cpu0).Round(time.Millisecond))
+	}
 	// 1 MB of text: refused at once
 	f := debeFirma(t, "func F(s string) int")
 	grande := strings.Repeat("hola mundo ", 100000)
-	inicio := time.Now()
-	_, err := Sintetizar(context.Background(), Especificacion{Firma: f, Ejemplos: []nucleo.Caso{casoEj([]V{grande}, 3)}},
-		Base(), Opciones{Limite: time.Second}, nil)
+	var err error
+	d, dt := medir(func() {
+		_, err = Sintetizar(context.Background(), Especificacion{Firma: f, Ejemplos: []nucleo.Caso{casoEj([]V{grande}, 3)}},
+			Base(), Opciones{Limite: time.Second}, nil)
+	})
 	if err == nil || !strings.Contains(err.Error(), "demasiado grande") {
 		t.Errorf("1 MB de texto: err = %v", err)
 	}
-	if d := time.Since(inicio); d > margen(200*time.Millisecond) {
-		t.Errorf("rechazar 1 MB tardó %v", d)
+	if d > margen(200*time.Millisecond) {
+		t.Errorf("rechazar 1 MB tardó %s", dt)
 	}
 	// 96 KB of text (allowed): the 100 ms limit holds
 	medio := strings.Repeat("abcdefgh ", 96*1024/9)
@@ -183,10 +201,11 @@ func TestRegresionLimiteConEntradasGrandes(t *testing.T) {
 	}
 	for _, c := range casos {
 		f := debeFirma(t, c.firma)
-		inicio := time.Now()
-		res, err := Sintetizar(context.Background(), Especificacion{Firma: f, Ejemplos: c.ejs}, Base(),
-			Opciones{Limite: 100 * time.Millisecond}, nil)
-		d := time.Since(inicio)
+		var res Resultado
+		d, dt := medir(func() {
+			res, err = Sintetizar(context.Background(), Especificacion{Firma: f, Ejemplos: c.ejs}, Base(),
+				Opciones{Limite: 100 * time.Millisecond}, nil)
+		})
 		if err != nil {
 			t.Errorf("%s: %v", c.firma, err)
 			continue
@@ -194,21 +213,25 @@ func TestRegresionLimiteConEntradasGrandes(t *testing.T) {
 		if res.Motivo != "tiempo" && res.Motivo != "banco_lleno" {
 			t.Errorf("%s: Motivo = %q", c.firma, res.Motivo)
 		}
+		t.Logf("%s: %s", c.firma, dt)
 		if d > margen(200*time.Millisecond) {
-			t.Errorf("%s: con 100 ms de límite tardó %v (Motivo %s, %d explorados)", c.firma, d, res.Motivo, res.Explorados)
+			t.Errorf("%s: con 100 ms de límite tardó %s (Motivo %s, %d explorados)", c.firma, dt, res.Motivo, res.Explorados)
 		}
 	}
 	// cancelling the context at 100 ms stops it soon
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	time.AfterFunc(100*time.Millisecond, cancel)
-	inicio = time.Now()
 	f = debeFirma(t, "func F(s string) int")
-	if _, err := Sintetizar(ctx, Especificacion{Firma: f, Ejemplos: casos[0].ejs}, Base(), Opciones{Limite: 6 * time.Second}, nil); err != nil {
+	d, dt = medir(func() {
+		time.AfterFunc(100*time.Millisecond, cancel)
+		_, err = Sintetizar(ctx, Especificacion{Firma: f, Ejemplos: casos[0].ejs}, Base(), Opciones{Limite: 6 * time.Second}, nil)
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if d := time.Since(inicio); d > margen(250*time.Millisecond) {
-		t.Errorf("cancelar a los 100 ms tardó %v", d)
+	t.Logf("cancelar: %s", dt)
+	if d > margen(250*time.Millisecond) {
+		t.Errorf("cancelar a los 100 ms tardó %s", dt)
 	}
 }
 

@@ -1045,7 +1045,31 @@ func (im *impresora) Evento(e nucleo.Evento) {
 			im.linea(p) // printed while open (▸): its closing line shows how it ended
 		}
 	case "pregunta":
-		im.vaciar()
+		texto := ""
+		if e.Pregunta != nil {
+			texto = unaLinea(e.Pregunta.Texto)
+		}
+		im.vaciarMenos(texto)
+	}
+}
+
+// vaciarMenos prints every step not printed yet, except an open step titled like the question about to be
+// asked: the question's own "? …" line stands for it, and its closing line ("✔ Me respondiste: 10") shows
+// the answer.
+func (im *impresora) vaciarMenos(pregunta string) {
+	for _, id := range im.orden {
+		p := im.pasos[id]
+		if p.impreso {
+			continue
+		}
+		if pregunta != "" && p.estado == nucleo.EstadoAbierto && p.titulo == pregunta {
+			if q, ok := im.pasos[p.padre]; ok && p.padre != 0 && !q.impreso {
+				im.imprimir(q)
+			}
+			p.impreso = true
+			continue
+		}
+		im.imprimir(p)
 	}
 }
 
@@ -1062,13 +1086,7 @@ func (im *impresora) linea(p *pasoCLI) {
 	fmt.Fprintf(im.w, "%s%s %s\n", strings.Repeat("  ", p.prof), marcador(p.estado), p.titulo)
 }
 
-func (im *impresora) vaciar() {
-	for _, id := range im.orden {
-		if p := im.pasos[id]; !p.impreso {
-			im.imprimir(p)
-		}
-	}
-}
+func (im *impresora) vaciar() { im.vaciarMenos("") }
 
 // Vaciar prints every step not printed yet (called before the answer).
 func (im *impresora) Vaciar() {

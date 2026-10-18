@@ -167,7 +167,17 @@ func agregarImport(src, ruta string) string {
 		}
 		return src[:off(g.Pos())] + "import (\n\t" + strings.Join(lineas, "\n\t") + "\n)" + src[off(g.End()):]
 	}
-	fin := finLinea(src, off(f.Name.End()))
+	nombre := off(f.Name.End())
+	fin := finLinea(src, nombre)
+	if resto := strings.TrimSpace(src[nombre:fin]); resto != "" && !strings.HasPrefix(resto, "//") && !strings.HasPrefix(resto, "/*") {
+		// the package clause shares its line with code ("package solucion; func F() …"): the import
+		// goes right after the clause, on the same line, so no line number moves
+		if j := strings.IndexByte(src[nombre:fin], ';'); j >= 0 && strings.TrimSpace(src[nombre:nombre+j]) == "" {
+			i := nombre + j + 1
+			return src[:i] + " import " + cita + ";" + src[i:]
+		}
+		return src[:nombre] + "; import " + cita + ";" + src[nombre:]
+	}
 	return src[:fin] + "\n\nimport " + cita + src[fin:]
 }
 

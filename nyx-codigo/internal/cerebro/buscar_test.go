@@ -256,3 +256,57 @@ func TestBuscarUnaFuenteEnSingular(t *testing.T) {
 		t.Errorf("insignia en singular: %+v", r.Comprobaciones)
 	}
 }
+
+// Review quality: answers repeat the user's words, not the English query made for the search engine.
+func TestBuscarUsaLasPalabrasDelUsuario(t *testing.T) {
+	pagina := `<html><head><title>Read a file line by line in Go</title></head><body>
+<p>To read a file line by line in Go open it with os.Open and wrap it in a bufio.Scanner, then call Scan in a loop.</p>
+<p>Each call to Scan reads the next line of the file and Text returns that line without the newline.</p></body></html>`
+	c := cerebroConWeb(t, webDePrueba(t, map[string]string{"/web/leer": pagina}), false)
+	r, tr := preguntar(t, c, "s", "busca cómo leer un archivo línea por línea en Go", nil)
+	if !strings.Contains(r.Texto, "«cómo leer un archivo línea por línea en Go»") || strings.Contains(r.Texto, "golang") {
+		t.Errorf("texto: %q\n%s", r.Texto, titulos(tr))
+	}
+	c2 := cerebroConWeb(t, webDePrueba(t, map[string]string{}), false)
+	r2, _ := preguntar(t, c2, "s", "busca cómo invertir un mapa en Go", nil)
+	if !strings.Contains(r2.Texto, "«cómo invertir un mapa en Go»") || strings.Contains(r2.Texto, "golang") {
+		t.Errorf("sin resultados: %q", r2.Texto)
+	}
+}
+
+func TestBuscarTema(t *testing.T) {
+	casos := map[string]string{
+		"busca cómo leer un archivo línea por línea en Go": "cómo leer un archivo línea por línea en Go",
+		"¿Puedes buscar en internet cómo ordenar un mapa?": "cómo ordenar un mapa",
+		"Búscame strings.Split":                            "strings.Split",
+		"¿cómo leo un archivo línea por línea?":            "cómo leo un archivo línea por línea",
+		"por favor, busca en la web: invertir una cadena":  "invertir una cadena",
+	}
+	for texto, quiero := range casos {
+		if got := buscarTema(&tarea{p: nucleo.Peticion{Texto: texto}}, "x"); got != quiero {
+			t.Errorf("%q: %q, quiero %q", texto, got, quiero)
+		}
+	}
+	if got := buscarTema(&tarea{p: nucleo.Peticion{Texto: "busca"}}, "otra"); got != "otra" {
+		t.Errorf("sin tema: %q", got)
+	}
+}
+
+// Review quality: failure texts do not stack raw runtime text ("no terminó (demasiados pasos): panic: se
+// acabó el combustible: …").
+func TestBuscarFallaPrograma(t *testing.T) {
+	falla, crudo := buscarFallaPrograma(nucleo.Ejecucion{Codigo: 2, SinCombustible: true, ErrSalida: "panic: se acabó el combustible: demasiados pasos (¿un bucle sin fin?)\n"})
+	if falla != "no termina nunca (da demasiadas vueltas; ¿un bucle sin fin?)" || !strings.Contains(crudo, "combustible") {
+		t.Errorf("sin combustible: %q / %q", falla, crudo)
+	}
+	falla, crudo = buscarFallaPrograma(nucleo.Ejecucion{Codigo: 2, ErrSalida: "panic: runtime error: index out of range [3] with length 0\n\ngoroutine 1 [running]:\n"})
+	if !strings.HasPrefix(falla, "se para con un error (intentaste leer la posición 3") || strings.Contains(falla, "panic") || !strings.Contains(crudo, "index out of range") {
+		t.Errorf("índice: %q / %q", falla, crudo)
+	}
+	if falla, _ := buscarFallaPrograma(nucleo.Ejecucion{Codigo: 1}); falla != "termina con un error (código 1)" {
+		t.Errorf("código: %q", falla)
+	}
+	if strings.Count("Ojo: lo probé y "+falla+".", ":") != 1 {
+		t.Errorf("un solo «:»: %q", falla)
+	}
+}

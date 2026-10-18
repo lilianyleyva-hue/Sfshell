@@ -302,3 +302,19 @@ func TestInfinitivoProbableDiptongo(t *testing.T) {
 		}
 	}
 }
+
+// "2/3 de 90" is a fraction of a quantity (a product), as "15% de 240" is (integration probe: it was
+// "no sé qué es «de» en una operación").
+func TestRegresionFraccionDe(t *testing.T) {
+	casos := map[string]string{"2/3 de 90": "60", "1/4 de 10": "5/2", "1 + 1/2 de 8": "5", "15% de 240": "36"}
+	for s, quiero := range casos {
+		n, err := Calcular(context.Background(), s, trazaPrueba())
+		if err != nil || n.String() != quiero {
+			t.Errorf("%s = %v (%v), quiero %s", s, n, err, quiero)
+		}
+	}
+	// "de" elsewhere is still not an operation
+	if _, err := Calcular(context.Background(), "2 de 3", trazaPrueba()); err == nil {
+		t.Errorf("«2 de 3» no es una operación")
+	}
+}

@@ -2,6 +2,7 @@ package cerebro
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"sort"
 	"strings"
@@ -98,16 +99,22 @@ func pipeDocGo(c *Cerebro, k *tarea) nucleo.Respuesta {
 		return r
 	}
 
-	// 3. run the examples
-	ejemploOK := false
+	// 3. run the examples; what each run gave is said, also when it printed something else (§0)
+	ejemploOK, notaFalla := false, false
 	if hayNota && strings.TrimSpace(nota.Ejemplo) != "" {
 		r.Codigo = nota.Ejemplo
-		if salida, ok, motivo := c.docgoProbar(k, "de la nota", nota.Ejemplo, nota.Salida, false); ok {
+		pr := c.docgoProbar(k, "de la nota", nota.Ejemplo, nota.Salida, false)
+		switch {
+		case pr.ok:
 			ejemploOK = true
-			r.Parrafos = append(r.Parrafos, "Lo probé y escribe: «"+docgoSalida(salida)+"».")
+			r.Parrafos = append(r.Parrafos, "Lo probé y escribe: «"+docgoSalida(pr.salida)+"».")
 			justif = append(justif, "Ejecuté el ejemplo en la caja segura y escribió exactamente lo que debía.")
-		} else if motivo != "" {
-			r.Parrafos = append(r.Parrafos, "No probé el ejemplo: "+motivo+".")
+		case pr.motivo != "":
+			r.Parrafos = append(r.Parrafos, "No probé el ejemplo: "+pr.motivo+".")
+		default:
+			notaFalla = true
+			r.Parrafos = append(r.Parrafos, "Ojo: probé el ejemplo y "+pr.fallo+", así que no lo doy por comprobado.")
+			justif = append(justif, "Ejecuté el ejemplo en la caja segura, pero no hizo lo que dice la nota.")
 		}
 	}
 	if ix := c.indice(); ix != nil && sym != "" {
@@ -115,13 +122,18 @@ func pipeDocGo(c *Cerebro, k *tarea) nucleo.Respuesta {
 		if len(ejs) > 0 {
 			e := ejs[0]
 			if prog := ix.Programa(e); prog != "" && e.Salida != "" {
-				if salida, ok, _ := c.docgoProbar(k, e.Nombre, prog, e.Salida, e.Desordenada); ok {
+				pr := c.docgoProbar(k, e.Nombre, prog, e.Salida, e.Desordenada)
+				switch {
+				case pr.ok:
 					ejemploOK = true
-					r.Parrafos = append(r.Parrafos, "También probé el ejemplo oficial `"+e.Nombre+"` y escribe: «"+docgoSalida(salida)+"».")
+					r.Parrafos = append(r.Parrafos, "También probé el ejemplo oficial `"+e.Nombre+"` y escribe: «"+docgoSalida(pr.salida)+"».")
 					justif = append(justif, "Ejecuté el ejemplo oficial "+e.Nombre+" de la biblioteca estándar y su salida coincide con su // Output:.")
-					if r.Codigo == "" {
+					if r.Codigo == "" || notaFalla {
 						r.Codigo = prog
 					}
+				case pr.motivo == "":
+					r.Parrafos = append(r.Parrafos, "También probé el ejemplo oficial `"+e.Nombre+"`, pero "+pr.fallo+".")
+					justif = append(justif, "Ejecuté el ejemplo oficial "+e.Nombre+", pero su salida no coincide con su // Output:.")
 				}
 			}
 		}
@@ -348,41 +360,58 @@ func docgoTextoDoc(d saber.Documento) string {
 	return ""
 }
 
+// docgoPrueba is the result of running an example: ok when it printed what it should; motivo says why
+// it was not run ("" when it ran); fallo says what went wrong when it ran and was not ok.
+type docgoPrueba struct {
+	salida string
+	ok     bool
+	motivo string
+	fallo  string
+}
+
 // docgoProbar runs an example program under PermisoAuto and compares its output with the expected one.
-// motivo says why it was not run ("" when it ran).
-func (c *Cerebro) docgoProbar(k *tarea, titulo, programa, esperado string, desordenada bool) (salida string, ok bool, motivo string) {
+func (c *Cerebro) docgoProbar(k *tarea, titulo, programa, esperado string, desordenada bool) docgoPrueba {
 	if c.ej == nil {
-		return "", false, "no tengo caja segura para ejecutar código"
+		return docgoPrueba{motivo: "no tengo caja segura para ejecutar código"}
 	}
 	if strings.TrimSpace(esperado) == "" {
-		return "", false, "no sé qué debe escribir"
+		return docgoPrueba{motivo: "no sé qué debe escribir"}
 	}
 	if v := c.ej.Revisar(programa, nucleo.PermisoAuto); len(v) > 0 {
-		return "", false, "por seguridad no lo ejecuto solo (" + v[0].Que + ")"
+		return docgoPrueba{motivo: "por seguridad no lo ejecuto solo (" + v[0].Que + ")"}
 	}
 	n := k.raiz.Sub(nucleo.PasoPrueba, "Pruebo el ejemplo %s", titulo)
 	prog, comp, err := c.ej.PrepararPrograma(k.ctx, programa, nucleo.InstrNormal, nucleo.PermisoAuto)
 	if err != nil {
 		n.Mal("No compila: %s", resumenErrores(comp, err))
-		return "", false, "no compila (" + resumenErrores(comp, err) + ")"
+		return docgoPrueba{motivo: "no compila (" + resumenErrores(comp, err) + ")"}
 	}
 	defer prog.Cerrar()
 	ej, err := prog.Correr(k.ctx, nucleo.CasoPrograma{})
 	if err != nil {
 		n.Mal("No pude ejecutarlo: %s", mensajeError(err))
-		return "", false, "no pude ejecutarlo (" + mensajeError(err) + ")"
+		return docgoPrueba{motivo: "no pude ejecutarlo (" + mensajeError(err) + ")"}
 	}
-	salida = ej.Salida
-	ok = ej.Codigo == 0 && !ej.Agotado && pruebas.CompararSalida(salida, nucleo.CasoPrograma{Esperado: esperado, Comparar: "lineas"})
-	if !ok && desordenada && ej.Codigo == 0 {
-		ok = docgoMismasLineas(salida, esperado)
+	p := docgoPrueba{salida: ej.Salida}
+	p.ok = ej.Codigo == 0 && !ej.Agotado && pruebas.CompararSalida(ej.Salida, nucleo.CasoPrograma{Esperado: esperado, Comparar: "lineas"})
+	if !p.ok && desordenada && ej.Codigo == 0 && !ej.Agotado {
+		p.ok = docgoMismasLineas(ej.Salida, esperado)
 	}
-	if ok {
-		n.Bien("Escribe lo que debe: %s", recortar(docgoSalida(salida), 120))
-	} else {
-		n.Mal("Escribió otra cosa: %s", recortar(docgoSalida(salida), 120))
+	switch {
+	case p.ok:
+		n.Bien("Escribe lo que debe: %s", recortar(docgoSalida(ej.Salida), 120))
+		return p
+	case ej.Agotado || ej.SinCombustible:
+		p.fallo = "no terminó a tiempo"
+	case ej.Codigo != 0:
+		p.fallo = fmt.Sprintf("terminó con un error (código %d)", ej.Codigo)
+	case strings.TrimSpace(ej.Salida) == "":
+		p.fallo = "no escribió nada (debía escribir «" + docgoSalida(esperado) + "»)"
+	default:
+		p.fallo = "escribió «" + docgoSalida(ej.Salida) + "» en vez de «" + docgoSalida(esperado) + "»"
 	}
-	return salida, ok, ""
+	n.Mal("No hizo lo que debía: %s", recortar(p.fallo, 160))
+	return p
 }
 
 func docgoMismasLineas(a, b string) bool {

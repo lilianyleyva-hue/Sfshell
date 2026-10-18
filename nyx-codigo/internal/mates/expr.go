@@ -282,6 +282,10 @@ func lexer(s string) ([]lexema, error) {
 				out = append(out, lexema{tipo: 'f', texto: funciones[w]})
 			case w == "de" && len(out) > 0 && out[len(out)-1].tipo == 'o' && out[len(out)-1].texto == "%":
 				out = append(out, lexema{tipo: 'o', texto: "de"})
+			case w == "de" && len(out) >= 3 && out[len(out)-1].tipo == 'n' && out[len(out)-2].tipo == 'o' &&
+				out[len(out)-2].texto == "/" && out[len(out)-3].tipo == 'n':
+				// "2/3 de 90": a fraction of a quantity is a product
+				out = append(out, lexema{tipo: 'o', texto: "*"})
 			case w == "y" && len(out) > 0 && out[len(out)-1].tipo == 'f' && out[len(out)-1].texto == "resto":
 				out = append(out, lexema{tipo: 'o', texto: "%"})
 			case len(w) <= 2 && esLetras(w) && !palabrasCortas[w]:

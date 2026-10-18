@@ -604,6 +604,9 @@ func (v *vista) ajustarAccion(m *nucleo.Marco) {
 		for k := range m.Mods {
 			m.Mods[k].Negado = !m.Mods[k].Negado
 		}
+	case m.Accion == "" && len(m.Mods) > 0 && v.frase(0, "cuantas|cuantos") >= 0 && (m.Elemento != "" || m.Objeto != ""):
+		// "cuántos números negativos hay": the count of the matching elements, not the list of them
+		m.Accion = "contar"
 	case m.Accion == "" && len(m.Mods) > 0 && !(len(m.Mods) == 1 && m.Mods[0].Concepto == "sin_repetir"):
 		m.Accion = "filtrar"
 	case m.Accion == "" && v.tieneMod(m, "sin_repetir"):
